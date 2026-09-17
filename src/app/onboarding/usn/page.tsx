@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ensureAnonymousSession } from "@/lib/auth/session";
 import { normalizeUSN, validateUSN } from "@/lib/verification/usn";
@@ -11,36 +11,44 @@ export default function USNPage() {
   const [usn, setUsn] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [sessionReady, setSessionReady] = useState(false);
-  const [sessionError, setSessionError] = useState<string | null>(null);
-  const initRef = useRef(false);
+  const [sessionStatus, setSessionStatus] = useState<"initializing" | "ready" | "error">("initializing");
 
   useEffect(() => {
-    if (initRef.current) return;
-    initRef.current = true;
     let cancelled = false;
-    (async () => {
-      const { error: err } = await ensureAnonymousSession();
+    async function initialize() {
+      setSessionStatus("initializing");
+      const result = await ensureAnonymousSession();
       if (cancelled) return;
-      if (err) {
-        if (process.env.NODE_ENV !== "production") console.error("[usn] session init failed", err);
-        setSessionError("We couldn't start your session. Please try again.");
-      } else {
-        setSessionReady(true);
+      if (result.error || !result.session) {
+        if (process.env.NODE_ENV !== "production") console.error("[usn] session init failed", result.error);
+        setSessionStatus("error");
+        return;
       }
-    })();
-    return () => { cancelled = true; };
+      setSessionStatus("ready");
+    }
+    initialize();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   async function submit() {
+    if (sessionStatus !== "ready") return;
     setError(null);
     const normalized = normalizeUSN(usn);
-    if (!validateUSN(normalized)) { setError("Enter a valid USN."); return; }
+    if (!validateUSN(normalized)) {
+      setError("Enter a valid USN.");
+      return;
+    }
     setLoading(true);
     try {
-      const { error: sessErr } = await ensureAnonymousSession();
-      if (sessErr) throw new Error(sessErr);
-      const res = await fetch("/api/onboarding/usn", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ usn: normalized }) });
+      const { error: sessErr, session } = await ensureAnonymousSession();
+      if (sessErr || !session) throw new Error(sessErr || "We couldn't start your session. Please try again.");
+      const res = await fetch("/api/onboarding/usn", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ usn: normalized }),
+      });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Failed");
       router.push("/onboarding/email");
@@ -50,49 +58,52 @@ export default function USNPage() {
       if (msg.toLowerCase().includes("already") || msg.includes("duplicate")) setError("This USN is already associated with an account.");
       else if (msg.toLowerCase().includes("anonymous")) setError("We couldn't start your session. Please try again.");
       else setError(msg);
-    } finally { setLoading(false); }
-  }
-
-  async function retrySession() {
-    setSessionError(null);
-    const { error: err } = await ensureAnonymousSession();
-    if (err) {
-      if (process.env.NODE_ENV !== "production") console.error("[usn] retry failed", err);
-      setSessionError("We couldn't start your session. Please try again.");
-    } else {
-      setSessionReady(true);
+    } finally {
+      setLoading(false);
     }
   }
 
-  if (sessionError) {
-    return (
-      <Shell title="your USN." subtitle="Campus-only. Your USN is never shown on your profile or to anyone else." step="01 — verification">
-        <div className="space-y-4">
-          <FieldError msg={sessionError} />
-          <Button onClick={retrySession} className="w-full rounded-full">Try again</Button>
-        </div>
-      </Shell>
-    );
+  async function retrySession() {
+    setSessionStatus("initializing");
+    const result = await ensureAnonymousSession();
+    if (result.error || !result.session) {
+      if (process.env.NODE_ENV !== "production") console.error("[usn] retry failed", result.error);
+      setSessionStatus("error");
+    } else {
+      setSessionStatus("ready");
+    }
   }
 
-  if (!sessionReady) {
-    return (
-      <Shell title="your USN." subtitle="Campus-only. Your USN is never shown on your profile or to anyone else." step="01 — verification">
-        <p className="text-[13px] text-ink-soft">Starting your session…</p>
-      </Shell>
-    );
-  }
+  const isContinueDisabled = loading || sessionStatus !== "ready";
 
   return (
     <Shell title="your USN." subtitle="Campus-only. Your USN is never shown on your profile or to anyone else." step="01 — verification">
       <div className="space-y-5">
         <div>
           <label className="text-[11px] tracking-[0.14em] uppercase text-ink-faint">USN</label>
-          <input value={usn} onChange={e => setUsn(e.target.value)} placeholder="e.g. 1AY22CS001" autoCapitalize="characters" autoCorrect="off" spellCheck={false}
-            className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-[15px] uppercase tracking-[0.08em] outline-none focus:border-ink-faint" />
+          <input
+            value={usn}
+            onChange={(e) => setUsn(e.target.value)}
+            placeholder="e.g. 1AY22CS001"
+            autoCapitalize="characters"
+            autoCorrect="off"
+            spellCheck={false}
+            className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-[15px] uppercase tracking-[0.08em] outline-none focus:border-ink-faint"
+          />
           {error && <FieldError msg={error} />}
         </div>
-        <Button onClick={submit} disabled={loading} className="w-full rounded-full">{loading ? "verifying…" : "continue"}</Button>
+        <Button onClick={submit} disabled={isContinueDisabled} className="w-full rounded-full">
+          {loading ? "verifying…" : "continue"}
+        </Button>
+        {sessionStatus === "initializing" && <p className="text-[12px] text-ink-faint">preparing your session…</p>}
+        {sessionStatus === "error" && (
+          <div className="space-y-3">
+            <FieldError msg="We couldn't start your session. Please try again." />
+            <Button onClick={retrySession} className="w-full rounded-full">
+              Try again
+            </Button>
+          </div>
+        )}
         <p className="text-[11px] leading-4 text-ink-faint">We only use this to confirm you&apos;re on campus. Never displayed publicly.</p>
       </div>
     </Shell>
