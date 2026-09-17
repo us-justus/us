@@ -3,16 +3,53 @@ import { createClient } from "@/lib/supabase/server";
 import { normalizeUSN, validateUSN } from "@/lib/verification/usn";
 
 export async function POST(req: Request) {
-  const { usn } = await req.json().catch(()=>({}));
-  const normalized = normalizeUSN(String(usn||""));
+  const { usn } = await req.json().catch(() => ({}));
+  const normalized = normalizeUSN(String(usn || ""));
   if (!validateUSN(normalized)) return NextResponse.json({ error: "Enter a valid USN." }, { status: 400 });
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+  if (authError) {
+    console.error("[onboarding/usn] auth error", {
+      message: authError.message,
+      code: (authError as unknown as { code?: string }).code,
+      status: (authError as unknown as { status?: number }).status,
+    });
+    if (process.env.NODE_ENV !== "production") {
+      return NextResponse.json({ error: "Not authenticated.", details: authError.message }, { status: 401 });
+    }
+    return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+  }
   if (!user) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
-  const { error } = await supabase.from("verification_records").upsert({ user_id: user.id, usn: normalized, verification_status: "verified" }, { onConflict: "user_id" });
+
+  const { error } = await supabase.from("verification_records").upsert(
+    { user_id: user.id, usn: normalized, verification_status: "verified" },
+    { onConflict: "user_id" }
+  );
+
   if (error) {
-    if (error.code === "23505" || error.message.includes("duplicate")) return NextResponse.json({ error: "This USN is already associated with an account." }, { status: 409 });
+    console.error("[onboarding/usn] database error", {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+      status: (error as unknown as { status?: number }).status,
+    });
+
+    if (error.code === "23505" || error.message.toLowerCase().includes("duplicate")) {
+      return NextResponse.json({ error: "This USN has already been registered." }, { status: 409 });
+    }
+
+    if (process.env.NODE_ENV !== "production") {
+      return NextResponse.json(
+        { error: "Could not save USN.", details: error.message, code: error.code, hint: error.hint, detailsRaw: error.details },
+        { status: 400 }
+      );
+    }
     return NextResponse.json({ error: "Could not save USN." }, { status: 400 });
   }
+
   return NextResponse.json({ ok: true });
 }
