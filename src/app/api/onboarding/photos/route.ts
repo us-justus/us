@@ -26,14 +26,21 @@ export async function POST(req: Request) {
   if (!file) return NextResponse.json({ error: "No file." }, { status: 400 });
   if (!(ALLOWED_PHOTO_TYPES as readonly string[]).includes(file.type)) return NextResponse.json({ error: "Use JPG, PNG or WEBP." }, { status: 400 });
   if (file.size > MAX_PHOTO_BYTES) return NextResponse.json({ error: "Max 5 MB per photo." }, { status: 400 });
-  const { count } = await supabase.from("profile_photos").select("id", { count:"exact", head:true }).eq("profile_id", profile.id);
-  if ((count||0) >= MAX_PHOTOS) return NextResponse.json({ error: `Max ${MAX_PHOTOS} photos.` }, { status: 400 });
+  const { data: existingPhotos } = await supabase.from("profile_photos").select("display_order").eq("profile_id", profile.id);
+  if ((existingPhotos?.length || 0) >= MAX_PHOTOS) return NextResponse.json({ error: `Max ${MAX_PHOTOS} photos.` }, { status: 400 });
+  let display_order = 0;
+  if (existingPhotos && existingPhotos.length) {
+    display_order = Math.max(...existingPhotos.map((p) => p.display_order)) + 1;
+    if (display_order > 5) {
+      const used = new Set(existingPhotos.map((p) => p.display_order));
+      for (let i = 0; i < MAX_PHOTOS; i++) if (!used.has(i)) { display_order = i; break; }
+    }
+  }
   const ext = extFromType(file.type);
   const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2,8)}.${ext}`;
   const buf = Buffer.from(await file.arrayBuffer());
   const { error: upErr } = await supabase.storage.from("profile-photos").upload(path, buf, { contentType: file.type, upsert: false });
   if (upErr) return NextResponse.json({ error: "Upload failed." }, { status: 400 });
-  const display_order = count || 0;
   const { error: dbErr } = await supabase.from("profile_photos").insert({ profile_id: profile.id, storage_path: path, display_order });
   if (dbErr) return NextResponse.json({ error: "Could not save photo." }, { status: 400 });
   const { data: photos } = await supabase.from("profile_photos").select("id, storage_path, display_order").eq("profile_id", profile.id).order("display_order");
@@ -53,6 +60,16 @@ export async function DELETE(req: Request) {
   if (!profile || profile.user_id !== user.id) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
   await supabase.from("profile_photos").delete().eq("id", id);
   await supabase.storage.from("profile-photos").remove([photo.storage_path]);
+  // Compact display_order to avoid gaps for future reorders
+  const { data: remaining } = await supabase.from("profile_photos").select("id, display_order").eq("profile_id", profile.id).order("display_order");
+  if (remaining && remaining.length) {
+    for (let i = 0; i < remaining.length; i++) {
+      await supabase.from("profile_photos").update({ display_order: 100 + i }).eq("id", remaining[i].id);
+    }
+    for (let i = 0; i < remaining.length; i++) {
+      await supabase.from("profile_photos").update({ display_order: i }).eq("id", remaining[i].id);
+    }
+  }
   const { data: photos } = await supabase.from("profile_photos").select("id, storage_path, display_order").eq("profile_id", profile.id).order("display_order");
   const mapped = (photos||[]).map(p=>({ ...p, url: supabase.storage.from("profile-photos").getPublicUrl(p.storage_path).data.publicUrl }));
   return NextResponse.json({ photos: mapped });
