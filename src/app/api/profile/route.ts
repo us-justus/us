@@ -21,7 +21,21 @@ export async function GET() {
     .eq("user_id", user.id)
     .maybeSingle();
 
-  if (error) return NextResponse.json({ error: "Could not fetch profile." }, { status: 400 });
+  // Database failure is distinct from "no profile row": 500, not 200-null.
+  // Dev-only diagnostic logs user ID + error code/message. Never tokens/secrets.
+  if (error) {
+    if (process.env.NODE_ENV !== "production") {
+      console.error("[profile] fetch error", error.code, error.message);
+    }
+    return NextResponse.json({ error: "Could not fetch profile." }, { status: 500 });
+  }
+
+  // Dev-only diagnostic: user ID + row-exists boolean. Never tokens/secrets.
+  if (process.env.NODE_ENV !== "production") {
+    console.log(`[profile] user=${user.id} profileExists=${profile !== null}`);
+  }
+
+  // 200 + null profile = authenticated but no profile row (complete onboarding).
   if (!profile) return NextResponse.json({ profile: null, photos: [] });
 
   const { data: photos } = await supabase
@@ -79,7 +93,21 @@ export async function PATCH(req: Request) {
   if (!user) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
 
   // Verify ownership server-side via user_id = auth.uid()
-  const { data: existing } = await supabase.from("profiles").select("id").eq("user_id", user.id).maybeSingle();
+  const { data: existing, error: lookupError } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  // A lookup failure must not masquerade as "no profile" (which is 404).
+  if (lookupError) {
+    if (process.env.NODE_ENV !== "production") {
+      console.error("[profile] lookup error", lookupError.code, lookupError.message);
+    }
+    return NextResponse.json({ error: "Could not load profile." }, { status: 500 });
+  }
+  if (process.env.NODE_ENV !== "production") {
+    console.log(`[profile] user=${user.id} profileExists=${existing !== null}`);
+  }
   if (!existing) return NextResponse.json({ error: "Profile not found. Complete onboarding first." }, { status: 404 });
 
   const { error } = await supabase

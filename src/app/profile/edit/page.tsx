@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/onboarding/shell";
+import { useExistingSession } from "@/lib/auth/use-existing-session";
+import { usePhotoUploadQueue } from "@/lib/photos/use-photo-upload-queue";
 import {
   BRANCHES,
   YEARS,
@@ -22,6 +24,10 @@ type Photo = { id: string; storage_path: string; display_order: number; url: str
 
 export default function EditProfilePage() {
   const router = useRouter();
+  // Protected product route: read-only session, NEVER creates one. A
+  // logged-out visitor is sent to /login; an incomplete-onboarding session is
+  // sent to its /onboarding/* step (resolved server-side, single source).
+  const { status: sessionStatus, user: sessionUser, refresh: refreshSession } = useExistingSession();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -38,7 +44,13 @@ export default function EditProfilePage() {
 
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [photoError, setPhotoError] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
+  // Preview-first uploads: the original selection renders instantly as a
+  // local tile; compression + upload run sequentially in the background so
+  // the page (save, delete, reorder) never blocks on network.
+  const { pending, enqueue, retry, removePending } = usePhotoUploadQueue({
+    endpoint: "/api/profile/photos",
+    onUploaded: (next: Photo[]) => setPhotos(next),
+  });
   const [reordering, setReordering] = useState(false);
 
   const [initial, setInitial] = useState<Record<string, string> | null>(null);
@@ -53,10 +65,36 @@ export default function EditProfilePage() {
       interests !== initial.interests);
 
   const fetchProfile = useCallback(async () => {
+    // Never fetch before the session is restored — the API authenticates via
+    // cookies, so fetching early would 401 and could not distinguish
+    // "no session yet" from "no profile". Never auto-creates a profile.
+    // Product guard: logged-out → /login, incomplete onboarding → its step.
+    if (sessionStatus !== "ready") return;
+    if (!sessionUser) {
+      router.replace("/login");
+      return;
+    }
+    try {
+      const st = await fetch("/api/account/state", { cache: "no-store" });
+      const sj = await st.json().catch(() => null);
+      if (!sj?.signedIn) {
+        router.replace("/login");
+        return;
+      }
+      if (sj.onboardingStep !== "complete" && typeof sj.next === "string") {
+        router.replace(sj.next);
+        return;
+      }
+    } catch {
+      // If the state check itself fails, fall through to the profile fetch —
+      // the API 401s safely and the error state below handles it.
+    }
     setLoading(true);
+    setError(null);
     try {
       const res = await fetch("/api/profile", { cache: "no-store" });
-      const j = await res.json();
+      const j = await res.json().catch(() => ({}));
+      if (res.status === 401) throw new Error("We couldn't start your session. Please try again.");
       if (!res.ok) throw new Error(j.error || "Failed to load profile");
       if (!j.profile) {
         router.replace("/onboarding/profile");
@@ -83,11 +121,12 @@ export default function EditProfilePage() {
     } finally {
       setLoading(false);
     }
-  }, [router]);
+  }, [router, sessionStatus, sessionUser]);
 
   useEffect(() => {
-    void fetchProfile();
-  }, [fetchProfile]);
+    if (sessionStatus === "signed-out") router.replace("/login");
+    else if (sessionStatus === "ready") void fetchProfile();
+  }, [sessionStatus, fetchProfile, router]);
 
   // Warn about unsaved changes
   useEffect(() => {
@@ -164,34 +203,24 @@ export default function EditProfilePage() {
     }
   }
 
-  async function upload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const err = validatePhotoFile(file);
-    if (err) {
-      setPhotoError(err);
-      e.target.value = "";
-      return;
-    }
-    if (photos.length >= MAX_PHOTOS) {
-      setPhotoError(`Max ${MAX_PHOTOS} photos.`);
-      e.target.value = "";
-      return;
-    }
-    setUploading(true);
-    setPhotoError(null);
-    try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch("/api/profile/photos", { method: "POST", body: fd });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error || "Upload failed");
-      setPhotos(j.photos);
-    } catch (err: unknown) {
-      setPhotoError(err instanceof Error ? err.message : "Upload failed.");
-    } finally {
-      setUploading(false);
-      e.target.value = "";
+  async function selectPhotos(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = [...(e.target.files ?? [])];
+    e.target.value = "";
+    if (!files.length) return;
+    let slots = MAX_PHOTOS - (photos.length + pending.length);
+    for (const file of files) {
+      if (slots <= 0) {
+        setPhotoError(`Max ${MAX_PHOTOS} photos.`);
+        break;
+      }
+      const err = validatePhotoFile(file);
+      if (err) {
+        setPhotoError(err);
+        continue;
+      }
+      setPhotoError(null);
+      enqueue(file);
+      slots -= 1;
     }
   }
 
@@ -235,12 +264,57 @@ export default function EditProfilePage() {
     }
   }
 
-  if (loading) {
+  if (sessionStatus === "signed-out") {
     return (
       <div className="flex flex-1 flex-col">
         <div className="mx-auto w-full max-w-[560px] px-6 sm:px-8 py-10">
           <p className="text-[11px] tracking-[0.18em] uppercase text-ink-faint">edit profile</p>
-          <p className="mt-6 text-[13px] text-ink-soft">loading your profile…</p>
+          <p className="mt-6 text-[13px] text-ink-soft">You&apos;re signed out. Sign in to edit your profile.</p>
+          <Button onClick={() => router.replace("/login")} className="mt-6 w-full rounded-full">
+            Sign in
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (sessionStatus !== "ready" || loading) {
+    return (
+      <div className="flex flex-1 flex-col">
+        <div className="mx-auto w-full max-w-[560px] px-6 sm:px-8 py-10">
+          <p className="text-[11px] tracking-[0.18em] uppercase text-ink-faint">edit profile</p>
+          <p className="mt-6 text-[13px] text-ink-soft">
+            {sessionStatus !== "ready" ? "checking your session…" : "loading your profile…"}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error && initial === null) {
+    return (
+      <div className="flex flex-1 flex-col">
+        <div className="mx-auto w-full max-w-[560px] px-6 sm:px-8 py-10">
+          <p className="text-[11px] tracking-[0.18em] uppercase text-ink-faint">edit profile</p>
+          <div className="mt-6">
+            <FieldError msg={error} />
+          </div>
+          <Button
+            onClick={() => {
+              // Re-restores the existing session (never mints a second one);
+              // the effect above refetches once the session is ready.
+              void refreshSession();
+            }}
+            className="mt-6 w-full rounded-full"
+          >
+            Try again
+          </Button>
+          <Link
+            href="/profile"
+            className="mt-3 flex w-full justify-center rounded-full border border-line bg-paper px-8 py-[14px] text-[12px] tracking-[0.14em] uppercase font-medium text-ink-soft hover:bg-paper-2 transition-colors"
+          >
+            back to profile
+          </Link>
         </div>
       </div>
     );
@@ -283,7 +357,7 @@ export default function EditProfilePage() {
               >
                 <div className="relative aspect-[3/4] overflow-hidden rounded-2xl border border-line bg-paper-2">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={p.url} alt={`photo ${idx + 1}`} className="h-full w-full object-cover" />
+                  <img src={p.url} alt={`photo ${idx + 1}`} loading="lazy" decoding="async" className="h-full w-full object-cover" />
                   {idx === 0 && (
                     <span className="absolute left-2 top-2 rounded-full bg-paper/90 px-2 py-0.5 text-[10px] tracking-[0.12em] uppercase font-medium text-ink backdrop-blur">
                       primary
@@ -321,17 +395,60 @@ export default function EditProfilePage() {
               </div>
             ))}
 
-            {photos.length < MAX_PHOTOS && (
-              <label className="flex aspect-[3/4] flex-col items-center justify-center rounded-2xl border border-dashed border-line-strong bg-paper-2 hover:bg-paper cursor-pointer text-ink-soft transition-colors min-h-[140px]">
+            {pending.map((q) => (
+              <div key={q.localId} className="group relative flex flex-col">
+                <div className="relative aspect-[3/4] overflow-hidden rounded-2xl border border-line bg-paper-2">
+                  {/* Local preview of the ORIGINAL selection — instant, full
+                      quality, before compression/upload finish. */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={q.previewUrl} alt="upload preview" className="h-full w-full object-cover" />
+                  <span className="absolute left-2 top-2 rounded-full bg-paper/90 px-2 py-0.5 text-[10px] tracking-[0.12em] uppercase font-medium text-ink">
+                    {q.status === "failed" ? "failed" : q.status === "optimizing" ? "optimizing…" : q.status === "uploading" ? "uploading…" : "selected"}
+                  </span>
+                  {q.status === "failed" ? (
+                    <span className="absolute inset-x-1.5 bottom-1.5 flex gap-1.5">
+                      <button
+                        onClick={() => retry(q.localId)}
+                        aria-label="retry upload"
+                        className="flex h-8 flex-1 items-center justify-center rounded-full bg-ink text-paper text-[11px] tracking-[0.08em] uppercase"
+                      >
+                        retry
+                      </button>
+                      <button
+                        onClick={() => removePending(q.localId)}
+                        aria-label="remove photo"
+                        className="flex h-8 flex-1 items-center justify-center rounded-full bg-paper/90 text-ink text-[11px] tracking-[0.08em] uppercase"
+                      >
+                        remove
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => removePending(q.localId)}
+                      aria-label="cancel upload"
+                      className="absolute right-1.5 top-1.5 inline-flex h-8 w-8 items-center justify-center rounded-full bg-ink text-paper text-[16px] leading-none hover:bg-black transition-colors"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+                <span className="mt-1 text-center text-[10px] tracking-[0.08em] text-ink-faint">
+                  {q.status === "failed" ? (q.error ?? "failed") : q.status === "selected" ? "queued" : q.status === "optimizing" ? "optimizing" : "uploading"}
+                </span>
+              </div>
+            ))}
+
+            {photos.length + pending.length < MAX_PHOTOS && (
+              <label className="flex aspect-[3/4] min-h-[140px] flex-col items-center justify-center rounded-2xl border border-dashed border-line-strong bg-paper-2 hover:bg-paper cursor-pointer text-ink-soft transition-colors">
                 <span className="text-[22px] leading-none">+</span>
                 <span className="mt-1 text-[11px] tracking-[0.12em] uppercase">add</span>
-                <span className="mt-1 text-[10px] text-ink-faint">{uploading ? "uploading…" : "JPG/PNG/WEBP"}</span>
+                <span className="mt-1 text-[10px] text-ink-faint">JPG/PNG/WEBP</span>
                 <input
                   type="file"
                   accept="image/jpeg,image/png,image/webp"
-                  onChange={upload}
+                  multiple
+                  onChange={selectPhotos}
                   className="hidden"
-                  disabled={uploading}
                 />
               </label>
             )}
@@ -358,7 +475,7 @@ export default function EditProfilePage() {
               value={nickname}
               onChange={(e) => setNickname(e.target.value)}
               placeholder="what should we call you?"
-              className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-[15px] outline-none focus:border-ink-faint placeholder:text-ink-faint"
+              className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base outline-none focus:border-ink-faint placeholder:text-ink-faint"
             />
             {fieldErr.nickname && <FieldError msg={fieldErr.nickname} />}
           </div>
@@ -371,7 +488,7 @@ export default function EditProfilePage() {
                 onChange={(e) => setAge(e.target.value)}
                 inputMode="numeric"
                 placeholder="20"
-                className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-[15px] outline-none focus:border-ink-faint"
+                className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base outline-none focus:border-ink-faint"
               />
               {fieldErr.age && <FieldError msg={fieldErr.age} />}
             </div>
@@ -380,7 +497,7 @@ export default function EditProfilePage() {
               <select
                 value={year}
                 onChange={(e) => setYear(e.target.value)}
-                className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-[15px] outline-none focus:border-ink-faint"
+                className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base outline-none focus:border-ink-faint"
               >
                 <option value="">select</option>
                 {YEARS.map((y) => (
@@ -398,7 +515,7 @@ export default function EditProfilePage() {
             <select
               value={branch}
               onChange={(e) => setBranch(e.target.value)}
-              className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-[15px] outline-none focus:border-ink-faint"
+              className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base outline-none focus:border-ink-faint"
             >
               <option value="">select</option>
               {BRANCHES.map((b) => (
@@ -419,7 +536,7 @@ export default function EditProfilePage() {
               onChange={(e) => setBio(e.target.value)}
               rows={3}
               placeholder="a line or two about you"
-              className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-[14px] outline-none focus:border-ink-faint resize-none"
+              className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base outline-none focus:border-ink-faint resize-none"
             />
             <div className="mt-1 flex justify-between">
               <div>{fieldErr.bio && <FieldError msg={fieldErr.bio} />}</div>
@@ -435,7 +552,7 @@ export default function EditProfilePage() {
               value={interests}
               onChange={(e) => setInterests(e.target.value)}
               placeholder="music, football, books"
-              className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-[14px] outline-none focus:border-ink-faint"
+              className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base outline-none focus:border-ink-faint"
             />
             <p className="mt-1 text-[11px] text-ink-faint">up to 8 · shown as pills on your profile</p>
           </div>
@@ -453,7 +570,7 @@ export default function EditProfilePage() {
           )}
 
           <div className="pt-2">
-            <Button onClick={save} disabled={saving || uploading} className="w-full rounded-full">
+            <Button onClick={save} disabled={saving} className="w-full rounded-full">
               {saving ? "saving…" : success ? "saved ✓" : "save changes"}
             </Button>
             <Link

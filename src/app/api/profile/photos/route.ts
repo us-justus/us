@@ -117,13 +117,15 @@ export async function DELETE(req: Request) {
     .eq("profile_id", profile.id)
     .order("display_order");
   if (remaining && remaining.length) {
-    // Avoid unique constraint collision: first move to 100+ offset
-    for (let i = 0; i < remaining.length; i++) {
-      await supabase.from("profile_photos").update({ display_order: 100 + i }).eq("id", remaining[i].id);
-    }
-    for (let i = 0; i < remaining.length; i++) {
-      await supabase.from("profile_photos").update({ display_order: i }).eq("id", remaining[i].id);
-    }
+    // Avoid unique constraint collision: first move to 100+ offset.
+    // Rows are independent, so each phase runs concurrently (2 batches total
+    // instead of 2N sequential round-trips).
+    await Promise.all(
+      remaining.map((r, i) => supabase.from("profile_photos").update({ display_order: 100 + i }).eq("id", r.id)),
+    );
+    await Promise.all(
+      remaining.map((r, i) => supabase.from("profile_photos").update({ display_order: i }).eq("id", r.id)),
+    );
   }
 
   const { data: photos } = await supabase

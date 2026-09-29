@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { ALLOWED_PHOTO_TYPES, MAX_PHOTO_BYTES, MAX_PHOTOS } from "@/lib/validation/profile";
+import { perfLog, perfStart } from "@/lib/utils/perf";
 
 function extFromType(t: string) { if (t==="image/png") return "png"; if (t==="image/webp") return "webp"; return "jpg"; }
 
@@ -16,6 +17,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const t = perfStart();
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
@@ -45,6 +47,7 @@ export async function POST(req: Request) {
   if (dbErr) return NextResponse.json({ error: "Could not save photo." }, { status: 400 });
   const { data: photos } = await supabase.from("profile_photos").select("id, storage_path, display_order").eq("profile_id", profile.id).order("display_order");
   const mapped = (photos||[]).map(p=>({ ...p, url: supabase.storage.from("profile-photos").getPublicUrl(p.storage_path).data.publicUrl }));
+  perfLog("photo.upload", t);
   return NextResponse.json({ photos: mapped });
 }
 
@@ -60,15 +63,18 @@ export async function DELETE(req: Request) {
   if (!profile || profile.user_id !== user.id) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
   await supabase.from("profile_photos").delete().eq("id", id);
   await supabase.storage.from("profile-photos").remove([photo.storage_path]);
-  // Compact display_order to avoid gaps for future reorders
+  // Compact display_order to avoid gaps for future reorders.
+  // Rows are independent, so each phase runs concurrently (2 batches total
+  // instead of 2N sequential round-trips). Two phases are still required to
+  // avoid colliding with the (profile_id, display_order) unique constraint.
   const { data: remaining } = await supabase.from("profile_photos").select("id, display_order").eq("profile_id", profile.id).order("display_order");
   if (remaining && remaining.length) {
-    for (let i = 0; i < remaining.length; i++) {
-      await supabase.from("profile_photos").update({ display_order: 100 + i }).eq("id", remaining[i].id);
-    }
-    for (let i = 0; i < remaining.length; i++) {
-      await supabase.from("profile_photos").update({ display_order: i }).eq("id", remaining[i].id);
-    }
+    await Promise.all(
+      remaining.map((r, i) => supabase.from("profile_photos").update({ display_order: 100 + i }).eq("id", r.id)),
+    );
+    await Promise.all(
+      remaining.map((r, i) => supabase.from("profile_photos").update({ display_order: i }).eq("id", r.id)),
+    );
   }
   const { data: photos } = await supabase.from("profile_photos").select("id, storage_path, display_order").eq("profile_id", profile.id).order("display_order");
   const mapped = (photos||[]).map(p=>({ ...p, url: supabase.storage.from("profile-photos").getPublicUrl(p.storage_path).data.publicUrl }));

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { MAX_PHOTOS } from "@/lib/validation/profile";
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
@@ -7,7 +8,7 @@ export async function POST(req: Request) {
   if (!Array.isArray(orderedIds) || orderedIds.length === 0) {
     return NextResponse.json({ error: "Missing orderedIds." }, { status: 400 });
   }
-  if (orderedIds.length > 6) return NextResponse.json({ error: "Too many photos." }, { status: 400 });
+  if (orderedIds.length > MAX_PHOTOS) return NextResponse.json({ error: "Too many photos." }, { status: 400 });
   const ids = orderedIds.map(String);
   if (new Set(ids).size !== ids.length) return NextResponse.json({ error: "Duplicate ids." }, { status: 400 });
 
@@ -30,15 +31,17 @@ export async function POST(req: Request) {
     if (!ownIds.has(id)) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
   }
 
-  // Two-phase update to avoid unique constraint on (profile_id, display_order)
-  for (let i = 0; i < ids.length; i++) {
-    const { error } = await supabase.from("profile_photos").update({ display_order: 100 + i }).eq("id", ids[i]);
-    if (error) return NextResponse.json({ error: "Could not reorder." }, { status: 400 });
-  }
-  for (let i = 0; i < ids.length; i++) {
-    const { error } = await supabase.from("profile_photos").update({ display_order: i }).eq("id", ids[i]);
-    if (error) return NextResponse.json({ error: "Could not reorder." }, { status: 400 });
-  }
+  // Two-phase update to avoid unique constraint on (profile_id, display_order).
+  // Rows are independent, so each phase runs concurrently (2 batches total
+  // instead of 2N sequential round-trips).
+  const phase1 = await Promise.all(
+    ids.map((id, i) => supabase.from("profile_photos").update({ display_order: 100 + i }).eq("id", id)),
+  );
+  if (phase1.some((r) => r.error)) return NextResponse.json({ error: "Could not reorder." }, { status: 400 });
+  const phase2 = await Promise.all(
+    ids.map((id, i) => supabase.from("profile_photos").update({ display_order: i }).eq("id", id)),
+  );
+  if (phase2.some((r) => r.error)) return NextResponse.json({ error: "Could not reorder." }, { status: 400 });
 
   const { data: reordered } = await supabase
     .from("profile_photos")

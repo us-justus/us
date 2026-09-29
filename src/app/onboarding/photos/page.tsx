@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { Shell, FieldError } from "@/components/onboarding/shell";
 import { Button } from "@/components/ui/button";
 import { MAX_PHOTOS, validatePhotoFile } from "@/lib/validation/profile";
+import { usePhotoUploadQueue } from "@/lib/photos/use-photo-upload-queue";
 
 type Photo = { id: string; storage_path: string; url: string };
 
@@ -11,24 +12,30 @@ export default function PhotosPage() {
   const router = useRouter();
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
+  const { pending, enqueue, retry, removePending } = usePhotoUploadQueue({
+    endpoint: "/api/onboarding/photos",
+    onUploaded: (next: Photo[]) => setPhotos(next),
+  });
+  const occupied = photos.length + pending.length;
+  const full = occupied >= MAX_PHOTOS;
 
   useEffect(() => { fetch("/api/onboarding/photos").then(r=>r.json()).then(j=>{ if(j.photos) setPhotos(j.photos); }); }, []);
 
-  async function upload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]; if (!file) return;
-    const err = validatePhotoFile(file);
-    if (err) { setError(err); return; }
-    if (photos.length >= MAX_PHOTOS) { setError(`Max ${MAX_PHOTOS} photos.`); return; }
-    setUploading(true); setError(null);
-    try {
-      const fd = new FormData(); fd.append("file", file);
-      const res = await fetch("/api/onboarding/photos", { method: "POST", body: fd });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error || "Upload failed");
-      setPhotos(j.photos);
-    } catch (err: unknown) { setError(err instanceof Error ? err.message : "Upload failed."); }
-    finally { setUploading(false); e.target.value=""; }
+  async function select(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = [...(e.target.files ?? [])];
+    e.target.value = "";
+    if (!files.length) return;
+    setError(null);
+    let slots = MAX_PHOTOS - (photos.length + pending.length);
+    for (const file of files) {
+      if (slots <= 0) { setError(`Max ${MAX_PHOTOS} photos.`); break; }
+      const err = validatePhotoFile(file);
+      if (err) { setError(err); continue; }
+      // Preview appears instantly; compression + upload follow in the
+      // background without blocking the page.
+      enqueue(file);
+      slots -= 1;
+    }
   }
 
   async function remove(id: string) {
@@ -40,24 +47,43 @@ export default function PhotosPage() {
   }
 
   return (
-    <Shell title="add your photos." subtitle="At least one. Up to six. You can reorder and change them anytime." step="04 — photos">
+    <Shell title="add your photos." subtitle="At least one. Up to six. You can reorder and change them anytime." step="05 — photos">
       <div className="grid grid-cols-3 gap-3">
         {photos.map(p=> (
           <div key={p.id} className="relative aspect-[3/4] overflow-hidden rounded-2xl bg-paper-2 border border-line">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={p.url} alt="" className="h-full w-full object-cover" />
-            <button onClick={()=>remove(p.id)} className="absolute top-2 right-2 h-7 w-7 rounded-full bg-ink text-paper text-[12px]">×</button>
+            <img src={p.url} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
+            <button onClick={()=>remove(p.id)} aria-label="remove photo" className="absolute top-2 right-2 flex h-8 w-8 items-center justify-center rounded-full bg-ink text-paper text-[12px]">×</button>
           </div>
         ))}
-        {photos.length < MAX_PHOTOS && (
-          <label className="aspect-[3/4] flex flex-col items-center justify-center rounded-2xl border border-dashed border-line-strong bg-paper-2 hover:bg-paper cursor-pointer text-ink-soft">
+        {pending.map(q => (
+          <div key={q.localId} className="relative aspect-[3/4] overflow-hidden rounded-2xl bg-paper-2 border border-line">
+            {/* Local preview of the ORIGINAL selection — visible immediately,
+                before compression/upload finish. No file path is exposed. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={q.previewUrl} alt="" className="h-full w-full object-cover" />
+            <span className="absolute left-2 top-2 rounded-full bg-paper/90 px-2 py-0.5 text-[10px] tracking-[0.12em] uppercase font-medium text-ink">
+              {q.status === "failed" ? "failed" : q.status === "optimizing" ? "optimizing…" : q.status === "uploading" ? "uploading…" : "selected"}
+            </span>
+            {q.status === "failed" && (
+              <span className="absolute inset-x-1.5 bottom-1.5 flex gap-1.5">
+                <button onClick={() => retry(q.localId)} aria-label="retry upload" className="flex h-8 flex-1 items-center justify-center rounded-full bg-ink text-paper text-[11px] tracking-[0.08em] uppercase">retry</button>
+                <button onClick={() => removePending(q.localId)} aria-label="remove photo" className="flex h-8 flex-1 items-center justify-center rounded-full bg-paper/90 text-ink text-[11px] tracking-[0.08em] uppercase">remove</button>
+              </span>
+            )}
+          </div>
+        ))}
+        {!full && (
+          <label className="aspect-[3/4] flex min-h-[44px] flex-col items-center justify-center rounded-2xl border border-dashed border-line-strong bg-paper-2 hover:bg-paper cursor-pointer text-ink-soft">
             <span className="text-[22px]">+</span><span className="text-[11px] tracking-[0.12em] uppercase">add</span>
-            <input type="file" accept="image/jpeg,image/png,image/webp" onChange={upload} className="hidden" disabled={uploading} />
+            <input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={select} className="hidden" />
           </label>
         )}
       </div>
       {error && <div className="mt-4"><FieldError msg={error} /></div>}
-      {uploading && <p className="mt-3 text-[12px] text-ink-soft">uploading…</p>}
+      {pending.filter(q => q.status === "failed").map(q => q.error).filter(Boolean)[0] && (
+        <div className="mt-4"><FieldError msg={pending.find(q => q.status === "failed")?.error ?? "Upload failed."} /></div>
+      )}
       <p className="mt-4 text-[11px] text-ink-faint">{photos.length}/{MAX_PHOTOS} · JPG, PNG or WEBP · max 5 MB</p>
       <Button disabled={photos.length < 1} onClick={()=>router.push("/discover")} className="mt-6 w-full rounded-full">enter us →</Button>
     </Shell>
