@@ -3,11 +3,11 @@
 import type { DiscoverProfile } from "@/lib/discover/types";
 import { PhotoCarousel } from "./PhotoCarousel";
 
-export function ProfileCard({ profile }: { profile: DiscoverProfile }) {
+export function ProfileCard({ profile, priority = false }: { profile: DiscoverProfile; priority?: boolean }) {
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden rounded-[28px] border border-line bg-white shadow-[0_16px_40px_rgba(23,22,20,0.08)]">
       <div className="relative flex-1 overflow-hidden bg-paper-2">
-        <PhotoCarousel photos={profile.photos} alt={profile.nickname} />
+        <PhotoCarousel photos={profile.photos} alt={profile.nickname} priority={priority} />
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[52%] bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
         <div className="pointer-events-none absolute inset-x-0 bottom-0 p-5 sm:p-6">
           <h2 className="font-display text-[28px] leading-none tracking-[-0.03em] text-white">
@@ -24,7 +24,7 @@ export function ProfileCard({ profile }: { profile: DiscoverProfile }) {
               {profile.interests.slice(0, 5).map((t) => (
                 <span
                   key={t}
-                  className="rounded-full border border-white/20 bg-white/15 px-2.5 py-1 text-[11px] tracking-wide text-white backdrop-blur"
+                  className="rounded-full border border-white/20 bg-black/25 px-2.5 py-1 text-[11px] tracking-wide text-white"
                 >
                   {t}
                 </span>

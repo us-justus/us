@@ -1,12 +1,14 @@
 import { redirect } from "next/navigation";
-import { getOnboardingState } from "@/lib/onboarding/state";
+import { getProductSession, guardProductSession } from "@/lib/auth/product-state";
 import { Placeholder } from "@/components/layout/placeholder";
 
+export const dynamic = "force-dynamic";
+
 export default async function Page() {
-  const { step } = await getOnboardingState();
-  if (step !== "complete") {
-    const { stepPath } = await import("@/lib/onboarding/state");
-    redirect(stepPath(step));
+  const session = await getProductSession();
+  const guard = guardProductSession(session);
+  if (guard) {
+    redirect(guard);
   }
   return (
     <Placeholder

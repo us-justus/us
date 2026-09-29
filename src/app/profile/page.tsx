@@ -1,14 +1,38 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { getProductSession, guardProductSession } from "@/lib/auth/product-state";
 import { getOwnProfile } from "@/lib/profile/queries";
 
 export const dynamic = "force-dynamic";
 
 export default async function ProfilePage() {
-  const { user, profile, photos } = await getOwnProfile();
+  const session = await getProductSession();
+  const guard = guardProductSession(session);
+  if (guard) {
+    redirect(guard);
+  }
+  const { profile, photos, error } = await getOwnProfile();
 
-  if (!user) {
-    redirect("/onboarding");
+  // Authenticated but the profile query itself failed (DB/RLS/network) — this
+  // is distinct from "no profile row" and must not show the onboarding CTA.
+  if (error) {
+    return (
+      <div className="flex flex-1 flex-col">
+        <div className="mx-auto w-full max-w-[560px] flex-1 px-6 sm:px-8 py-10 sm:py-14">
+          <p className="text-[11px] tracking-[0.18em] uppercase text-ink-faint">your profile</p>
+          <h1 className="mt-2 font-display text-[30px] tracking-[-0.03em] leading-none">couldn&apos;t load.</h1>
+          <p className="mt-3 text-[13px] leading-6 text-ink-soft max-w-[38ch]">
+            {error} Refresh to try again — your profile was not changed.
+          </p>
+          <Link
+            href="/profile"
+            className="mt-8 inline-flex items-center justify-center rounded-full bg-ink px-8 py-[14px] text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors"
+          >
+            try again
+          </Link>
+        </div>
+      </div>
+    );
   }
 
   if (!profile) {
@@ -79,6 +103,9 @@ export default async function ProfilePage() {
                     src={primary.url}
                     alt={`${profile.nickname} primary photo`}
                     className="h-full w-full object-cover"
+                    decoding="async"
+                    loading="eager"
+                    fetchPriority="high"
                   />
                 </div>
                 <span className="absolute left-3 top-3 rounded-full bg-paper/90 px-2.5 py-1 text-[10px] tracking-[0.14em] uppercase font-medium text-ink backdrop-blur">
@@ -103,7 +130,7 @@ export default async function ProfilePage() {
                       className="relative aspect-[3/4] overflow-hidden rounded-2xl border border-line bg-paper-2"
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={p.url} alt="" className="h-full w-full object-cover" />
+                      <img src={p.url} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
                     </div>
                   ))}
                 </div>
@@ -181,6 +208,12 @@ export default async function ProfilePage() {
             className="inline-flex w-full items-center justify-center rounded-full border border-line bg-paper px-8 py-[14px] text-[12px] tracking-[0.14em] uppercase font-medium text-ink-soft hover:bg-paper-2 transition-colors"
           >
             back to discover
+          </Link>
+          <Link
+            href="/settings"
+            className="inline-flex w-full items-center justify-center py-2 text-[12px] tracking-[0.12em] uppercase text-ink-soft hover:text-ink transition-colors"
+          >
+            account settings
           </Link>
           <p className="text-center text-[11px] leading-4 text-ink-faint">
             USN and email are never shown on your public profile.

@@ -52,7 +52,7 @@ function DraggableCard({
       onDragEnd={handleDragEnd}
       className="absolute inset-0 cursor-grab active:cursor-grabbing"
     >
-      <ProfileCard profile={profile} />
+      <ProfileCard profile={profile} priority />
       <motion.div style={{ opacity: likeOpacity }} className="pointer-events-none absolute left-4 top-4 rounded-full bg-white/90 border border-white/40 px-3 py-1.5 text-[11px] font-medium tracking-[0.14em] uppercase text-ink">
         like
       </motion.div>
@@ -86,7 +86,9 @@ export function DiscoverDeck({ initialProfiles }: { initialProfiles: DiscoverPro
       if (!profiles.length) return;
       const current = profiles[0];
       persistAndAdvance(dir, current.userId);
-      setTimeout(() => setProfiles((p) => p.slice(1)), 180);
+      // onSwipe already fires after the exit animation completes, so the top
+      // card can be removed immediately — no extra timeout gap.
+      setProfiles((p) => p.slice(1));
     },
     [profiles, persistAndAdvance],
   );
@@ -119,6 +121,21 @@ export function DiscoverDeck({ initialProfiles }: { initialProfiles: DiscoverPro
     return () => window.removeEventListener("keydown", onKey);
   }, [isExiting, handleButtonSwipe]);
 
+  // Warm the next card's first photo while the user views the current card so
+  // promotion after a swipe never waits on a cold image fetch.
+  useEffect(() => {
+    const url = profiles[1]?.photos[0];
+    if (!url) return;
+    const link = document.createElement("link");
+    link.rel = "preload";
+    link.as = "image";
+    link.href = url;
+    document.head.appendChild(link);
+    return () => {
+      document.head.removeChild(link);
+    };
+  }, [profiles]);
+
   const top = profiles[0];
   const next = profiles[1];
   const third = profiles[2];
@@ -150,12 +167,12 @@ export function DiscoverDeck({ initialProfiles }: { initialProfiles: DiscoverPro
               animate={{ scale: isExiting ? 1 : CARD_STACK_SCALE, y: isExiting ? 0 : CARD_STACK_OFFSET }}
               transition={{ type: "spring", stiffness: 320, damping: 30 }}
             >
-              <ProfileCard profile={next} />
+              <ProfileCard profile={next} priority />
             </motion.div>
           )}
           {isExiting ? (
             <motion.div className="absolute inset-0" style={{ x: exitX }}>
-              <ProfileCard profile={top} />
+              <ProfileCard profile={top} priority />
             </motion.div>
           ) : (
             <DraggableCard key={top.userId} profile={top} onSwipe={handleDragSwipe} />

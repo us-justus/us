@@ -5,9 +5,16 @@ import { useState } from "react";
 export function PhotoCarousel({
   photos,
   alt,
+  priority = false,
 }: {
   photos: string[];
   alt: string;
+  /**
+   * True for the top stacked cards. The visible photo loads eagerly with high
+   * fetch priority and async decoding; all other photos lazy-load so far
+   * cards never compete with the current card for bandwidth/decode time.
+   */
+  priority?: boolean;
 }) {
   const [idx, setIdx] = useState(0);
   if (!photos.length) return null;
@@ -24,6 +31,9 @@ export function PhotoCarousel({
         alt={alt}
         className="h-full w-full object-cover"
         draggable={false}
+        decoding="async"
+        loading={priority && idx === 0 ? "eager" : "lazy"}
+        fetchPriority={priority && idx === 0 ? "high" : "auto"}
       />
       {photos.length > 1 && (
         <>
@@ -51,14 +61,6 @@ export function PhotoCarousel({
             }}
             className="absolute right-0 top-0 h-full w-[42%] cursor-pointer bg-transparent"
           />
-          <div className="pointer-events-none absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1">
-            {photos.map((_, i) => (
-              <span
-                key={i}
-                className={`h-1.5 rounded-full transition-all ${i === idx ? "w-4 bg-white" : "w-1.5 bg-white/50"}`}
-              />
-            ))}
-          </div>
         </>
       )}
     </div>
