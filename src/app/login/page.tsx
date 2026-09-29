@@ -1,0 +1,339 @@
+"use client";
+
+import { Suspense, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
+import { useExistingSession } from "@/lib/auth/use-existing-session";
+import { validateAccountEmail } from "@/lib/auth/account";
+import { normalizeUSN, validateUSN } from "@/lib/verification/usn";
+import { FieldError } from "@/components/onboarding/shell";
+
+/**
+ * Sign-in for permanent (email + password) accounts, bound to campus identity.
+ *
+ * Never calls ensureAnonymousSession — no anonymous user is minted here.
+ *
+ * Flow: USN + email + password → signInWithPassword() (Supabase Auth owns
+ * passwords; USN is never a password) → POST /api/auth/verify-usn, which
+ * checks server-side that the submitted USN belongs to the authenticated
+ * user. All credential failures return one generic message so login never
+ * reveals whether a USN or email exists. Destination comes from
+ * /api/auth/verify-usn (server onboarding state): complete → /discover,
+ * otherwise the onboarding step.
+ */
+const GENERIC = "Incorrect USN, email, or password.";
+
+function LoginFlow() {
+  const router = useRouter();
+  const { status, user } = useExistingSession();
+
+  const [usn, setUsn] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const [forgot, setForgot] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
+  const [resetErr, setResetErr] = useState<string | null>(null);
+  const [resetBusy, setResetBusy] = useState(false);
+
+  async function signIn() {
+    setError(null);
+    const normalizedUsn = normalizeUSN(usn);
+    if (!validateUSN(normalizedUsn)) {
+      setError("Enter your USN, email, and password.");
+      return;
+    }
+    if (validateAccountEmail(email.trim()) || !password) {
+      setError("Enter your USN, email, and password.");
+      return;
+    }
+    setBusy(true);
+    const supabase = createClient();
+    try {
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+      // Generic — never reveal whether the email exists.
+      if (signInError) throw new Error(GENERIC);
+      const res = await fetch("/api/auth/verify-usn", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ usn: normalizedUsn }),
+      });
+      const j = await res.json().catch(() => null);
+      if (!res.ok) {
+        // USN mismatch (or missing session): clear the half-authenticated
+        // client session so no credential lingers, then report generically.
+        await supabase.auth.signOut();
+        throw new Error(typeof j?.error === "string" ? j.error : GENERIC);
+      }
+      // The destination route re-renders server-side with the fresh session
+      // cookies, and the header re-resolves via its auth subscription — no
+      // router.refresh() needed after the mutation.
+      router.push(typeof j?.next === "string" ? j.next : "/onboarding");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : GENERIC);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function sendReset() {
+    setResetErr(null);
+    setResetSent(false);
+    const err = validateAccountEmail(email);
+    if (err) {
+      setResetErr(err);
+      return;
+    }
+    setResetBusy(true);
+    try {
+      const supabase = createClient();
+      await supabase.auth.resetPasswordForEmail(email.trim(), {
+        redirectTo: `${window.location.origin}/auth/confirm?next=/auth/update-password`,
+      });
+      // Always show success — never reveal whether the email exists.
+      // USN stays out of the reset mechanism: after recovery the account
+      // still belongs to its verified USN, checked at next sign-in.
+      setResetSent(true);
+    } catch {
+      setResetSent(true);
+    } finally {
+      setResetBusy(false);
+    }
+  }
+
+  if (status === "initializing") {
+    return <p className="mt-8 text-[13px] text-ink-soft">checking your session…</p>;
+  }
+
+  // Already signed in with a PERMANENT account: route by product state
+  // (single server source). Anonymous sessions are onboarding identities, not
+  // login states — an anonymous holder must still see the credential form,
+  // since signInWithPassword() replaces the anonymous session with the
+  // permanent one. Gating on `user` alone hid the form on every device that
+  // had ever started onboarding (no password field rendered at all).
+  const isAnonymous = (user as { is_anonymous?: boolean } | null)?.is_anonymous === true;
+  if (status === "ready" && user && !isAnonymous) {
+    return <SignedInContinue />;
+  }
+
+  return (
+    <div className="mt-8">
+      {status === "ready" && isAnonymous && (
+        <p className="mb-5 rounded-2xl border border-line bg-paper-2 px-4 py-3 text-[13px] leading-5 text-ink-soft">
+          This device holds a guest session. Signing in switches to your account.
+        </p>
+      )}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void signIn();
+        }}
+      >
+      <div>
+        <label htmlFor="login-usn" className="text-[11px] tracking-[0.14em] uppercase text-ink-faint">usn</label>
+        <input
+          id="login-usn"
+          name="usn"
+          type="text"
+          value={usn}
+          onChange={(e) => setUsn(e.target.value)}
+          placeholder="e.g. 1AY22CS001"
+          autoCapitalize="characters"
+          autoCorrect="off"
+          spellCheck={false}
+          autoComplete="username"
+          enterKeyHint="next"
+          className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base uppercase tracking-[0.08em] outline-none focus:border-ink-faint placeholder:text-ink-faint placeholder:normal-case placeholder:tracking-normal"
+        />
+      </div>
+      <div className="mt-4">
+        <label htmlFor="login-email" className="text-[11px] tracking-[0.14em] uppercase text-ink-faint">email</label>
+        <input
+          id="login-email"
+          name="email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="you@campus.edu"
+          inputMode="email"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          autoComplete="email"
+          enterKeyHint="next"
+          className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base outline-none focus:border-ink-faint placeholder:text-ink-faint"
+        />
+      </div>
+      {!forgot && (
+        <div className="mt-4">
+          <label htmlFor="login-password" className="text-[11px] tracking-[0.14em] uppercase text-ink-faint">password</label>
+          <div className="relative mt-2">
+            <input
+              id="login-password"
+              name="password"
+              type={showPw ? "text" : "password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="your password"
+              autoComplete="current-password"
+              enterKeyHint="go"
+              className="w-full rounded-2xl border border-line bg-paper px-4 py-3.5 pr-16 text-base outline-none focus:border-ink-faint placeholder:text-ink-faint"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPw((v) => !v)}
+              aria-label={showPw ? "hide password" : "show password"}
+              className="absolute right-2 top-1/2 flex min-h-[44px] min-w-[44px] -translate-y-1/2 items-center justify-center text-[12px] tracking-[0.08em] uppercase text-ink-soft hover:text-ink"
+            >
+              {showPw ? "hide" : "show"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {error && !forgot && (
+        <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3">
+          <p className="text-[13px] text-[#a63d2f]">{error}</p>
+        </div>
+      )}
+
+      {!forgot ? (
+        <>
+          <button
+            type="submit"
+            disabled={busy}
+            className="mt-5 inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-ink px-8 py-[15px] text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors disabled:opacity-40"
+          >
+            {busy ? "signing in…" : "continue"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setForgot(true);
+              setError(null);
+            }}
+            className="mt-4 min-h-[44px] w-full py-2 text-[12px] tracking-[0.12em] uppercase text-ink-soft hover:text-ink"
+          >
+            forgot password?
+          </button>
+        </>
+      ) : (
+        <div className="mt-5 rounded-[24px] border border-line bg-paper-2 px-5 py-6">
+          <p className="font-display text-[20px] tracking-[-0.02em]">reset password.</p>
+          <p className="mt-1 text-[13px] leading-6 text-ink-soft">
+            Enter your account email above and we&apos;ll send a reset link.
+          </p>
+          {resetErr && (
+            <div className="mt-3">
+              <FieldError msg={resetErr} />
+            </div>
+          )}
+          {resetSent && (
+            <div className="mt-3 rounded-2xl border border-green-200 bg-green-50 px-4 py-3">
+              <p className="text-[13px] text-green-800">
+                If an account exists for this email, a reset link is on its way.
+              </p>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={sendReset}
+            disabled={resetBusy}
+            className="mt-4 inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-ink px-8 py-[15px] text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors disabled:opacity-40"
+          >
+            {resetBusy ? "sending…" : "send reset link"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setForgot(false);
+              setResetSent(false);
+              setResetErr(null);
+            }}
+            className="mt-3 min-h-[44px] w-full py-2 text-[12px] tracking-[0.12em] uppercase text-ink-soft hover:text-ink"
+          >
+            back to sign in
+          </button>
+        </div>
+      )}
+      </form>
+
+      <p className="mt-6 text-center text-[11px] leading-4 text-ink-faint">
+        New here?{" "}
+        <Link href="/onboarding" className="underline underline-offset-4 text-ink-soft">
+          start fresh on this device
+        </Link>
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Permanent-account visitor on /login: forward once to the server-decided
+ * destination (complete → /discover, otherwise the onboarding step). Renders
+ * no credential form. Anonymous sessions never reach this component — they
+ * see the form (see LoginFlow above).
+ */
+function SignedInContinue() {
+  const router = useRouter();
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/account/state", { cache: "no-store" });
+        const j = await res.json().catch(() => null);
+        if (cancelled) return;
+        router.replace(typeof j?.next === "string" ? j.next : "/onboarding");
+      } catch {
+        if (!cancelled) setFailed(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
+
+  if (failed) {
+    return (
+      <div className="mt-8">
+        <p className="text-[13px] leading-6 text-ink-soft max-w-[38ch]">
+          You&apos;re already signed in. Continue to your campus.
+        </p>
+        <div className="mt-6 flex flex-col gap-3">
+          <Link
+            href="/onboarding"
+            className="inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-ink px-8 py-[15px] text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors"
+          >
+            continue
+          </Link>
+        </div>
+      </div>
+    );
+  }
+  return <p className="mt-8 text-[13px] text-ink-soft">taking you to your campus…</p>;
+}
+
+export default function LoginPage() {
+  return (
+    <div className="flex flex-1 flex-col pb-[env(safe-area-inset-bottom)]">
+      <div className="mx-auto w-full max-w-[560px] flex-1 px-6 sm:px-8 py-8 sm:py-10">
+        <p className="text-[11px] tracking-[0.18em] uppercase text-ink-faint">welcome back</p>
+        <h1 className="mt-2 font-display text-[30px] sm:text-[34px] tracking-[-0.03em] leading-none">
+          sign in.
+        </h1>
+        <Suspense fallback={<p className="mt-8 text-[13px] text-ink-soft">loading…</p>}>
+          <LoginFlow />
+        </Suspense>
+      </div>
+    </div>
+  );
+}
