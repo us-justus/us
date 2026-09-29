@@ -63,7 +63,7 @@ export default function USNPage() {
             autoCapitalize="characters"
             autoCorrect="off"
             spellCheck={false}
-            className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base uppercase tracking-[0.08em] outline-none focus:border-ink-faint placeholder:text-ink-faint"
+            className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base uppercase tracking-[0.08em] text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft"
           />
           {error && <FieldError msg={error} />}
         </div>

@@ -39,7 +39,7 @@ export default function EmailPage() {
         <div>
           <label htmlFor="onboarding-email" className="text-[11px] tracking-[0.14em] uppercase text-ink-faint">campus email</label>
           <input id="onboarding-email" name="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@campus.edu" type="email" inputMode="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="email" enterKeyHint="next"
-            className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base outline-none focus:border-ink-faint placeholder:text-ink-faint" />
+            className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft" />
           {error && <FieldError msg={error} />}
         </div>
         <Button onClick={submit} disabled={loading || sessionStatus !== "ready"} className="w-full rounded-full">{loading ? "saving…" : "continue"}</Button>

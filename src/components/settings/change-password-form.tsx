@@ -76,8 +76,8 @@ export function ChangePasswordForm({ title = "change password" }: { title?: stri
         </div>
         {fieldErr && <FieldError msg={fieldErr} />}
         {error && (
-          <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3">
-            <p className="text-[13px] text-[#a63d2f]">{error}</p>
+          <div className="rounded-2xl border border-accent-soft bg-accent-wash px-4 py-3">
+            <p className="text-[13px] text-accent-deep">{error}</p>
           </div>
         )}
         {done && (

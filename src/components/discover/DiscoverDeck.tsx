@@ -53,7 +53,7 @@ function DraggableCard({
       className="absolute inset-0 cursor-grab active:cursor-grabbing"
     >
       <ProfileCard profile={profile} priority />
-      <motion.div style={{ opacity: likeOpacity }} className="pointer-events-none absolute left-4 top-4 rounded-full bg-white/90 border border-white/40 px-3 py-1.5 text-[11px] font-medium tracking-[0.14em] uppercase text-ink">
+      <motion.div style={{ opacity: likeOpacity }} className="pointer-events-none absolute left-4 top-4 rounded-full bg-white/90 border border-accent-soft px-3 py-1.5 text-[11px] font-medium tracking-[0.14em] uppercase text-accent-deep">
         like
       </motion.div>
       <motion.div style={{ opacity: passOpacity }} className="pointer-events-none absolute right-4 top-4 rounded-full bg-ink/90 border border-white/20 px-3 py-1.5 text-[11px] font-medium tracking-[0.14em] uppercase text-white">

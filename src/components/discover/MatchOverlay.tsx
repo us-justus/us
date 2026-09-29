@@ -26,7 +26,7 @@ export function MatchOverlay({
         transition={{ delay: d(0.15), duration: d(0.4) }}
         className="font-display text-[42px] leading-none tracking-[-0.04em] text-ink"
       >
-        it&apos;s a match.
+        it&apos;s a match<span aria-hidden className="text-accent">.</span>
       </motion.p>
       <motion.p
         initial={{ opacity: 0 }}

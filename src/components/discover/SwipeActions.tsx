@@ -27,7 +27,7 @@ export function SwipeActions({
         aria-label={name ? `Like ${name}` : "Like"}
         onClick={onLike}
         disabled={disabled}
-        className="inline-flex h-[56px] w-[56px] items-center justify-center rounded-full bg-ink text-paper shadow-sm transition hover:bg-black disabled:opacity-40"
+        className="inline-flex h-[56px] w-[56px] items-center justify-center rounded-full bg-accent text-accent-foreground shadow-sm transition hover:bg-accent-hover disabled:opacity-40"
       >
         <span aria-hidden className="text-[18px] leading-none">
           ♡

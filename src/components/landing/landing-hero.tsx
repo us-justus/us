@@ -44,7 +44,7 @@ export function LandingHero() {
         >
           <Link
             href="/onboarding"
-            className="group inline-flex items-center gap-3 rounded-full bg-ink px-8 py-[14px] text-[12.5px] tracking-[0.16em] uppercase font-medium text-paper transition-all hover:bg-black hover:gap-4 active:scale-[0.98]"
+            className="group inline-flex min-h-[44px] items-center gap-3 rounded-full bg-ink px-8 py-[14px] text-[12.5px] tracking-[0.16em] uppercase font-medium text-paper transition-all hover:bg-black hover:gap-4 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             enter the campus
             <span
@@ -56,11 +56,12 @@ export function LandingHero() {
           </Link>
           <Link
             href="/login"
-            className="inline-flex items-center justify-center rounded-full border border-line bg-paper px-8 py-[13px] text-[12px] tracking-[0.16em] uppercase font-medium text-ink hover:bg-paper-2 transition-colors"
+            className="inline-flex min-h-[44px] items-center justify-center rounded-full border border-line bg-paper px-8 py-[13px] text-[12px] tracking-[0.16em] uppercase font-medium text-ink transition-colors hover:bg-accent-wash hover:border-accent-soft hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             log in
           </Link>
-          <span className="text-[11px] tracking-[0.14em] uppercase text-ink-faint">
+          <span className="flex items-center gap-2 text-[11px] tracking-[0.14em] uppercase text-ink-faint">
+            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
             campus-only · verified · private
           </span>
           <span className="text-[11px] leading-4 tracking-[0.08em] text-ink-faint">

@@ -92,8 +92,8 @@ export function SiteHeader() {
                 key={l.href}
                 href={l.href}
                 className={cn(
-                  "px-3 py-1.5 text-[13px] tracking-[0.08em] lowercase rounded-full transition-colors",
-                  pathname === l.href ? "text-ink bg-paper-2" : "text-ink-soft hover:text-ink",
+                  "inline-flex min-h-[44px] items-center px-3 py-1.5 text-[13px] tracking-[0.08em] lowercase rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+                  pathname === l.href ? "text-accent-deep bg-accent-wash" : "text-ink-soft hover:text-accent-deep hover:bg-accent-wash",
                 )}
               >
                 {l.label}
@@ -110,13 +110,13 @@ export function SiteHeader() {
           <nav className="hidden sm:flex items-center gap-2" aria-label="public">
             <Link
               href="/login"
-              className="px-4 py-2 text-[12px] tracking-[0.14em] uppercase font-medium text-ink-soft hover:text-ink transition-colors"
+              className="inline-flex min-h-[44px] items-center rounded-full px-4 py-2 text-[12px] tracking-[0.14em] uppercase font-medium text-ink-soft transition-colors hover:text-accent-deep hover:bg-accent-wash focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               log in
             </Link>
             <Link
               href="/onboarding"
-              className="inline-flex items-center rounded-full bg-ink px-5 py-2 text-[12px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors"
+              className="inline-flex min-h-[44px] items-center rounded-full bg-ink px-5 py-2 text-[12px] tracking-[0.14em] uppercase font-medium text-paper transition-colors hover:bg-black focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               enter
             </Link>
@@ -128,7 +128,7 @@ export function SiteHeader() {
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
           aria-label="toggle menu"
-          className="sm:hidden inline-flex h-11 w-11 items-center justify-center rounded-full border border-line text-ink"
+          className="sm:hidden inline-flex h-11 w-11 items-center justify-center rounded-full border border-line bg-paper text-ink transition-colors hover:bg-accent-wash hover:border-accent-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
           <span className="relative block h-3 w-3.5">
             <span
@@ -173,8 +173,8 @@ export function SiteHeader() {
                       href={l.href}
                       onClick={() => setOpen(false)}
                       className={cn(
-                        "py-2.5 text-[14px] tracking-[0.08em] lowercase border-b border-line last:border-0",
-                        pathname === l.href ? "text-ink" : "text-ink-soft",
+                        "inline-flex min-h-[44px] items-center py-2.5 text-[14px] tracking-[0.08em] lowercase border-b border-line last:border-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+                        pathname === l.href ? "text-accent-deep bg-accent-wash" : "text-ink-soft hover:text-accent-deep",
                       )}
                     >
                       {l.label}
@@ -190,14 +190,14 @@ export function SiteHeader() {
                   <Link
                     href="/login"
                     onClick={() => setOpen(false)}
-                    className="py-2.5 text-[14px] tracking-[0.08em] lowercase border-b border-line text-ink-soft"
+                    className="inline-flex min-h-[44px] items-center py-2.5 text-[14px] tracking-[0.08em] lowercase border-b border-line text-ink-soft hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   >
                     log in
                   </Link>
                   <Link
                     href="/onboarding"
                     onClick={() => setOpen(false)}
-                    className="mt-3 inline-flex justify-center rounded-full bg-ink px-6 py-3 text-[13px] tracking-[0.14em] uppercase font-medium text-paper"
+                    className="mt-3 inline-flex min-h-[44px] justify-center items-center rounded-full bg-ink px-6 py-3 text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   >
                     enter the campus
                   </Link>

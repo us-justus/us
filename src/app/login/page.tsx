@@ -199,8 +199,8 @@ function LoginFlow() {
       )}
 
       {error && !forgot && (
-        <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3">
-          <p className="text-[13px] text-[#a63d2f]">{error}</p>
+        <div className="mt-4 rounded-2xl border border-accent-soft bg-accent-wash px-4 py-3">
+          <p className="text-[13px] text-accent-deep">{error}</p>
         </div>
       )}
 
@@ -267,7 +267,7 @@ function LoginFlow() {
 
       <p className="mt-6 text-center text-[11px] leading-4 text-ink-faint">
         New here?{" "}
-        <Link href="/onboarding" className="underline underline-offset-4 text-ink-soft">
+        <Link href="/onboarding" className="underline underline-offset-4 text-ink-soft hover:text-accent-deep">
           start fresh on this device
         </Link>
       </p>

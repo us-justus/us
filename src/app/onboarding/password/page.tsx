@@ -168,8 +168,8 @@ function PasswordFlow() {
           </p>
           {error && <FieldError msg={error} />}
           {notice && (
-            <div className="rounded-2xl border border-green-200 bg-green-50 px-4 py-3">
-              <p className="text-[13px] text-green-800">{notice}</p>
+            <div className="rounded-2xl border border-accent-soft bg-accent-wash px-4 py-3">
+              <p className="text-[13px] leading-5 text-ink">{notice}</p>
             </div>
           )}
           <Button onClick={() => sendLink(email)} disabled={busy} className="w-full rounded-full">
@@ -189,8 +189,8 @@ function PasswordFlow() {
             Open it on this device to continue.
           </p>
           {notice && (
-            <div className="rounded-2xl border border-green-200 bg-green-50 px-4 py-3">
-              <p className="text-[13px] text-green-800">{notice}</p>
+            <div className="rounded-2xl border border-accent-soft bg-accent-wash px-4 py-3">
+              <p className="text-[13px] leading-5 text-ink">{notice}</p>
             </div>
           )}
           {error && <FieldError msg={error} />}
@@ -201,7 +201,7 @@ function PasswordFlow() {
             <button
               onClick={() => sendLink(email)}
               disabled={busy}
-              className="w-full py-2 text-[12px] tracking-[0.12em] uppercase text-ink-soft hover:text-ink min-h-[44px]"
+              className="w-full py-2 text-[12px] tracking-[0.12em] uppercase text-ink-soft transition-colors hover:text-accent-deep hover:bg-accent-wash rounded-full min-h-[44px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               resend email
             </button>
@@ -212,14 +212,14 @@ function PasswordFlow() {
       {(phase === "password" || phase === "done") && (
         <>
           {phase === "done" ? (
-            <div className="rounded-2xl border border-green-200 bg-green-50 px-4 py-3">
-              <p className="text-[13px] text-green-800">secured — taking you to your profile…</p>
+            <div className="rounded-2xl border border-accent-soft bg-accent-wash px-4 py-3">
+              <p className="text-[13px] leading-5 text-ink">secured — taking you to your profile…</p>
             </div>
           ) : (
             <>
               {notice && (
-                <div className="rounded-2xl border border-green-200 bg-green-50 px-4 py-3">
-                  <p className="text-[13px] text-green-800">{notice}</p>
+                <div className="rounded-2xl border border-accent-soft bg-accent-wash px-4 py-3">
+                  <p className="text-[13px] leading-5 text-ink">{notice}</p>
                 </div>
               )}
               <div>
@@ -234,13 +234,13 @@ function PasswordFlow() {
                     placeholder="at least 8 characters"
                     autoComplete="new-password"
                     enterKeyHint="next"
-                    className="w-full rounded-2xl border border-line bg-paper px-4 py-3.5 pr-16 text-base outline-none focus:border-ink-faint placeholder:text-ink-faint"
+                    className="w-full rounded-2xl border border-line bg-paper px-4 py-3.5 pr-16 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPw((v) => !v)}
                     aria-label={showPw ? "hide password" : "show password"}
-                    className="absolute right-2 top-1/2 flex min-h-[44px] min-w-[44px] -translate-y-1/2 items-center justify-center text-[12px] tracking-[0.08em] uppercase text-ink-soft hover:text-ink"
+                    className="absolute right-2 top-1/2 flex min-h-[44px] min-w-[44px] -translate-y-1/2 items-center justify-center rounded-full text-[12px] tracking-[0.08em] uppercase text-ink-soft transition-colors hover:text-accent-deep hover:bg-accent-wash focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   >
                     {showPw ? "hide" : "show"}
                   </button>
@@ -258,13 +258,13 @@ function PasswordFlow() {
                     placeholder="repeat it"
                     autoComplete="new-password"
                     enterKeyHint="go"
-                    className="w-full rounded-2xl border border-line bg-paper px-4 py-3.5 pr-16 text-base outline-none focus:border-ink-faint placeholder:text-ink-faint"
+                    className="w-full rounded-2xl border border-line bg-paper px-4 py-3.5 pr-16 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft"
                   />
                   <button
                     type="button"
                     onClick={() => setShowConfirm((v) => !v)}
                     aria-label={showConfirm ? "hide password" : "show password"}
-                    className="absolute right-2 top-1/2 flex min-h-[44px] min-w-[44px] -translate-y-1/2 items-center justify-center text-[12px] tracking-[0.08em] uppercase text-ink-soft hover:text-ink"
+                    className="absolute right-2 top-1/2 flex min-h-[44px] min-w-[44px] -translate-y-1/2 items-center justify-center rounded-full text-[12px] tracking-[0.08em] uppercase text-ink-soft transition-colors hover:text-accent-deep hover:bg-accent-wash focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   >
                     {showConfirm ? "hide" : "show"}
                   </button>

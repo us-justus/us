@@ -285,8 +285,8 @@ function AccountFlow() {
   return (
     <div className="mt-8">
       {linkError === "link-expired" && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3">
-          <p className="text-[13px] text-[#a63d2f]">
+        <div className="rounded-2xl border border-accent-soft bg-accent-wash px-4 py-3">
+          <p className="text-[13px] text-accent-deep">
             That verification link expired or was already used. Enter your email below to get a
             fresh one.
           </p>

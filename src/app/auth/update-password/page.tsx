@@ -64,8 +64,8 @@ export default function UpdatePasswordPage() {
           <p className="mt-8 text-[13px] text-ink-soft">checking your reset link…</p>
         ) : status === "signed-out" ? (
           <div className="mt-8">
-            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3">
-              <p className="text-[13px] text-[#a63d2f]">
+            <div className="rounded-2xl border border-accent-soft bg-accent-wash px-4 py-3">
+              <p className="text-[13px] text-accent-deep">
                 This reset link is invalid or expired. Request a fresh one.
               </p>
             </div>

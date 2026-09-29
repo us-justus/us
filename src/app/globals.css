@@ -9,23 +9,33 @@
   --color-line: var(--line);
   --color-line-strong: var(--line-strong);
   --color-accent: var(--accent);
+  --color-accent-deep: var(--accent-deep);
   --color-accent-hover: var(--accent-hover);
   --color-accent-soft: var(--accent-soft);
+  --color-accent-wash: var(--accent-wash);
+  --color-accent-foreground: var(--accent-foreground);
   --font-display: var(--font-display);
   --font-sans: var(--font-geist-sans);
 }
 
 :root {
-  --paper: #fdfbf7;
-  --paper-2: #f6f0e8;
-  --ink: #171614;
+  --paper: #fffdf9;
+  --paper-2: #fff9f6;
+  --ink: #171615;
   --ink-soft: #6f6862;
   --ink-faint: #9a948f;
-  --line: #ece6dd;
+  --line: #e9e0dc;
   --line-strong: #ddd6cb;
-  --accent: #a63d2f;
-  --accent-hover: #8f3529;
-  --accent-soft: #f5e8e5;
+  /* Brand coral, sampled from src/app/favicon.ico (#FF6666 field, #FFCCCC
+     detail). --accent is decorative/interactive only — never body text on
+     light backgrounds. --accent-deep (the previous terracotta accent) is the
+     text-safe coral for links, errors, and selected text on light surfaces. */
+  --accent: #ff6666;
+  --accent-deep: #a63d2f;
+  --accent-hover: #f25555;
+  --accent-soft: #ffcccc;
+  --accent-wash: #fff0ee;
+  --accent-foreground: #ffffff;
 }
 
 * {

@@ -379,3 +379,62 @@ code without a measured reason. Assessment from the audit:
   execution), SMS/phone flows (out of V1 scope), local session reads.
 - Cloudflare does not fix sequential waterfalls or oversized images. Apply
   §6 and §7 first; re-measure; only then evaluate edge moves.
+
+---
+
+# 13. Brand System Application (Steps 2–3 learnings)
+
+Warm coral system, sampled from `src/app/favicon.ico` (`#FF6666` field,
+`#FFCCCC` detail). Tokens live in `src/app/globals.css`; no parallel color
+system may be created.
+
+## 13.1 Token contract
+
+- `--paper` / `--paper-2`: surfaces (warm cream). Page background stays cream.
+- `--ink`: primary actions + headings (dark editorial). Primary CTAs
+  (e.g. ENTER) stay dark — never coral-filled.
+- `--accent` (`#FF6666`): decorative/interactive only. Contrast is
+  insufficient for body text — never links, errors, or paragraph text on
+  light backgrounds. Uses: tiny dots/markers, focus rings/borders, icon-fill
+  accents.
+- `--accent-deep` (`#A63D2F`): the text-safe coral. Links on hover, readable
+  error text, selected-step text.
+- `--accent-soft` (`#FFCCCC`) + `--accent-wash` (`#FFF0EE`): borders and
+  subtle emphasis backgrounds (selected pills, error/notice boxes, hover
+  washes).
+- `--accent-hover` / `--accent-foreground`: the coral-filled interactive
+  state (e.g. Like button) + its text.
+
+Usage ratio: ink = primary actions; paper = surfaces; coral = accent only;
+deep = readable coral text; wash = selected/error/subtle emphasis. Never make
+every interactive element coral — the product should read as editorial
+fashion/relationship, not generic pink dating app.
+
+## 13.2 Applied patterns (landing, header, onboarding)
+
+- Inputs: cream surface, thin warm border, dark text; focus is
+  `border-accent` + soft coral ring (grey focus borders removed).
+- Errors AND notices: boxed `border-accent-soft bg-accent-wash` with
+  `text-accent-deep` (or `text-ink` for neutral notices). No green/red
+  one-off boxes; bright coral never used as body text.
+- Secondary actions: transparent/cream + warm border + dark text; coral only
+  on hover/focus (`hover:bg-accent-wash hover:border-accent-soft
+  hover:text-accent-deep`).
+- Progress/context text stays understated; coral allowed only as a tiny
+  step marker dot — no large progress bars.
+- Hamburger/menu buttons stay cream/unfilled; coral appears only as hover
+  wash and focus ring.
+- Every interactive element keeps a visible coral keyboard-focus outline
+  (global `:focus-visible`); components must not opt out with
+  `focus-visible:outline-none`.
+- 44px minimum touch targets everywhere, including icon-only buttons
+  (photo remove ×) and in-card retry/remove actions.
+
+## 13.3 Scope discipline
+
+Steps 2–3 covered tokens, landing, header, and onboarding only. Discover,
+Matches/Chat, profile editing, settings, auth/session, Supabase/RLS,
+routing, and image logic were not redesigned; only token-substitution
+edits that clearly conflicted (error boxes, focus states) were carried
+over where the new system already existed. Later visual steps must follow
+§13.1–§13.2 rather than inventing new hex values.
