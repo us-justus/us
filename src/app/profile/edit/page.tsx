@@ -326,7 +326,7 @@ export default function EditProfilePage() {
         <div className="px-2 sm:px-0">
           <Link
             href="/profile"
-            className="inline-flex items-center gap-1 text-[11px] tracking-[0.14em] uppercase text-ink-faint hover:text-ink-soft transition-colors"
+            className="inline-flex min-h-[44px] items-center gap-1 rounded-full text-[11px] tracking-[0.14em] uppercase text-ink-faint transition-colors hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             ← back to profile
           </Link>
@@ -366,7 +366,7 @@ export default function EditProfilePage() {
                   <button
                     onClick={() => remove(p.id)}
                     aria-label="delete photo"
-                    className="absolute right-1.5 top-1.5 inline-flex h-8 w-8 items-center justify-center rounded-full bg-ink text-paper text-[16px] leading-none hover:bg-black transition-colors"
+                    className="absolute right-1.5 top-1.5 inline-flex h-11 w-11 items-center justify-center rounded-full bg-ink text-paper text-[16px] leading-none transition-colors hover:bg-black focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   >
                     ×
                   </button>
@@ -375,7 +375,7 @@ export default function EditProfilePage() {
                   <button
                     onClick={() => reorder(idx, idx - 1)}
                     disabled={idx === 0 || reordering}
-                    className="flex h-8 flex-1 items-center justify-center rounded-full border border-line bg-paper text-[13px] tracking-wide text-ink disabled:opacity-40 disabled:pointer-events-none hover:bg-paper-2 transition-colors"
+                    className="flex min-h-[44px] flex-1 items-center justify-center rounded-full border border-line bg-paper text-[13px] tracking-wide text-ink disabled:opacity-40 disabled:pointer-events-none transition-colors hover:bg-accent-wash hover:border-accent-soft hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                     aria-label="move left"
                   >
                     ←
@@ -383,7 +383,7 @@ export default function EditProfilePage() {
                   <button
                     onClick={() => reorder(idx, idx + 1)}
                     disabled={idx === photos.length - 1 || reordering}
-                    className="flex h-8 flex-1 items-center justify-center rounded-full border border-line bg-paper text-[13px] tracking-wide text-ink disabled:opacity-40 disabled:pointer-events-none hover:bg-paper-2 transition-colors"
+                    className="flex min-h-[44px] flex-1 items-center justify-center rounded-full border border-line bg-paper text-[13px] tracking-wide text-ink disabled:opacity-40 disabled:pointer-events-none transition-colors hover:bg-accent-wash hover:border-accent-soft hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                     aria-label="move right"
                   >
                     →
@@ -402,7 +402,7 @@ export default function EditProfilePage() {
                       quality, before compression/upload finish. */}
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={q.previewUrl} alt="upload preview" className="h-full w-full object-cover" />
-                  <span className="absolute left-2 top-2 rounded-full bg-paper/90 px-2 py-0.5 text-[10px] tracking-[0.12em] uppercase font-medium text-ink">
+                  <span className="absolute left-2 top-2 rounded-full border border-accent-soft bg-accent-wash/95 px-2 py-0.5 text-[10px] tracking-[0.12em] uppercase font-medium text-accent-deep">
                     {q.status === "failed" ? "failed" : q.status === "optimizing" ? "optimizing…" : q.status === "uploading" ? "uploading…" : "selected"}
                   </span>
                   {q.status === "failed" ? (
@@ -410,23 +410,23 @@ export default function EditProfilePage() {
                       <button
                         onClick={() => retry(q.localId)}
                         aria-label="retry upload"
-                        className="flex h-8 flex-1 items-center justify-center rounded-full bg-ink text-paper text-[11px] tracking-[0.08em] uppercase"
+                        className="flex min-h-[44px] flex-1 items-center justify-center rounded-full bg-ink text-paper text-[11px] tracking-[0.08em] uppercase transition-colors hover:bg-black focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                       >
                         retry
                       </button>
                       <button
                         onClick={() => removePending(q.localId)}
                         aria-label="remove photo"
-                        className="flex h-8 flex-1 items-center justify-center rounded-full bg-paper/90 text-ink text-[11px] tracking-[0.08em] uppercase"
+                        className="flex min-h-[44px] flex-1 items-center justify-center rounded-full border border-line bg-paper text-ink text-[11px] tracking-[0.08em] uppercase transition-colors hover:bg-accent-wash hover:border-accent-soft hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                       >
                         remove
                       </button>
                     </span>
                   ) : (
-                    <button
+                      <button
                       onClick={() => removePending(q.localId)}
                       aria-label="cancel upload"
-                      className="absolute right-1.5 top-1.5 inline-flex h-8 w-8 items-center justify-center rounded-full bg-ink text-paper text-[16px] leading-none hover:bg-black transition-colors"
+                      className="absolute right-1.5 top-1.5 inline-flex h-11 w-11 items-center justify-center rounded-full bg-ink text-paper text-[16px] leading-none transition-colors hover:bg-black focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                     >
                       ×
                     </button>
@@ -439,7 +439,7 @@ export default function EditProfilePage() {
             ))}
 
             {photos.length + pending.length < MAX_PHOTOS && (
-              <label className="flex aspect-[3/4] min-h-[140px] flex-col items-center justify-center rounded-2xl border border-dashed border-line-strong bg-paper-2 hover:bg-paper cursor-pointer text-ink-soft transition-colors">
+              <label className="flex aspect-[3/4] min-h-[140px] flex-col items-center justify-center rounded-2xl border border-dashed border-line-strong bg-paper-2 cursor-pointer text-ink-soft transition-colors hover:bg-accent-wash hover:border-accent-soft hover:text-accent-deep focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-accent">
                 <span className="text-[22px] leading-none">+</span>
                 <span className="mt-1 text-[11px] tracking-[0.12em] uppercase">add</span>
                 <span className="mt-1 text-[10px] text-ink-faint">JPG/PNG/WEBP</span>
@@ -475,7 +475,7 @@ export default function EditProfilePage() {
               value={nickname}
               onChange={(e) => setNickname(e.target.value)}
               placeholder="what should we call you?"
-              className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base outline-none focus:border-ink-faint placeholder:text-ink-faint"
+              className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft"
             />
             {fieldErr.nickname && <FieldError msg={fieldErr.nickname} />}
           </div>
@@ -488,7 +488,7 @@ export default function EditProfilePage() {
                 onChange={(e) => setAge(e.target.value)}
                 inputMode="numeric"
                 placeholder="20"
-                className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base outline-none focus:border-ink-faint"
+                className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft"
               />
               {fieldErr.age && <FieldError msg={fieldErr.age} />}
             </div>
@@ -497,7 +497,7 @@ export default function EditProfilePage() {
               <select
                 value={year}
                 onChange={(e) => setYear(e.target.value)}
-                className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base outline-none focus:border-ink-faint"
+                className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base text-ink outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent-soft"
               >
                 <option value="">select</option>
                 {YEARS.map((y) => (
@@ -515,7 +515,7 @@ export default function EditProfilePage() {
             <select
               value={branch}
               onChange={(e) => setBranch(e.target.value)}
-              className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base outline-none focus:border-ink-faint"
+              className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base text-ink outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent-soft"
             >
               <option value="">select</option>
               {BRANCHES.map((b) => (
@@ -536,7 +536,7 @@ export default function EditProfilePage() {
               onChange={(e) => setBio(e.target.value)}
               rows={3}
               placeholder="a line or two about you"
-              className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base outline-none focus:border-ink-faint resize-none"
+              className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft resize-none"
             />
             <div className="mt-1 flex justify-between">
               <div>{fieldErr.bio && <FieldError msg={fieldErr.bio} />}</div>
@@ -552,7 +552,7 @@ export default function EditProfilePage() {
               value={interests}
               onChange={(e) => setInterests(e.target.value)}
               placeholder="music, football, books"
-              className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base outline-none focus:border-ink-faint"
+              className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft"
             />
             <p className="mt-1 text-[11px] text-ink-faint">up to 8 · shown as pills on your profile</p>
           </div>
@@ -564,8 +564,8 @@ export default function EditProfilePage() {
           )}
 
           {success && (
-            <div className="rounded-2xl border border-green-200 bg-green-50 px-4 py-3">
-              <p className="text-[13px] text-green-800">saved — returning to profile…</p>
+            <div className="rounded-2xl border border-accent-soft bg-accent-wash px-4 py-3">
+              <p className="text-[13px] text-accent-deep">saved — returning to profile…</p>
             </div>
           )}
 
@@ -575,7 +575,7 @@ export default function EditProfilePage() {
             </Button>
             <Link
               href="/profile"
-              className="mt-3 flex w-full justify-center rounded-full border border-line bg-paper px-8 py-[14px] text-[12px] tracking-[0.14em] uppercase font-medium text-ink-soft hover:bg-paper-2 transition-colors"
+              className="mt-3 flex min-h-[44px] w-full items-center justify-center rounded-full border border-line bg-paper px-8 py-[14px] text-[12px] tracking-[0.14em] uppercase font-medium text-ink-soft transition-colors hover:bg-accent-wash hover:border-accent-soft hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               cancel
             </Link>

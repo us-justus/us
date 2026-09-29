@@ -75,7 +75,7 @@ function AccountSettings({
             </p>
             <Link
               href="/settings/account"
-              className="mt-5 inline-flex w-full items-center justify-center rounded-full bg-ink px-8 py-[15px] text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors"
+              className="mt-5 inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-ink px-8 py-[15px] text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               secure account
             </Link>
@@ -99,7 +99,7 @@ function AccountSettings({
             {!emailConfirmed && (
               <Link
                 href="/settings/account"
-                className="mt-5 inline-flex w-full items-center justify-center rounded-full bg-ink px-8 py-[15px] text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors"
+                className="mt-5 inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-ink px-8 py-[15px] text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               >
                 finish securing account
               </Link>
@@ -127,20 +127,20 @@ function AccountSettings({
         <div className="flex flex-col gap-1 py-4">
           <Link
             href="/profile"
-            className="py-2.5 text-[14px] tracking-[0.04em] text-ink-soft hover:text-ink transition-colors"
+            className="inline-flex min-h-[44px] items-center rounded-full py-2.5 text-[14px] tracking-[0.04em] text-ink-soft transition-colors hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             view profile →
           </Link>
           <Link
             href="/profile/edit"
-            className="py-2.5 text-[14px] tracking-[0.04em] text-ink-soft hover:text-ink transition-colors"
+            className="inline-flex min-h-[44px] items-center rounded-full py-2.5 text-[14px] tracking-[0.04em] text-ink-soft transition-colors hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             edit profile →
           </Link>
           {kind !== "anonymous" && (
             <Link
               href="/settings/account"
-              className="py-2.5 text-[14px] tracking-[0.04em] text-ink-soft hover:text-ink transition-colors"
+              className="inline-flex min-h-[44px] items-center rounded-full py-2.5 text-[14px] tracking-[0.04em] text-ink-soft transition-colors hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               manage account →
             </Link>

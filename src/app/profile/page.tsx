@@ -26,7 +26,7 @@ export default async function ProfilePage() {
           </p>
           <Link
             href="/profile"
-            className="mt-8 inline-flex items-center justify-center rounded-full bg-ink px-8 py-[14px] text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors"
+            className="mt-8 inline-flex min-h-[44px] items-center justify-center rounded-full bg-ink px-8 py-[14px] text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             try again
           </Link>
@@ -46,7 +46,7 @@ export default async function ProfilePage() {
           </p>
           <Link
             href="/onboarding/profile"
-            className="mt-8 inline-flex items-center justify-center rounded-full bg-ink px-8 py-[14px] text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors"
+            className="mt-8 inline-flex min-h-[44px] items-center justify-center rounded-full bg-ink px-8 py-[14px] text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             create profile
           </Link>
@@ -75,7 +75,7 @@ export default async function ProfilePage() {
             </div>
             <Link
               href="/profile/edit"
-              className="shrink-0 inline-flex items-center justify-center rounded-full border border-line bg-paper px-5 py-2.5 text-[11px] tracking-[0.14em] uppercase font-medium text-ink hover:bg-paper-2 transition-colors"
+              className="shrink-0 inline-flex min-h-[44px] items-center justify-center rounded-full border border-line bg-paper px-5 py-2.5 text-[11px] tracking-[0.14em] uppercase font-medium text-ink transition-colors hover:bg-accent-wash hover:border-accent-soft hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               edit profile
             </Link>
@@ -89,7 +89,7 @@ export default async function ProfilePage() {
               <p className="text-[13px] text-ink-soft">No photos yet.</p>
               <Link
                 href="/profile/edit"
-                className="mt-3 inline-flex text-[11px] tracking-[0.12em] uppercase text-ink underline underline-offset-4"
+                className="mt-3 inline-flex min-h-[44px] items-center rounded-full text-[11px] tracking-[0.12em] uppercase text-ink underline underline-offset-4 transition-colors hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               >
                 add photos
               </Link>
@@ -199,19 +199,19 @@ export default async function ProfilePage() {
         <div className="mt-8 flex flex-col gap-3 px-2 sm:px-0">
           <Link
             href="/profile/edit"
-            className="inline-flex w-full items-center justify-center rounded-full bg-ink px-8 py-[15px] text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors"
+            className="inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-ink px-8 py-[15px] text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             edit profile
           </Link>
           <Link
             href="/discover"
-            className="inline-flex w-full items-center justify-center rounded-full border border-line bg-paper px-8 py-[14px] text-[12px] tracking-[0.14em] uppercase font-medium text-ink-soft hover:bg-paper-2 transition-colors"
+            className="inline-flex min-h-[44px] w-full items-center justify-center rounded-full border border-line bg-paper px-8 py-[14px] text-[12px] tracking-[0.14em] uppercase font-medium text-ink-soft transition-colors hover:bg-accent-wash hover:border-accent-soft hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             back to discover
           </Link>
           <Link
             href="/settings"
-            className="inline-flex w-full items-center justify-center py-2 text-[12px] tracking-[0.12em] uppercase text-ink-soft hover:text-ink transition-colors"
+            className="inline-flex min-h-[44px] w-full items-center justify-center rounded-full py-2 text-[12px] tracking-[0.12em] uppercase text-ink-soft transition-colors hover:text-accent-deep hover:bg-accent-wash focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             account settings
           </Link>

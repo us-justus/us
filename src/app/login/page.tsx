@@ -150,7 +150,7 @@ function LoginFlow() {
           spellCheck={false}
           autoComplete="username"
           enterKeyHint="next"
-          className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base uppercase tracking-[0.08em] outline-none focus:border-ink-faint placeholder:text-ink-faint placeholder:normal-case placeholder:tracking-normal"
+          className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base uppercase tracking-[0.08em] text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft placeholder:normal-case placeholder:tracking-normal"
         />
       </div>
       <div className="mt-4">
@@ -168,7 +168,7 @@ function LoginFlow() {
           spellCheck={false}
           autoComplete="email"
           enterKeyHint="next"
-          className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base outline-none focus:border-ink-faint placeholder:text-ink-faint"
+          className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft"
         />
       </div>
       {!forgot && (
@@ -184,13 +184,13 @@ function LoginFlow() {
               placeholder="your password"
               autoComplete="current-password"
               enterKeyHint="go"
-              className="w-full rounded-2xl border border-line bg-paper px-4 py-3.5 pr-16 text-base outline-none focus:border-ink-faint placeholder:text-ink-faint"
+              className="w-full rounded-2xl border border-line bg-paper px-4 py-3.5 pr-16 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft"
             />
             <button
               type="button"
               onClick={() => setShowPw((v) => !v)}
               aria-label={showPw ? "hide password" : "show password"}
-              className="absolute right-2 top-1/2 flex min-h-[44px] min-w-[44px] -translate-y-1/2 items-center justify-center text-[12px] tracking-[0.08em] uppercase text-ink-soft hover:text-ink"
+              className="absolute right-2 top-1/2 flex min-h-[44px] min-w-[44px] -translate-y-1/2 items-center justify-center rounded-full text-[12px] tracking-[0.08em] uppercase text-ink-soft transition-colors hover:text-accent-deep hover:bg-accent-wash focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               {showPw ? "hide" : "show"}
             </button>
@@ -209,7 +209,7 @@ function LoginFlow() {
           <button
             type="submit"
             disabled={busy}
-            className="mt-5 inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-ink px-8 py-[15px] text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors disabled:opacity-40"
+            className="mt-5 inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-ink px-8 py-[15px] text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             {busy ? "signing in…" : "continue"}
           </button>
@@ -219,7 +219,7 @@ function LoginFlow() {
               setForgot(true);
               setError(null);
             }}
-            className="mt-4 min-h-[44px] w-full py-2 text-[12px] tracking-[0.12em] uppercase text-ink-soft hover:text-ink"
+            className="mt-4 min-h-[44px] w-full rounded-full py-2 text-[12px] tracking-[0.12em] uppercase text-ink-soft transition-colors hover:text-accent-deep hover:bg-accent-wash focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             forgot password?
           </button>
@@ -236,8 +236,8 @@ function LoginFlow() {
             </div>
           )}
           {resetSent && (
-            <div className="mt-3 rounded-2xl border border-green-200 bg-green-50 px-4 py-3">
-              <p className="text-[13px] text-green-800">
+            <div className="mt-3 rounded-2xl border border-accent-soft bg-accent-wash px-4 py-3">
+              <p className="text-[13px] text-accent-deep">
                 If an account exists for this email, a reset link is on its way.
               </p>
             </div>
@@ -246,7 +246,7 @@ function LoginFlow() {
             type="button"
             onClick={sendReset}
             disabled={resetBusy}
-            className="mt-4 inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-ink px-8 py-[15px] text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors disabled:opacity-40"
+            className="mt-4 inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-ink px-8 py-[15px] text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             {resetBusy ? "sending…" : "send reset link"}
           </button>
@@ -257,7 +257,7 @@ function LoginFlow() {
               setResetSent(false);
               setResetErr(null);
             }}
-            className="mt-3 min-h-[44px] w-full py-2 text-[12px] tracking-[0.12em] uppercase text-ink-soft hover:text-ink"
+            className="mt-3 min-h-[44px] w-full rounded-full py-2 text-[12px] tracking-[0.12em] uppercase text-ink-soft transition-colors hover:text-accent-deep hover:bg-accent-wash focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             back to sign in
           </button>
@@ -267,7 +267,7 @@ function LoginFlow() {
 
       <p className="mt-6 text-center text-[11px] leading-4 text-ink-faint">
         New here?{" "}
-        <Link href="/onboarding" className="underline underline-offset-4 text-ink-soft hover:text-accent-deep">
+        <Link href="/onboarding" className="underline underline-offset-4 text-ink-soft transition-colors hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent rounded-full">
           start fresh on this device
         </Link>
       </p>
@@ -311,7 +311,7 @@ function SignedInContinue() {
         <div className="mt-6 flex flex-col gap-3">
           <Link
             href="/onboarding"
-            className="inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-ink px-8 py-[15px] text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors"
+            className="inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-ink px-8 py-[15px] text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             continue
           </Link>
@@ -325,8 +325,11 @@ function SignedInContinue() {
 export default function LoginPage() {
   return (
     <div className="flex flex-1 flex-col pb-[env(safe-area-inset-bottom)]">
-      <div className="mx-auto w-full max-w-[560px] flex-1 px-6 sm:px-8 py-8 sm:py-10">
-        <p className="text-[11px] tracking-[0.18em] uppercase text-ink-faint">welcome back</p>
+      <div className="mx-auto w-full max-w-[560px] flex-1 px-6 sm:px-8 py-10 sm:py-14">
+        <p className="flex items-center gap-2 text-[11px] tracking-[0.18em] uppercase text-ink-faint">
+          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
+          welcome back
+        </p>
         <h1 className="mt-2 font-display text-[30px] sm:text-[34px] tracking-[-0.03em] leading-none">
           sign in.
         </h1>

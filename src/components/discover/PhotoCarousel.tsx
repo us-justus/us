@@ -51,7 +51,7 @@ export function PhotoCarousel({
               e.stopPropagation();
               go(-1);
             }}
-            className="absolute left-0 top-0 h-full w-[42%] cursor-pointer bg-transparent"
+            className="absolute left-0 top-0 h-full w-[42%] cursor-pointer bg-transparent focus-visible:outline-2 focus-visible:outline-accent"
           />
           <button
             aria-label="Next photo"
@@ -59,7 +59,7 @@ export function PhotoCarousel({
               e.stopPropagation();
               go(1);
             }}
-            className="absolute right-0 top-0 h-full w-[42%] cursor-pointer bg-transparent"
+            className="absolute right-0 top-0 h-full w-[42%] cursor-pointer bg-transparent focus-visible:outline-2 focus-visible:outline-accent"
           />
         </>
       )}

@@ -18,7 +18,7 @@ export function MatchOverlay({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: d(0.25) }}
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-paper px-6 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] text-center"
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-accent-wash px-6 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] text-center"
     >
       <motion.p
         initial={{ opacity: 0, y: d(8) }}
@@ -44,13 +44,13 @@ export function MatchOverlay({
       >
         <Link
           href="/matches"
-          className="inline-flex min-h-[44px] items-center rounded-full bg-ink px-8 py-3 text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors"
+          className="inline-flex min-h-[44px] items-center rounded-full bg-ink px-8 py-3 text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
           say hi
         </Link>
         <button
           onClick={onKeepDiscovering}
-          className="min-h-[44px] px-4 text-[13px] tracking-wide text-ink-soft hover:text-ink transition-colors"
+          className="min-h-[44px] px-4 text-[13px] tracking-wide text-ink-soft transition-colors hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent rounded-full"
         >
           keep discovering
         </button>

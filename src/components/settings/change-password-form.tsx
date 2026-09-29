@@ -59,7 +59,7 @@ export function ChangePasswordForm({ title = "change password" }: { title?: stri
             placeholder="at least 8 characters"
             autoComplete="new-password"
             enterKeyHint="next"
-            className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base outline-none focus:border-ink-faint placeholder:text-ink-faint"
+            className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft"
           />
         </div>
         <div>
@@ -71,7 +71,7 @@ export function ChangePasswordForm({ title = "change password" }: { title?: stri
             placeholder="repeat it"
             autoComplete="new-password"
             enterKeyHint="go"
-            className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base outline-none focus:border-ink-faint placeholder:text-ink-faint"
+            className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft"
           />
         </div>
         {fieldErr && <FieldError msg={fieldErr} />}
@@ -81,14 +81,14 @@ export function ChangePasswordForm({ title = "change password" }: { title?: stri
           </div>
         )}
         {done && (
-          <div className="rounded-2xl border border-green-200 bg-green-50 px-4 py-3">
-            <p className="text-[13px] text-green-800">password updated.</p>
+          <div className="rounded-2xl border border-accent-soft bg-accent-wash px-4 py-3">
+            <p className="text-[13px] text-accent-deep">password updated.</p>
           </div>
         )}
         <button
           onClick={submit}
           disabled={busy}
-          className="inline-flex w-full items-center justify-center rounded-full bg-ink px-8 py-[15px] text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors disabled:opacity-40"
+          className="inline-flex w-full min-h-[44px] items-center justify-center rounded-full bg-ink px-8 py-[15px] text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
           {busy ? "saving…" : "save password"}
         </button>

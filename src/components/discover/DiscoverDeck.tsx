@@ -53,10 +53,10 @@ function DraggableCard({
       className="absolute inset-0 cursor-grab active:cursor-grabbing"
     >
       <ProfileCard profile={profile} priority />
-      <motion.div style={{ opacity: likeOpacity }} className="pointer-events-none absolute left-4 top-4 rounded-full bg-white/90 border border-accent-soft px-3 py-1.5 text-[11px] font-medium tracking-[0.14em] uppercase text-accent-deep">
+      <motion.div style={{ opacity: likeOpacity }} className="pointer-events-none absolute left-4 top-4 rounded-full bg-paper/90 border border-accent-soft px-3 py-1.5 text-[11px] font-medium tracking-[0.14em] uppercase text-accent-deep">
         like
       </motion.div>
-      <motion.div style={{ opacity: passOpacity }} className="pointer-events-none absolute right-4 top-4 rounded-full bg-ink/90 border border-white/20 px-3 py-1.5 text-[11px] font-medium tracking-[0.14em] uppercase text-white">
+      <motion.div style={{ opacity: passOpacity }} className="pointer-events-none absolute right-4 top-4 rounded-full bg-ink/90 border border-paper/20 px-3 py-1.5 text-[11px] font-medium tracking-[0.14em] uppercase text-paper">
         pass
       </motion.div>
     </motion.div>
@@ -143,8 +143,10 @@ export function DiscoverDeck({ initialProfiles }: { initialProfiles: DiscoverPro
   if (!top) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
-        <p className="font-display text-[28px] tracking-[-0.03em] text-ink">that&apos;s everyone for now.</p>
-        <p className="mt-2 text-[14px] text-ink-soft">check back later.</p>
+        <p className="text-[11px] tracking-[0.18em] uppercase text-ink-faint">discover</p>
+        <p className="mt-3 font-display text-[28px] tracking-[-0.03em] text-ink">that&apos;s everyone for now.</p>
+        <p className="mt-2 max-w-[32ch] text-[14px] leading-6 text-ink-soft">check back later — new campus profiles appear here.</p>
+        <div className="mt-8 h-px w-12 bg-line-strong" />
       </div>
     );
   }

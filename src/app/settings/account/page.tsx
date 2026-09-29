@@ -163,8 +163,8 @@ function AccountFlow() {
   if (account.kind === "permanent-verified" && justVerified) {
     if (done) {
       return (
-        <div className="mt-8 rounded-2xl border border-green-200 bg-green-50 px-4 py-3">
-          <p className="text-[13px] text-green-800">
+        <div className="mt-8 rounded-2xl border border-accent-soft bg-accent-wash px-4 py-3">
+          <p className="text-[13px] text-accent-deep">
             secured — same account, same profile. Taking you back…
           </p>
         </div>
@@ -172,8 +172,8 @@ function AccountFlow() {
     }
     return (
       <div className="mt-8">
-        <div className="rounded-2xl border border-green-200 bg-green-50 px-4 py-3">
-          <p className="text-[13px] text-green-800">Email verified — set a password to finish.</p>
+        <div className="rounded-2xl border border-accent-soft bg-accent-wash px-4 py-3">
+          <p className="text-[13px] text-accent-deep">Email verified — set a password to finish.</p>
         </div>
         <div className="mt-6">
           <p className="font-display text-[22px] tracking-[-0.02em]">set your password.</p>
@@ -192,7 +192,7 @@ function AccountFlow() {
                 placeholder="at least 8 characters"
                 autoComplete="new-password"
                 enterKeyHint="next"
-                className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base outline-none focus:border-ink-faint placeholder:text-ink-faint"
+                className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft"
               />
             </div>
             <div>
@@ -206,14 +206,14 @@ function AccountFlow() {
                 placeholder="repeat it"
                 autoComplete="new-password"
                 enterKeyHint="go"
-                className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base outline-none focus:border-ink-faint placeholder:text-ink-faint"
+                className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft"
               />
             </div>
             {pwErr && <FieldError msg={pwErr} />}
             <button
               onClick={setFirstPassword}
               disabled={pwBusy}
-              className="inline-flex w-full items-center justify-center rounded-full bg-ink px-8 py-[15px] text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors disabled:opacity-40"
+              className="inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-ink px-8 py-[15px] text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               {pwBusy ? "saving…" : "secure my account"}
             </button>
@@ -229,8 +229,8 @@ function AccountFlow() {
     return (
       <div className="mt-8">
         {notice && (
-          <div className="rounded-2xl border border-green-200 bg-green-50 px-4 py-3">
-            <p className="text-[13px] text-green-800">{notice}</p>
+          <div className="rounded-2xl border border-accent-soft bg-accent-wash px-4 py-3">
+            <p className="text-[13px] text-accent-deep">{notice}</p>
           </div>
         )}
         <div className={notice ? "mt-6" : ""}>
@@ -252,14 +252,14 @@ function AccountFlow() {
                   setNotice("Not verified yet — open the link in your email, then continue.");
                 }
               }}
-              className="inline-flex w-full items-center justify-center rounded-full bg-ink px-8 py-[15px] text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors"
+              className="inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-ink px-8 py-[15px] text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               i&apos;ve verified — continue
             </button>
             <button
               onClick={() => sendLink(pendingEmail)}
               disabled={busy}
-              className="inline-flex w-full items-center justify-center rounded-full border border-line bg-paper px-8 py-[14px] text-[12px] tracking-[0.14em] uppercase font-medium text-ink-soft hover:bg-paper-2 transition-colors disabled:opacity-40"
+              className="inline-flex min-h-[44px] w-full items-center justify-center rounded-full border border-line bg-paper px-8 py-[14px] text-[12px] tracking-[0.14em] uppercase font-medium text-ink-soft transition-colors hover:bg-accent-wash hover:border-accent-soft hover:text-accent-deep disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               {busy ? "sending…" : "resend email"}
             </button>
@@ -270,7 +270,7 @@ function AccountFlow() {
                   setEmail("");
                   setNotice(null);
                 }}
-                className="w-full py-2 text-[12px] tracking-[0.12em] uppercase text-ink-soft hover:text-ink"
+                className="min-h-[44px] w-full rounded-full py-2 text-[12px] tracking-[0.12em] uppercase text-ink-soft transition-colors hover:text-accent-deep hover:bg-accent-wash focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               >
                 use a different email
               </button>
@@ -309,14 +309,14 @@ function AccountFlow() {
             spellCheck={false}
             autoComplete="email"
             enterKeyHint="send"
-            className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base outline-none focus:border-ink-faint placeholder:text-ink-faint"
+            className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft"
           />
           {emailErr && <FieldError msg={emailErr} />}
         </div>
         <button
           onClick={() => sendLink()}
           disabled={busy}
-          className="mt-5 inline-flex w-full items-center justify-center rounded-full bg-ink px-8 py-[15px] text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors disabled:opacity-40"
+          className="mt-5 inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-ink px-8 py-[15px] text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
           {busy ? "sending…" : "send verification email"}
         </button>
@@ -334,7 +334,7 @@ export default function AccountPage() {
       <div className="mx-auto w-full max-w-[560px] flex-1 px-6 sm:px-8 py-8 sm:py-10">
         <Link
           href="/settings"
-          className="inline-flex items-center gap-1 text-[11px] tracking-[0.14em] uppercase text-ink-faint hover:text-ink-soft transition-colors"
+          className="inline-flex min-h-[44px] items-center gap-1 rounded-full text-[11px] tracking-[0.14em] uppercase text-ink-faint transition-colors hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
           ← back to settings
         </Link>

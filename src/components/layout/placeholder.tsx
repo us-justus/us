@@ -26,7 +26,7 @@ export function Placeholder({
       </p>
       <Link
         href="/"
-        className="mt-6 text-[13px] tracking-[0.08em] lowercase text-ink-soft underline decoration-line-strong underline-offset-4 hover:text-ink"
+        className="mt-4 inline-flex min-h-[44px] items-center rounded-full text-[13px] tracking-[0.08em] lowercase text-ink-soft underline decoration-line-strong underline-offset-4 transition-colors hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
       >
         back to us
       </Link>

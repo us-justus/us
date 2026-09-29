@@ -438,3 +438,99 @@ routing, and image logic were not redesigned; only token-substitution
 edits that clearly conflicted (error boxes, focus states) were carried
 over where the new system already existed. Later visual steps must follow
 §13.1–§13.2 rather than inventing new hex values.
+
+## 13.4 Landing warm-coral treatment (Step 4B learnings)
+
+The landing (`/`) now reads as warm coral/blush in the first viewport via
+surface color only — no layout, copy, typography, spacing, or CTA-hierarchy
+changes:
+
+- Hero root is `bg-accent-wash` (dominant blush field; `--accent` never used
+  as a full-screen background). Dark `us` wordmark + ink copy keep excellent
+  contrast on the wash.
+- The tiny `bg-accent` dot before "campus-only · verified · private" was
+  retained as the single high-intensity brand accent — no other coral
+  decoration was added (no gradients, glass, shadows, blobs, or graphics).
+- Primary "ENTER THE CAMPUS →" CTA stays `bg-ink` (dark); secondary "log in"
+  stays `bg-paper` so it reads as a light surface on the wash. Its hover was
+  retargeted `hover:bg-accent-wash` → `hover:bg-paper-2` because the old hover
+  washed out to the page background in the new context (border + deep-text
+  hover states unchanged).
+- Blush→cream transition is one band only: footer strip is `bg-paper` with a
+  `border-accent-soft` top rule (inner divider `bg-accent-soft`). Sections
+  were not given individual colors.
+- Landing header blends with the hero (`bg-accent-wash/80`, existing blur
+  kept, `border-transparent`); non-landing header untouched. Global
+  `themeColor` was deliberately left as paper — it is shared browser chrome,
+  not a landing surface. Mobile menu overlay stays `bg-paper` (secondary
+  surface on wash).
+- Verification: `npm run lint` clean; `npm run build` clean (23 pages);
+  SSR HTML of `/` (HTTP 200) contains the wash field, dark CTA, retained
+  coral dot, and intact copy. Only color-token classes changed, so 360/390/
+  430/desktop layout, 44px targets, focus rings, and overflow behavior are
+  unchanged by construction.
+
+## 13.5 Global consistency pass (Step 5 learnings)
+
+Visual-only pass over `/login`, `/onboarding/*`, `/discover`, `/matches`,
+`/chat`, `/profile`, `/profile/edit`, `/settings`, `/settings/account`,
+plus shared header/buttons/inputs/shells/empty-loading-error states.
+No auth/session/routing/Supabase/RLS/API/swipe-physics/matching/messaging
+logic changed; no dependencies added; no new color system created.
+
+- Classification used for every hardcoded color: (1) brand/UI color →
+  migrated to the §13.1 token; (2) genuine semantic state → none found
+  worth keeping (all green success boxes migrated — success is conveyed
+  by copy, not hue); (3) intentional image/photo overlay → preserved
+  (white text on photo gradients, white progress dots, translucent
+  interest pills, dark pass stamp); (4) primary dark CTA (`bg-ink`,
+  `hover:bg-black`) → preserved; (5) canvas JPEG fill / browser chrome /
+  third-party SVG → left alone.
+- Green → brand migration (7 files): `border-green-200 bg-green-50
+  text-green-800` success/notice boxes in login reset-sent,
+  change-password-form, settings/account (verified + pending + done),
+  profile/edit saved, and auth/update-password all became
+  `border-accent-soft bg-accent-wash text-accent-deep` (neutral notices
+  use `text-ink` on the same wash, matching the onboarding password
+  pattern). No green/red/blue state colors remain in `src/`.
+- Input language unified to onboarding: every product form input is now
+  `bg-paper border-line text-ink` with `focus:border-accent
+  focus:ring-2 focus:ring-accent-soft` (grey `focus:border-ink-faint`
+  removed from login, profile/edit, settings/account,
+  change-password-form, update-password). Update-password inputs also
+  fixed `text-[15px]` → `text-base` (16px+ mobile rule).
+- Pure-white UI surfaces → tokens: discover card `bg-white` → `bg-paper`,
+  pass-button `bg-white` → `bg-paper`, like stamp `bg-white/90` →
+  `bg-paper/90`, pass stamp `border-white/20 text-white` →
+  `border-paper/20 text-paper` (same look, token-correct). Card keeps
+  its `border-line` + soft ink shadow; the card was deliberately NOT
+  turned pink — coral appears only on like stamp, Like button, and
+  focus/selection.
+- Discover (most important route): swipe physics, thresholds, springs,
+  mechanics, and image strategy untouched. Empty state kept editorial
+  and gained the shared caption/divider language (`discover` eyebrow +
+  `bg-line-strong` rule). Match overlay moved `bg-paper` →
+  `bg-accent-wash` (important-surface blush) with coral period retained
+  and `hover:text-accent-deep` on keep-discovering.
+- Touch targets (44px): profile/edit photo delete × `h-8 w-8` → `h-11
+  w-11`, reorder arrows and retry/remove `h-8` → `min-h-[44px]`,
+  profile top edit link / settings shortcuts / placeholder back link /
+  back-nav links gained `min-h-[44px]` + `items-center`. Swipe actions
+  were already 56px; only focus rings added.
+- Focus: every keyboard-interactive element touched now carries the
+  coral treatment (`focus-visible:outline-accent` or the accent
+  border+ring on inputs); photo carousel prev/next zones gained a
+  focus outline; no component opts out with `focus-visible:outline-none`.
+- Secondary-action hover unified to `hover:bg-accent-wash
+  hover:border-accent-soft hover:text-accent-deep` (replacing scattered
+  `hover:bg-paper-2` / `hover:text-ink`); dark primary CTAs unchanged.
+- Login feels like onboarding: same `max-w-[560px]` shell with unified
+  `py-10 sm:py-14` spacing, coral-dot eyebrow (`welcome back`),
+  identical input/focus/error language, dark primary CTA.
+- Intentionally preserved route differences: landing keeps the dominant
+  `bg-accent-wash` hero (product routes stay paper/paper-2, blush only
+  on the match overlay); profile keeps `px-4` photo bleed + white-on-photo
+  overlay type; matches/chat placeholders keep minimal editorial form
+  with `href="/"` untouched (routing freeze); settings keeps the
+  structured `bg-paper-2` account card + `bg-line` dividers without
+  becoming a SaaS dashboard.

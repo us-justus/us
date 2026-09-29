@@ -71,14 +71,14 @@ export default function UpdatePasswordPage() {
             </div>
             <Link
               href="/login"
-              className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-ink px-8 py-[15px] text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors"
+              className="mt-6 inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-ink px-8 py-[15px] text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               back to sign in
             </Link>
           </div>
         ) : done ? (
-          <div className="mt-8 rounded-2xl border border-green-200 bg-green-50 px-4 py-3">
-            <p className="text-[13px] text-green-800">password updated — taking you in…</p>
+          <div className="mt-8 rounded-2xl border border-accent-soft bg-accent-wash px-4 py-3">
+            <p className="text-[13px] text-accent-deep">password updated — taking you in…</p>
           </div>
         ) : (
           <div className="mt-8 space-y-4">
@@ -92,7 +92,7 @@ export default function UpdatePasswordPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="at least 8 characters"
                 autoComplete="new-password"
-                className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-[15px] outline-none focus:border-ink-faint placeholder:text-ink-faint"
+                className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft"
               />
             </div>
             <div>
@@ -108,14 +108,14 @@ export default function UpdatePasswordPage() {
                 }}
                 placeholder="repeat it"
                 autoComplete="new-password"
-                className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-[15px] outline-none focus:border-ink-faint placeholder:text-ink-faint"
+                className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft"
               />
             </div>
             {error && <FieldError msg={error} />}
             <button
               onClick={submit}
               disabled={busy}
-              className="inline-flex w-full items-center justify-center rounded-full bg-ink px-8 py-[15px] text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors disabled:opacity-40"
+              className="inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-ink px-8 py-[15px] text-[13px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               {busy ? "saving…" : "save new password"}
             </button>
