@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Instrument_Serif } from "next/font/google";
 import { SiteHeader } from "@/components/layout/site-header";
 import "./globals.css";
@@ -22,6 +22,15 @@ export const metadata: Metadata = {
     title: "us — just us.",
     description: "a private, campus-only space. just us.",
   },
+};
+
+// Mobile-first viewport: viewportFit="cover" is what makes
+// env(safe-area-inset-*) work on notched iOS devices.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#fdfbf7",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

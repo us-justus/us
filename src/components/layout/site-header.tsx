@@ -2,21 +2,73 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Wordmark } from "@/components/brand/wordmark";
 import { cn } from "@/lib/utils/cn";
+import { createClient } from "@/lib/supabase/client";
 
-const links = [
+const productLinks = [
   { href: "/discover", label: "discover" },
   { href: "/matches", label: "matches" },
   { href: "/chat", label: "chat" },
+  { href: "/profile", label: "profile" },
+  { href: "/settings", label: "settings" },
 ];
 
+type HeaderState = "loading" | "public" | "onboarding" | "product";
+
+/**
+ * Product-state header (see src/lib/auth/product-state.ts for the model).
+ *
+ * - PUBLIC (no session): `us` + log in + enter. Never product nav.
+ * - ONBOARDING (session, step != complete, or any /onboarding route):
+ *   minimal `us` only. Never product nav, never account-security messaging.
+ * - PRODUCT (campus anonymous-complete OR permanent): full product nav.
+ *
+ * Defaults to public/minimal while resolving so a logged-out visitor never
+ * sees a flash of authenticated navigation. Supabase `is_anonymous` is never
+ * consulted directly — the server (/api/account/state) decides the step.
+ */
 export function SiteHeader() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [headerState, setHeaderState] = useState<HeaderState>("loading");
+
+  const isOnboardingRoute = pathname.startsWith("/onboarding");
   const isLanding = pathname === "/";
+
+  useEffect(() => {
+    let cancelled = false;
+    async function resolve() {
+      try {
+        const res = await fetch("/api/account/state", { cache: "no-store" });
+        const j = await res.json().catch(() => null);
+        if (cancelled) return;
+        if (!j?.signedIn) {
+          setHeaderState("public");
+          return;
+        }
+        setHeaderState(j.onboardingStep === "complete" ? "product" : "onboarding");
+      } catch {
+        if (!cancelled) setHeaderState("public");
+      }
+    }
+    void resolve();
+    const supabase = createClient();
+    const { data: sub } = supabase.auth.onAuthStateChange(() => {
+      void resolve();
+    });
+    return () => {
+      cancelled = true;
+      sub.subscription.unsubscribe();
+    };
+  }, []);
+
+  // Onboarding routes are always minimal, even before the session resolves —
+  // the USN page must never show product navigation.
+  const effective: HeaderState = isOnboardingRoute ? "onboarding" : headerState;
+  const showProductNav = effective === "product";
 
   return (
     <header
@@ -32,34 +84,51 @@ export function SiteHeader() {
           <Wordmark size="sm" />
         </Link>
 
-        <nav className="hidden sm:flex items-center gap-1">
-          {links.map((l) => (
+        {/* desktop */}
+        {showProductNav ? (
+          <nav className="hidden sm:flex items-center gap-1" aria-label="product">
+            {productLinks.map((l) => (
+              <Link
+                key={l.href}
+                href={l.href}
+                className={cn(
+                  "px-3 py-1.5 text-[13px] tracking-[0.08em] lowercase rounded-full transition-colors",
+                  pathname === l.href ? "text-ink bg-paper-2" : "text-ink-soft hover:text-ink",
+                )}
+              >
+                {l.label}
+              </Link>
+            ))}
+          </nav>
+        ) : effective === "onboarding" ? (
+          <nav className="hidden sm:flex items-center gap-1" aria-label="onboarding">
+            <span className="px-3 py-1.5 text-[11px] tracking-[0.18em] uppercase text-ink-faint">
+              joining campus
+            </span>
+          </nav>
+        ) : (
+          <nav className="hidden sm:flex items-center gap-2" aria-label="public">
             <Link
-              key={l.href}
-              href={l.href}
-              className={cn(
-                "px-3 py-1.5 text-[13px] tracking-[0.08em] lowercase rounded-full transition-colors",
-                pathname === l.href
-                  ? "text-ink bg-paper-2"
-                  : "text-ink-soft hover:text-ink",
-              )}
+              href="/login"
+              className="px-4 py-2 text-[12px] tracking-[0.14em] uppercase font-medium text-ink-soft hover:text-ink transition-colors"
             >
-              {l.label}
+              log in
             </Link>
-          ))}
-          <Link
-            href="/onboarding"
-            className="ml-2 inline-flex items-center rounded-full bg-ink px-5 py-2 text-[12px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors"
-          >
-            enter
-          </Link>
-        </nav>
+            <Link
+              href="/onboarding"
+              className="inline-flex items-center rounded-full bg-ink px-5 py-2 text-[12px] tracking-[0.14em] uppercase font-medium text-paper hover:bg-black transition-colors"
+            >
+              enter
+            </Link>
+          </nav>
+        )}
 
+        {/* mobile toggle */}
         <button
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
           aria-label="toggle menu"
-          className="sm:hidden inline-flex h-9 w-9 items-center justify-center rounded-full border border-line text-ink"
+          className="sm:hidden inline-flex h-11 w-11 items-center justify-center rounded-full border border-line text-ink"
         >
           <span className="relative block h-3 w-3.5">
             <span
@@ -91,29 +160,52 @@ export function SiteHeader() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }}
             transition={{ duration: 0.18 }}
-            className="sm:hidden border-t border-line bg-paper"
+            // Absolute overlay: opening the menu must not push page content
+            // down (layout shift) or move the dismiss target mid-tap.
+            className="absolute inset-x-0 top-full border-b border-line bg-paper shadow-[0_16px_32px_rgba(23,22,20,0.08)] sm:hidden"
           >
-            <nav className="px-6 py-5 flex flex-col gap-1">
-              {links.map((l) => (
-                <Link
-                  key={l.href}
-                  href={l.href}
-                  onClick={() => setOpen(false)}
-                  className={cn(
-                    "py-2.5 text-[14px] tracking-[0.08em] lowercase border-b border-line last:border-0",
-                    pathname === l.href ? "text-ink" : "text-ink-soft",
-                  )}
-                >
-                  {l.label}
-                </Link>
-              ))}
-              <Link
-                href="/onboarding"
-                onClick={() => setOpen(false)}
-                className="mt-3 inline-flex justify-center rounded-full bg-ink px-6 py-3 text-[13px] tracking-[0.14em] uppercase font-medium text-paper"
-              >
-                enter the campus
-              </Link>
+            <nav className="px-6 py-5 flex flex-col gap-1" aria-label="mobile">
+              {showProductNav ? (
+                <>
+                  {productLinks.map((l) => (
+                    <Link
+                      key={l.href}
+                      href={l.href}
+                      onClick={() => setOpen(false)}
+                      className={cn(
+                        "py-2.5 text-[14px] tracking-[0.08em] lowercase border-b border-line last:border-0",
+                        pathname === l.href ? "text-ink" : "text-ink-soft",
+                      )}
+                    >
+                      {l.label}
+                    </Link>
+                  ))}
+                </>
+              ) : effective === "onboarding" ? (
+                <p className="py-2.5 text-[11px] tracking-[0.18em] uppercase text-ink-faint">
+                  joining campus — finish setup to enter
+                </p>
+              ) : (
+                <>
+                  <Link
+                    href="/login"
+                    onClick={() => setOpen(false)}
+                    className="py-2.5 text-[14px] tracking-[0.08em] lowercase border-b border-line text-ink-soft"
+                  >
+                    log in
+                  </Link>
+                  <Link
+                    href="/onboarding"
+                    onClick={() => setOpen(false)}
+                    className="mt-3 inline-flex justify-center rounded-full bg-ink px-6 py-3 text-[13px] tracking-[0.14em] uppercase font-medium text-paper"
+                  >
+                    enter the campus
+                  </Link>
+                  <p className="mt-3 text-center text-[11px] tracking-[0.08em] text-ink-faint">
+                    new here? enter · have an account? log in
+                  </p>
+                </>
+              )}
             </nav>
           </motion.div>
         )}

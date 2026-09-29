@@ -54,8 +54,17 @@ export function LandingHero() {
               →
             </span>
           </Link>
+          <Link
+            href="/login"
+            className="inline-flex items-center justify-center rounded-full border border-line bg-paper px-8 py-[13px] text-[12px] tracking-[0.16em] uppercase font-medium text-ink hover:bg-paper-2 transition-colors"
+          >
+            log in
+          </Link>
           <span className="text-[11px] tracking-[0.14em] uppercase text-ink-faint">
             campus-only · verified · private
+          </span>
+          <span className="text-[11px] leading-4 tracking-[0.08em] text-ink-faint">
+            new here? enter · have an account? log in
           </span>
         </motion.div>
       </section>
