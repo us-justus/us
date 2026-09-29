@@ -38,29 +38,29 @@ export default function ProfilePage() {
   }
 
   return (
-    <Shell title="create your profile." subtitle="This is what people will see. Keep it honest, keep it you." step="03 — profile">
+    <Shell title="create your profile." subtitle="This is what people will see. Keep it honest, keep it you." step="04 — profile">
       <div className="space-y-5">
         <div><label className="text-[11px] tracking-[0.14em] uppercase text-ink-faint">nickname</label>
-          <input value={nickname} onChange={e=>setNickname(e.target.value)} placeholder="what should we call you?" className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-[15px] outline-none focus:border-ink-faint" />
+          <input value={nickname} onChange={e=>setNickname(e.target.value)} placeholder="what should we call you?" className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base outline-none focus:border-ink-faint" />
           {fieldErr.nickname && <FieldError msg={fieldErr.nickname} />}</div>
         <div className="grid grid-cols-2 gap-4">
           <div><label className="text-[11px] tracking-[0.14em] uppercase text-ink-faint">age</label>
-            <input value={age} onChange={e=>setAge(e.target.value)} inputMode="numeric" placeholder="20" className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-[15px] outline-none focus:border-ink-faint" />
+            <input value={age} onChange={e=>setAge(e.target.value)} inputMode="numeric" placeholder="20" className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base outline-none focus:border-ink-faint" />
             {fieldErr.age && <FieldError msg={fieldErr.age} />}</div>
           <div><label className="text-[11px] tracking-[0.14em] uppercase text-ink-faint">year</label>
-            <select value={year} onChange={e=>setYear(e.target.value)} className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-[15px] outline-none focus:border-ink-faint">
+            <select value={year} onChange={e=>setYear(e.target.value)} className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base outline-none focus:border-ink-faint">
               <option value="">select</option>{YEARS.map(y=><option key={y} value={y}>{y} year</option>)}
             </select>{fieldErr.year && <FieldError msg={fieldErr.year} />}</div>
         </div>
         <div><label className="text-[11px] tracking-[0.14em] uppercase text-ink-faint">branch</label>
-          <select value={branch} onChange={e=>setBranch(e.target.value)} className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-[15px] outline-none focus:border-ink-faint">
+          <select value={branch} onChange={e=>setBranch(e.target.value)} className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base outline-none focus:border-ink-faint">
             <option value="">select</option>{BRANCHES.map(b=><option key={b} value={b}>{b}</option>)}
           </select>{fieldErr.branch && <FieldError msg={fieldErr.branch} />}</div>
         <div><label className="text-[11px] tracking-[0.14em] uppercase text-ink-faint">bio <span className="normal-case tracking-normal lowercase text-ink-faint">— optional</span></label>
-          <textarea value={bio} onChange={e=>setBio(e.target.value)} rows={3} placeholder="a line or two about you" className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-[14px] outline-none focus:border-ink-faint resize-none" />
+          <textarea value={bio} onChange={e=>setBio(e.target.value)} rows={3} placeholder="a line or two about you" className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base outline-none focus:border-ink-faint resize-none" />
           {fieldErr.bio && <FieldError msg={fieldErr.bio} />}</div>
         <div><label className="text-[11px] tracking-[0.14em] uppercase text-ink-faint">interests <span className="normal-case tracking-normal lowercase text-ink-faint">— comma separated</span></label>
-          <input value={interests} onChange={e=>setInterests(e.target.value)} placeholder="music, football, books" className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-[14px] outline-none focus:border-ink-faint" /></div>
+          <input value={interests} onChange={e=>setInterests(e.target.value)} placeholder="music, football, books" className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base outline-none focus:border-ink-faint" /></div>
         <label className="flex gap-3 items-start text-[13px] leading-5 text-ink-soft">
           <input type="checkbox" checked={agreed} onChange={e=>setAgreed(e.target.checked)} className="mt-1 accent-ink" />
           I confirm I am 18 years or older.

@@ -1,7 +1,7 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ensureAnonymousSession } from "@/lib/auth/session";
+import { useAnonymousSession } from "@/lib/auth/use-anonymous-session";
 import { normalizeUSN, validateUSN } from "@/lib/verification/usn";
 import { Shell, FieldError } from "@/components/onboarding/shell";
 import { Button } from "@/components/ui/button";
@@ -11,26 +11,10 @@ export default function USNPage() {
   const [usn, setUsn] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [sessionStatus, setSessionStatus] = useState<"initializing" | "ready" | "error">("initializing");
-
-  useEffect(() => {
-    let cancelled = false;
-    async function initialize() {
-      setSessionStatus("initializing");
-      const result = await ensureAnonymousSession();
-      if (cancelled) return;
-      if (result.error || !result.session) {
-        if (process.env.NODE_ENV !== "production") console.error("[usn] session init failed", result.error);
-        setSessionStatus("error");
-        return;
-      }
-      setSessionStatus("ready");
-    }
-    initialize();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // Shared bootstrap: restores the existing anonymous session, signs in only
+  // when none exists. `ensureAnonymousSession()` remains the single place
+  // that may establish a session.
+  const { status: sessionStatus, retry: retrySession } = useAnonymousSession();
 
   async function submit() {
     if (sessionStatus !== "ready") return;
@@ -42,8 +26,10 @@ export default function USNPage() {
     }
     setLoading(true);
     try {
-      const { error: sessErr, session } = await ensureAnonymousSession();
-      if (sessErr || !session) throw new Error(sessErr || "We couldn't start your session. Please try again.");
+      // No ensureAnonymousSession() here: the hook above already bootstrapped
+      // the session before enabling submit. Re-validating would add an extra
+      // auth round-trip to the critical path; the API 401s safely if the
+      // session is ever missing.
       const res = await fetch("/api/onboarding/usn", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -63,17 +49,6 @@ export default function USNPage() {
     }
   }
 
-  async function retrySession() {
-    setSessionStatus("initializing");
-    const result = await ensureAnonymousSession();
-    if (result.error || !result.session) {
-      if (process.env.NODE_ENV !== "production") console.error("[usn] retry failed", result.error);
-      setSessionStatus("error");
-    } else {
-      setSessionStatus("ready");
-    }
-  }
-
   const isContinueDisabled = loading || sessionStatus !== "ready";
 
   return (
@@ -88,7 +63,7 @@ export default function USNPage() {
             autoCapitalize="characters"
             autoCorrect="off"
             spellCheck={false}
-            className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-[15px] uppercase tracking-[0.08em] outline-none focus:border-ink-faint"
+            className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base uppercase tracking-[0.08em] outline-none focus:border-ink-faint placeholder:text-ink-faint"
           />
           {error && <FieldError msg={error} />}
         </div>

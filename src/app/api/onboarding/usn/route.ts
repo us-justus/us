@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { normalizeUSN, validateUSN } from "@/lib/verification/usn";
+import { perfLog, perfStart } from "@/lib/utils/perf";
 
 export async function POST(req: Request) {
+  const t = perfStart();
   const { usn } = await req.json().catch(() => ({}));
   const normalized = normalizeUSN(String(usn || ""));
   if (!validateUSN(normalized)) return NextResponse.json({ error: "Enter a valid USN." }, { status: 400 });
@@ -51,5 +53,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Could not save USN." }, { status: 400 });
   }
 
+  perfLog("onboarding.usn", t);
   return NextResponse.json({ ok: true });
 }
