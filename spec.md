@@ -627,7 +627,7 @@ persistent messages
   `@atharvapatil` leaves #spot, profile, photos, likes, passes, matches,
   chat history, and invite ownership unchanged.
 
-## 14.6 Username — DESIGNED (schema live, UI NOT YET IMPLEMENTED)
+## 14.6 Username — IMPLEMENTED (STEP 2)
 
 - `profiles.username TEXT NULL` with `profiles_username_format` check
   (`^[A-Za-z0-9_]{3,30}$`) and partial unique index
@@ -636,10 +636,27 @@ persistent messages
 - Chosen over a separate handles table: profiles already carries the
   `user_id UNIQUE` stable key and the public/private RLS split, so a new
   table adds joins without safety benefit. Lookup key only, never FK.
-- Exposes no USN/email/auth ID. UI, validation UX, and availability API
-  are NOT YET IMPLEMENTED.
+- Exposes no USN/email/auth ID.
+- Normalization (single rule, `src/lib/validation/username.ts`, shared by
+  client + server): trim surrounding whitespace, reject whitespace inside,
+  preserve display casing. Uniqueness is case-insensitive via the index.
+- Persistence: username is collected in the EXISTING onboarding profile step
+  (`/onboarding/profile` → `POST /api/onboarding/profile`) — no new
+  onboarding step, no `getOnboardingState`/`stepPath` change. That endpoint
+  is the single username writer; `PATCH /api/profile` rejects `username` /
+  `spot` keys so there is never a competing write path.
+- Taken-ness: friendly indexed pre-check first (equality lookup, never
+  `COUNT(*)`), the unique index authoritative — a `23505` race returns a
+  clean 409 ("taken") with no DB detail. No frontend availability check
+  is treated as truth.
+- Editing rule (product decision, STEP 2): IMMUTABLE after initial set.
+  Exact-casing refresh of the same name is allowed; a different name is
+  rejected 409 server-side. A full username-change UX is deferred — #spot
+  permanence never depends on the name either way.
+- NOT YET IMPLEMENTED: username search, public `/u/[username]` profile
+  page, friend search, invite links.
 
-## 14.7 #spot — DESIGNED (mechanism live, assignment UI NOT YET IMPLEMENTED)
+## 14.7 #spot — IMPLEMENTED (STEP 2, assignment wired)
 
 - `profiles.spot INT NULL` (`profiles_spot_positive` check, partial unique
   index `idx_profiles_spot_unique`). Immutable once assigned, survives
@@ -648,13 +665,28 @@ persistent messages
   `next_spot`) + `SECURITY DEFINER allocate_campus_spot()` (single
   `UPDATE … RETURNING`, row-locked). Never `COUNT(*) + 1`, never
   client-generated. Table has no grants/policies (server-only); `EXECUTE`
-  granted to `authenticated` for the function only.
-- Assignment wiring (call on registration completion) is NOT YET IMPLEMENTED.
+  granted to `authenticated` for the function only. No new allocator, no
+  new privileged function, no RLS change in STEP 2.
+- Assignment wiring: `POST /api/onboarding/profile` persists username +
+  profile fields + spot in one request. Idempotent — `spot IS NOT NULL`
+  is reused, otherwise exactly one `allocate_campus_spot()` call. A retry
+  after failure reuses the existing spot; a `23505` username race costs at
+  most a harmless gap number (spots are unique, never reassigned, never
+  renumbered).
+- Surfaced minimally: pre-launch panel on `/` (`@username` + `#spot`,
+  locked-feature messaging) and one identity line on `/profile`. `/`
+  renders the panel for campus/permanent sessions while PRE_LAUNCH
+  (redirecting to /discover would loop back via the launch guard);
+  once launched it redirects to /discover as before.
 
 ## 14.8 Profile/photos — IMPLEMENTED (existing behavior preserved)
 
 - Unchanged: nickname/age/year/branch/bio/interests + `profile_photos`
   with server MIME/size limits. No image-compression behavior changed.
+- STEP 2 extension only: `GET /api/profile` and `getOwnProfile()` also
+  return `username`/`spot` (public identity fields — never USN/email/auth
+  ID); `PATCH /api/profile` still edits legacy fields only and rejects
+  `username`/`spot` keys.
 
 ## 14.9 Likes/passes — IMPLEMENTED (existing schema + PRE_LAUNCH lock)
 
@@ -712,3 +744,38 @@ invite_links: id, owner_user_id → auth.users.id, token, created_at
 - Launch load: concentrated traffic assumed; no unbounded queries, no
   duplicate auth per request, no per-user countdown polling, lightweight
   launch page. DB/storage/API bottlenecks to be measured before launch.
+
+## 14.16 STEP 2 learnings (username + permanent #spot)
+
+- Extending the existing profile step beat a new onboarding step: the
+  profiles row (keyed on `user_id`) is created there already, so username
+  + spot rode the same upsert with zero `getOnboardingState`/`stepPath`/
+  guard changes and no extra navigation round-trip.
+- One writer per field held up: `POST /api/onboarding/profile` owns
+  username + spot (first set), `PATCH /api/profile` owns legacy fields
+  and hard-rejects identity keys. No competing endpoint was needed, so no
+  new `SECURITY DEFINER` and no RLS change.
+- Pre-check-then-index pattern: a cheap indexed equality lookup catches
+  the common taken-name case before a spot number is consumed; the unique
+  index stays authoritative and a `23505` race maps to a clean 409. The
+  worst case is a gap in spot numbering — acceptable because spots are
+  never sequential-by-count, only unique + permanent.
+- Prefill on the onboarding profile page (`GET /api/profile`) gave
+  pre-Step-2 complete users a claim path with no new route: they land on
+  the same form, see their existing values, and add only a username.
+- `/` needed to stop blindly redirecting complete sessions to /discover
+  while PRE_LAUNCH (redirect loop via the launch guard); rendering a
+  minimal identity panel there was the smallest correct pre-launch
+  experience. Post-launch redirect behavior is unchanged.
+
+### STEP 2 status (vs. the STEP 2 brief)
+
+IMPLEMENTED: username schema (reused), username validation/normalization
+(shared helper), username persistence (single writer), case-insensitive
+uniqueness (index-authoritative), #spot schema (reused), atomic allocator
+(reused), idempotent assignment, profile/user linking (`user_id`),
+pre-launch identity panel, PATCH guard, immutability rule.
+
+NOT YET IMPLEMENTED: username search, public `/u/[username]` page, friend
+search, invite links, countdown, Three.js, post-launch chat UI/realtime,
+image compression, username-change UX (deferred product decision).

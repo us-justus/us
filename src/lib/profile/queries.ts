@@ -9,6 +9,8 @@ export type OwnProfile = {
   branch: string;
   bio: string | null;
   interests: string[];
+  username: string | null;
+  spot: number | null;
 };
 
 export type OwnPhoto = {
@@ -27,7 +29,7 @@ export async function getOwnProfile() {
 
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
-    .select("id, user_id, nickname, age, year, branch, bio, interests")
+    .select("id, user_id, nickname, age, year, branch, bio, interests, username, spot")
     .eq("user_id", user.id)
     .maybeSingle();
 

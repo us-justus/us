@@ -17,7 +17,7 @@ export async function GET() {
 
   const { data: profile, error } = await supabase
     .from("profiles")
-    .select("id, nickname, age, year, branch, bio, interests")
+    .select("id, nickname, age, year, branch, bio, interests, username, spot")
     .eq("user_id", user.id)
     .maybeSingle();
 
@@ -59,7 +59,17 @@ export async function PATCH(req: Request) {
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "Invalid request." }, { status: 400 });
 
-  const { nickname, age, year, branch, bio, interests } = body;
+  const { nickname, age, year, branch, bio, interests, username, spot } = body;
+
+  // Username + #spot have exactly one writer (POST /api/onboarding/profile):
+  // username is set once, #spot is allocated once and immutable. Reject
+  // competing writes here so there is never a second way to change them.
+  if (username !== undefined || spot !== undefined) {
+    return NextResponse.json(
+      { error: "Username and spot can't be changed here.", field: username !== undefined ? "username" : "spot" },
+      { status: 400 },
+    );
+  }
 
   const nErr = validateNickname(String(nickname ?? ""));
   if (nErr) return NextResponse.json({ error: nErr, field: "nickname" }, { status: 400 });

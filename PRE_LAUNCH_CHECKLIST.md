@@ -16,24 +16,28 @@
 - [x] Username validation defined
 - [x] Username API/query design defined
 - [x] Username privacy verified
+- [x] Username persistence implemented (STEP 2: single writer POST /api/onboarding/profile)
+- [x] Username case-insensitive rejection verified (index-authoritative, 409)
+- [x] Username immutability enforced (STEP 2 product decision; change UX deferred)
 
 ## C. Permanent #spot
 - [x] Allocation mechanism designed
-- [ ] Atomic/concurrency-safe allocation verified
+- [x] Atomic/concurrency-safe allocation verified (STEP 2: existing allocate_campus_spot(), row-locked; pre-check + 23505→409, gaps acceptable)
 - [x] Unique constraint defined
-- [ ] Stability across logout/login verified
+- [x] Stability across logout/login verified (STEP 2: stored on profiles, idempotent reuse; survives relogin by construction)
 - [ ] Deletion behavior defined
 - [x] Public exposure rules defined
+- [x] #spot assignment wired (STEP 2: one request with profile save, retry-safe)
 
 ## D. Pre-Launch Home
 - [ ] Campus status
-- [ ] Permanent #spot
+- [x] Permanent #spot (STEP 2: minimal identity panel on `/`)
 - [ ] Profile summary
 - [ ] Search entry
 - [ ] Invite entry
 - [ ] Countdown
 - [ ] Launch state
-- [ ] Locked feature messaging
+- [x] Locked feature messaging (STEP 2: minimal "locked until launch" line; full home deferred)
 
 ## E. Search
 - [ ] Username search

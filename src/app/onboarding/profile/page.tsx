@@ -1,12 +1,15 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Shell, FieldError } from "@/components/onboarding/shell";
 import { Button } from "@/components/ui/button";
 import { BRANCHES, YEARS, validateNickname, validateAge, validateYear, validateBranch, validateBio } from "@/lib/validation/profile";
+import { validateUsername } from "@/lib/validation/username";
 
 export default function ProfilePage() {
   const router = useRouter();
+  const [username, setUsername] = useState("");
+  const [usernameLocked, setUsernameLocked] = useState(false);
   const [nickname, setNickname] = useState("");
   const [age, setAge] = useState("");
   const [year, setYear] = useState("");
@@ -18,8 +21,29 @@ export default function ProfilePage() {
   const [fieldErr, setFieldErr] = useState<Record<string,string>>({});
   const [loading, setLoading] = useState(false);
 
+  // Prefill when a profile row already exists (e.g. a pre-Step-2 user
+  // claiming a username late, or a re-submission). Never auto-creates.
+  useEffect(() => {
+    fetch("/api/profile", { cache: "no-store" })
+      .then(r=>r.json()).then(j=>{
+        const p = j?.profile;
+        if (!p) return;
+        if (typeof p.nickname === "string" && p.nickname) setNickname(p.nickname);
+        if (typeof p.age === "number") setAge(String(p.age));
+        if (typeof p.year === "string") setYear(p.year);
+        if (typeof p.branch === "string") setBranch(p.branch);
+        if (typeof p.bio === "string") setBio(p.bio);
+        if (Array.isArray(p.interests)) setInterests(p.interests.join(", "));
+        if (typeof p.username === "string" && p.username) {
+          setUsername(p.username);
+          setUsernameLocked(true);
+        }
+      }).catch(()=>{});
+  }, []);
+
   async function submit() {
     const fe: Record<string,string> = {};
+    const uErr = validateUsername(username); if (uErr) fe.username = uErr;
     const nErr = validateNickname(nickname); if (nErr) fe.nickname = nErr;
     const aNum = parseInt(age,10);
     const aErr = validateAge(aNum); if (aErr) fe.age = aErr;
@@ -31,8 +55,13 @@ export default function ProfilePage() {
     if (Object.keys(fe).length) return;
     setLoading(true); setError(null);
     try {
-      const res = await fetch("/api/onboarding/profile", { method: "POST", headers: { "Content-Type":"application/json" }, body: JSON.stringify({ nickname: nickname.trim(), age: aNum, year, branch, bio: bio.trim() || null, interests: interests.split(",").map(s=>s.trim()).filter(Boolean).slice(0,8) }) });
-      if (!res.ok) throw new Error((await res.json()).error || "Failed");
+      const res = await fetch("/api/onboarding/profile", { method: "POST", headers: { "Content-Type":"application/json" }, body: JSON.stringify({ username: username.trim(), nickname: nickname.trim(), age: aNum, year, branch, bio: bio.trim() || null, interests: interests.split(",").map(s=>s.trim()).filter(Boolean).slice(0,8) }) });
+      if (!res.ok) {
+        const j = await res.json().catch(()=>null);
+        const msg = j?.error || "Failed";
+        if (j?.field) setFieldErr(prev=>({ ...prev, [j.field]: msg }));
+        throw new Error(msg);
+      }
       router.push("/onboarding/photos");
     } catch (e: unknown) { setError(e instanceof Error ? e.message : "Try again."); } finally { setLoading(false); }
   }
@@ -40,6 +69,10 @@ export default function ProfilePage() {
   return (
     <Shell title="create your profile." subtitle="This is what people will see. Keep it honest, keep it you." step="04 — profile">
       <div className="space-y-5">
+        <div><label className="text-[11px] tracking-[0.14em] uppercase text-ink-faint">username</label>
+          <input value={username} onChange={e=>setUsername(e.target.value)} disabled={usernameLocked} placeholder="your_unique_name" autoCapitalize="none" autoCorrect="off" spellCheck={false} className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft disabled:opacity-60" />
+          <p className="mt-1 text-[11px] leading-4 text-ink-faint">3–30 · letters, numbers, _ · permanent once set — your spot stays yours even so.</p>
+          {fieldErr.username && <FieldError msg={fieldErr.username} />}</div>
         <div><label className="text-[11px] tracking-[0.14em] uppercase text-ink-faint">nickname</label>
           <input value={nickname} onChange={e=>setNickname(e.target.value)} placeholder="what should we call you?" className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft" />
           {fieldErr.nickname && <FieldError msg={fieldErr.nickname} />}</div>

@@ -72,6 +72,13 @@ export default async function ProfilePage() {
               <p className="mt-2 text-[13px] tracking-[0.04em] text-ink-soft">
                 {profile.branch} · {profile.year} year
               </p>
+              {(profile.username || profile.spot !== null) && (
+                <p className="mt-1.5 text-[13px] tracking-[0.04em] text-ink-soft">
+                  {profile.username ? `@${profile.username}` : null}
+                  {profile.username && profile.spot !== null ? " · " : null}
+                  {profile.spot !== null ? `spot #${profile.spot}` : null}
+                </p>
+              )}
             </div>
             <Link
               href="/profile/edit"
