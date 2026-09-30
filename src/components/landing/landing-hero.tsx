@@ -6,8 +6,8 @@ import { Wordmark } from "@/components/brand/wordmark";
 
 export function LandingHero() {
   return (
-    <div className="flex flex-1 flex-col">
-      <section className="flex flex-1 flex-col items-center justify-center px-6 text-center">
+    <div className="flex flex-1 flex-col bg-accent-wash">
+      <section className="flex flex-1 flex-col items-center justify-center px-6 py-12 text-center sm:py-16">
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -20,7 +20,7 @@ export function LandingHero() {
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.18, ease: [0.22, 1, 0.36, 1] }}
-          className="mt-3 font-display text-[18px] sm:text-[20px] tracking-[-0.02em] text-ink-soft"
+          className="mt-3 font-display text-[24px] sm:text-[28px] tracking-[-0.02em] text-ink-soft"
         >
           just us.
         </motion.p>
@@ -29,7 +29,7 @@ export function LandingHero() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.6, delay: 0.32 }}
-          className="mt-8 max-w-[28ch] text-[13px] sm:text-[14px] leading-6 text-ink-faint"
+          className="mt-6 max-w-[32ch] text-[15px] sm:text-[16px] leading-7 sm:leading-8 text-ink-faint"
         >
           a private space for your campus.
           <br />
@@ -40,7 +40,7 @@ export function LandingHero() {
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.46, ease: [0.22, 1, 0.36, 1] }}
-          className="mt-10 flex flex-col items-center gap-4"
+          className="mt-8 flex flex-col items-center gap-4"
         >
           <Link
             href="/onboarding"
@@ -56,7 +56,7 @@ export function LandingHero() {
           </Link>
           <Link
             href="/login"
-            className="inline-flex min-h-[44px] items-center justify-center rounded-full border border-line bg-paper px-8 py-[13px] text-[12px] tracking-[0.16em] uppercase font-medium text-ink transition-colors hover:bg-accent-wash hover:border-accent-soft hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            className="inline-flex min-h-[44px] items-center justify-center rounded-full border border-line bg-paper px-8 py-[13px] text-[12px] tracking-[0.16em] uppercase font-medium text-ink transition-colors hover:bg-paper-2 hover:border-accent-soft hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             log in
           </Link>
@@ -74,12 +74,12 @@ export function LandingHero() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.8, delay: 0.7 }}
-        className="border-t border-line"
+        className="border-t border-accent-soft bg-paper"
       >
         <div className="mx-auto flex max-w-[1080px] flex-col items-center justify-between gap-3 px-6 py-6 sm:flex-row sm:px-8 text-[11px] tracking-[0.12em] uppercase text-ink-faint">
           <span>est. 2026 — built for your campus</span>
           <span className="flex items-center gap-2">
-            <span className="h-px w-6 bg-line-strong hidden sm:block" />
+            <span className="h-px w-6 bg-accent-soft hidden sm:block" />
             private by design
           </span>
         </div>

@@ -75,7 +75,7 @@ export function SiteHeader() {
       className={cn(
         "sticky top-0 z-40 border-b",
         isLanding
-          ? "bg-paper/80 backdrop-blur-[8px] border-transparent"
+          ? "bg-accent-wash/80 backdrop-blur-[8px] border-transparent"
           : "bg-paper/80 backdrop-blur-[8px] border-line",
       )}
     >

@@ -15,7 +15,7 @@ export function Wordmark({
         size === "md" && "text-[26px]",
         size === "lg" && "text-[40px]",
         size === "hero" &&
-          "text-[56px] sm:text-[84px] md:text-[96px] lg:text-[112px]",
+          "text-[104px] sm:text-[144px] md:text-[168px] lg:text-[184px]",
         className,
       )}
     >
