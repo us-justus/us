@@ -81,3 +81,147 @@ conflict, SPEC.md wins — flag the conflict, do not silently pick one.
 - Do not build Matches/Chat-scope features inside unrelated tasks, and do not
   create parallel rule docs — SPEC.md + this file are the only rule sources.
 
+# PRE-LAUNCH / LAUNCH PRODUCT RULES
+
+1. Product phases
+
+PRE-LAUNCH:
+- USN verification
+- username creation
+- profile creation
+- permanent #spot
+- campus/friend search
+- personalized invite link
+- launch countdown
+- subtle launch-page 3D heart
+
+LOCKED PRE-LAUNCH:
+- Discover
+- Swipe
+- Like
+- Match
+- Chat
+
+POST-LAUNCH:
+- Discover
+- Like/Pass
+- Match
+- Search
+- Chat
+
+2. Launch gating
+
+- Launch state is authoritative server-side.
+- Client UI hiding is never sufficient.
+- Protected APIs must enforce launch state.
+- Device clock must never unlock the product.
+- Countdown is presentation only.
+
+3. Permanent #spot
+
+- Assigned once.
+- Never calculated from current row count.
+- Never client-generated.
+- Concurrency-safe.
+- Unique.
+- Stable across logout/login.
+- Must not expose private identity data.
+
+4. Username
+
+- Unique.
+- URL-safe.
+- Case-insensitive uniqueness.
+- Must not contain/expose USN.
+- Must be used instead of internal IDs in public URLs.
+- Username search only exposes public profile data.
+
+5. Privacy
+
+Never expose:
+- USN
+- email
+- phone
+- auth.uid()
+- verification metadata
+
+through public profile/search/invite responses.
+
+6. Search
+
+- Search username first.
+- Optional public display-name search only if explicitly approved.
+- Never search USN/email/phone.
+- Paginate.
+- Debounce client requests.
+- Never issue unbounded campus-wide queries.
+
+7. Invite links
+
+- Public links must use stable public identifiers.
+- Never expose internal auth/database identifiers unnecessarily.
+- Referral tracking must be abuse-resistant.
+- Invite pages must remain lightweight.
+
+8. Three.js
+
+- Launch experience only.
+- Lazy-loaded.
+- Low GPU.
+- Reduced-motion safe.
+- Static fallback.
+- Must not block initial render.
+- Must not be used for swipe physics.
+- Must not be loaded on auth/onboarding/search/chat unless explicitly justified.
+
+9. Performance
+
+- Mobile-first.
+- Measure before optimizing.
+- Prefer transform/opacity animations.
+- Avoid layout-triggering animations.
+- Avoid unnecessary blur/shadow/filter effects.
+- Avoid animation loops when CSS/Motion is sufficient.
+- Discover must use bounded batches.
+- Search must be paginated/debounced.
+- Images must be optimized without visibly degrading quality.
+
+10. Launch load
+
+- Assume concentrated traffic at launch.
+- Avoid unbounded queries.
+- Avoid duplicate auth requests.
+- Avoid per-user polling for countdown.
+- Keep launch page lightweight.
+- Identify and measure DB/storage/API bottlenecks before launch.
+
+11. Product consistency
+
+- Landing page is the visual source of truth.
+- New pre-launch screens must use existing semantic tokens.
+- Do not create separate visual systems.
+- Preserve route-specific information architecture.
+
+12. Feature order
+
+Do not implement post-launch social features before pre-launch infrastructure is complete.
+
+Required order:
+
+launch state
+→ username
+→ permanent #spot
+→ pre-launch home
+→ search
+→ invite
+→ countdown
+→ launch experience
+→ physical/performance QA
+→ launch gating verification
+→ Discover
+→ Like/Pass
+→ Match
+→ Chat
+→ Safety
+→ final load/security audit
+
