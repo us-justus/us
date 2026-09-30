@@ -16,6 +16,17 @@ const productLinks = [
   { href: "/settings", label: "settings" },
 ];
 
+/**
+ * PRE_LAUNCH nav (STEP 3A/3B): completed sessions while `launched = false`
+ * see only home + identity/account destinations. Discover/matches/chat
+ * stay server-locked, so they are not offered as navigation.
+ */
+const prelaunchLinks = [
+  { href: "/", label: "home" },
+  { href: "/profile", label: "profile" },
+  { href: "/settings", label: "settings" },
+];
+
 type HeaderState = "loading" | "public" | "onboarding" | "product";
 
 /**
@@ -24,16 +35,21 @@ type HeaderState = "loading" | "public" | "onboarding" | "product";
  * - PUBLIC (no session): `us` + log in + enter. Never product nav.
  * - ONBOARDING (session, step != complete, or any /onboarding route):
  *   minimal `us` only. Never product nav, never account-security messaging.
- * - PRODUCT (campus anonymous-complete OR permanent): full product nav.
+ * - PRODUCT (campus anonymous-complete OR permanent): full product nav
+ *   once launched; minimal home/profile/settings nav while PRE_LAUNCH
+ *   (Discover/Matches/Chat stay server-locked — no links offered).
  *
  * Defaults to public/minimal while resolving so a logged-out visitor never
  * sees a flash of authenticated navigation. Supabase `is_anonymous` is never
  * consulted directly — the server (/api/account/state) decides the step.
+ * That endpoint also returns the server-authoritative `launched` flag, which
+ * only switches which product links are offered (never authorization).
  */
 export function SiteHeader() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [headerState, setHeaderState] = useState<HeaderState>("loading");
+  const [launched, setLaunched] = useState(false);
 
   const isOnboardingRoute = pathname.startsWith("/onboarding");
   const isLanding = pathname === "/";
@@ -50,6 +66,7 @@ export function SiteHeader() {
           return;
         }
         setHeaderState(j.onboardingStep === "complete" ? "product" : "onboarding");
+        setLaunched(j.launched === true);
       } catch {
         if (!cancelled) setHeaderState("public");
       }
@@ -69,6 +86,9 @@ export function SiteHeader() {
   // the USN page must never show product navigation.
   const effective: HeaderState = isOnboardingRoute ? "onboarding" : headerState;
   const showProductNav = effective === "product";
+  // PRE_LAUNCH offers only home/profile/settings; the full dating nav
+  // returns once the server reports launched = true.
+  const visibleLinks = launched ? productLinks : prelaunchLinks;
 
   return (
     <header
@@ -87,7 +107,7 @@ export function SiteHeader() {
         {/* desktop */}
         {showProductNav ? (
           <nav className="hidden sm:flex items-center gap-1" aria-label="product">
-            {productLinks.map((l) => (
+            {visibleLinks.map((l) => (
               <Link
                 key={l.href}
                 href={l.href}
@@ -167,7 +187,7 @@ export function SiteHeader() {
             <nav className="px-6 py-5 flex flex-col gap-1" aria-label="mobile">
               {showProductNav ? (
                 <>
-                  {productLinks.map((l) => (
+                  {visibleLinks.map((l) => (
                     <Link
                       key={l.href}
                       href={l.href}

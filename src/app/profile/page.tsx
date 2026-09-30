@@ -1,16 +1,22 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getProductSession, guardProductSession } from "@/lib/auth/product-state";
+import { getLaunchState } from "@/lib/auth/launch";
 import { getOwnProfile } from "@/lib/profile/queries";
 
 export const dynamic = "force-dynamic";
 
 export default async function ProfilePage() {
-  const session = await getProductSession();
+  const [session, launch] = await Promise.all([getProductSession(), getLaunchState()]);
   const guard = guardProductSession(session);
   if (guard) {
     redirect(guard);
   }
+  // PRE_LAUNCH lock is intentionally NOT applied here: identity/account
+  // pages stay accessible while Discover/Matches/Chat stay gated.
+  // The back link returns home while pre-launch, /discover once launched.
+  const homeHref = launch.launched ? "/discover" : "/";
+  const homeLabel = launch.launched ? "back to discover" : "back home";
   const { profile, photos, error } = await getOwnProfile();
 
   // Authenticated but the profile query itself failed (DB/RLS/network) — this
@@ -211,10 +217,10 @@ export default async function ProfilePage() {
             edit profile
           </Link>
           <Link
-            href="/discover"
+            href={homeHref}
             className="inline-flex min-h-[44px] w-full items-center justify-center rounded-full border border-line bg-paper px-8 py-[14px] text-[12px] tracking-[0.14em] uppercase font-medium text-ink-soft transition-colors hover:bg-accent-wash hover:border-accent-soft hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
-            back to discover
+            {homeLabel}
           </Link>
           <Link
             href="/settings"

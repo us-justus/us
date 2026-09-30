@@ -779,3 +779,24 @@ pre-launch identity panel, PATCH guard, immutability rule.
 NOT YET IMPLEMENTED: username search, public `/u/[username]` page, friend
 search, invite links, countdown, Three.js, post-launch chat UI/realtime,
 image compression, username-change UX (deferred product decision).
+
+### STEP 3A status (pre-launch home)
+
+IMPLEMENTED: real PRE_LAUNCH product home on `/` (server-rendered identity
+`@username` + `#spot` from the profiles row — never client-generated,
+never USN/email/auth ID); route behavior public → existing landing,
+onboarding-incomplete → existing `stepPath()` step, completed + PRE_LAUNCH
+→ pre-launch home, completed + LAUNCHED → existing `/discover` redirect;
+minimal pre-launch header (home/profile/settings only — Discover/Matches/
+Chat links withheld while `launched = false`, full nav restored once the
+server reports launched); locked-feature rows (Discover/Matches/Chat) and
+clearly-marked not-yet-active search/invite placeholders rendered as
+non-interactive text (never links/buttons); profile/settings remain
+accessible during PRE_LAUNCH (no launch gate on identity/account pages;
+profile back link returns home pre-launch, `/discover` post-launch).
+Launch state stays server-authoritative (`getLaunchState()`; no countdown,
+no polling, no client-clock logic).
+
+NOT YET IMPLEMENTED: search, invites, countdown, Three.js, post-launch
+chat UI/realtime, image compression.
+

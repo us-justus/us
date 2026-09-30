@@ -30,9 +30,9 @@
 - [x] #spot assignment wired (STEP 2: one request with profile save, retry-safe)
 
 ## D. Pre-Launch Home
-- [ ] Campus status
+- [x] Campus status (STEP 3A: "pre-launch · you're in" + gathering copy on `/`)
 - [x] Permanent #spot (STEP 2: minimal identity panel on `/`)
-- [ ] Profile summary
+- [x] Profile summary (STEP 3A: @username + #spot identity with profile/settings actions)
 - [ ] Search entry
 - [ ] Invite entry
 - [ ] Countdown
