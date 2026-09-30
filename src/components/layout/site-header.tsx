@@ -10,6 +10,7 @@ import { createClient } from "@/lib/supabase/client";
 
 const productLinks = [
   { href: "/discover", label: "discover" },
+  { href: "/search", label: "search" },
   { href: "/matches", label: "matches" },
   { href: "/chat", label: "chat" },
   { href: "/profile", label: "profile" },
@@ -18,11 +19,12 @@ const productLinks = [
 
 /**
  * PRE_LAUNCH nav (STEP 3A/3B): completed sessions while `launched = false`
- * see only home + identity/account destinations. Discover/matches/chat
+ * see only home + search + identity/account destinations. Discover/matches/chat
  * stay server-locked, so they are not offered as navigation.
  */
 const prelaunchLinks = [
   { href: "/", label: "home" },
+  { href: "/search", label: "search" },
   { href: "/profile", label: "profile" },
   { href: "/settings", label: "settings" },
 ];
@@ -36,7 +38,7 @@ type HeaderState = "loading" | "public" | "onboarding" | "product";
  * - ONBOARDING (session, step != complete, or any /onboarding route):
  *   minimal `us` only. Never product nav, never account-security messaging.
  * - PRODUCT (campus anonymous-complete OR permanent): full product nav
- *   once launched; minimal home/profile/settings nav while PRE_LAUNCH
+ *   once launched; minimal home/search/profile/settings nav while PRE_LAUNCH
  *   (Discover/Matches/Chat stay server-locked — no links offered).
  *
  * Defaults to public/minimal while resolving so a logged-out visitor never
@@ -86,7 +88,7 @@ export function SiteHeader() {
   // the USN page must never show product navigation.
   const effective: HeaderState = isOnboardingRoute ? "onboarding" : headerState;
   const showProductNav = effective === "product";
-  // PRE_LAUNCH offers only home/profile/settings; the full dating nav
+  // PRE_LAUNCH offers only home/search/profile/settings; the full dating nav
   // returns once the server reports launched = true.
   const visibleLinks = launched ? productLinks : prelaunchLinks;
 

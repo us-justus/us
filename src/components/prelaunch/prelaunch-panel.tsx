@@ -73,7 +73,17 @@ export function PrelaunchPanel({ username, spot }: { username: string | null; sp
               </ul>
               <div className="h-px bg-accent-soft" />
               <ul className="mt-6 flex flex-col gap-1" aria-label="coming soon">
-                <SoonRow name="search" note="not yet active" />
+                <li className="flex min-h-[44px] items-center justify-between gap-4 py-2.5">
+                  <Link
+                    href="/search"
+                    className="text-[14px] tracking-[0.04em] text-ink lowercase underline underline-offset-4 decoration-line-strong transition-colors hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                  >
+                    search
+                  </Link>
+                  <span className="shrink-0 text-[11px] tracking-[0.14em] uppercase text-ink-faint">
+                    find your campus →
+                  </span>
+                </li>
                 <SoonRow name="invites" note="not yet active" />
               </ul>
             </div>
