@@ -2,6 +2,7 @@ import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { getAccountState, type AccountState } from "@/lib/auth/account";
 import { getOnboardingState, stepPath, type OnboardingStep } from "@/lib/onboarding/state";
+import type { LaunchState } from "@/lib/auth/launch";
 
 /**
  * Product auth state model — the single server-side source of truth for
@@ -67,4 +68,31 @@ export function guardProductSession(session: ProductSession): string | null {
     return stepPath(session.step ?? "usn");
   }
   return null;
+}
+
+/**
+ * Conceptual two-phase product model (STEP 1 pre-launch rebaseline).
+ *
+ * This is a pure mapping over the preserved primitives — it changes no
+ * onboarding, login, or account semantics:
+ *
+ * - public     → existing `public` (no session)
+ * - onboarding → existing `onboarding` (step != complete)
+ * - pre-launch → campus/permanent session while launch_config.launched = false
+ * - launched   → campus/permanent session once launched = true
+ *
+ * Account state (anonymous / permanent-unverified / permanent-verified)
+ * stays separate via getAccountState(). Callers that need the launch
+ * dimension fetch it via getLaunchState() and map with this helper.
+ */
+export type ProductPhase = "public" | "onboarding" | "pre-launch" | "launched";
+
+export function productPhaseFor(
+  session: ProductSession,
+  launch: LaunchState | boolean,
+): ProductPhase {
+  if (session.state === "public") return "public";
+  if (session.state === "onboarding") return "onboarding";
+  const launched = typeof launch === "boolean" ? launch : launch.launched;
+  return launched ? "launched" : "pre-launch";
 }

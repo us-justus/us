@@ -28,6 +28,10 @@ The core loop is:
 
 **Discover → Like → Match → Chat**
 
+The product ships in two phases (see §14): PRE-LAUNCH first (verify,
+username, profile, permanent #spot, search, invites, countdown), then the
+core loop unlocks at launch. Launch state is authoritative server-side.
+
 ---
 
 # 2. Product Identity
@@ -198,6 +202,12 @@ Protected routes (`/discover`, `/matches`, `/chat`, `/profile`,
 onboarding-incomplete → the `stepPath()` step, campus/permanent → allowed.
 Hiding navigation alone is never sufficient; browser back after logout must
 still hit the server guard (no cached authenticated content).
+
+Two-phase mapping (see §14): `campus` / `permanent` sessions are PRE_LAUNCH
+while `launch_config.launched = false` and LAUNCHED once true. The pure
+`productPhaseFor()` helper (`src/lib/auth/product-state.ts`) maps the
+preserved primitives to `public | onboarding | pre-launch | launched` —
+onboarding, login, and account semantics are unchanged.
 
 ## 5.2 Session mechanics
 
@@ -534,3 +544,171 @@ logic changed; no dependencies added; no new color system created.
   with `href="/"` untouched (routing freeze); settings keeps the
   structured `bg-paper-2` account card + `bg-line` dividers without
   becoming a SaaS dashboard.
+
+---
+
+# 14. Pre-Launch Architecture (STEP 1 rebaseline)
+
+Status labels: IMPLEMENTED = live in code/migrations; DESIGNED = schema +
+conventions decided, UI/APIs deferred; PLANNED = documented intent only.
+
+## 14.1 Product phases — IMPLEMENTED (mapping) / UI PENDING
+
+- PUBLIC → ONBOARDING → PRE_LAUNCH → LAUNCHED. Account state stays
+  separate: `anonymous` / `permanent-unverified` / `permanent-verified`
+  (via `getAccountState()`). No combined enum.
+- PRE_LAUNCH includes: USN verification, permanent account, username,
+  profile, permanent #spot, profile/photos, search, friend discovery,
+  public profile/invite link, invite/referral, countdown, subtle
+  launch-page atmosphere.
+- LOCKED UNTIL LAUNCH: Discover, swiping, likes, passes, matching, chat.
+- POST-LAUNCH: Discover, Like/Pass, Match, Chat, persistent history,
+  realtime messaging, lightweight interaction.
+
+## 14.2 Launch state — IMPLEMENTED
+
+- `public.launch_config` (migration `20250930000001_prelaunch_foundation`):
+  singleton `id = 1`, `launched boolean default false`,
+  `launched_at timestamptz NULL` (UTC), `updated_at` via the existing
+  `handle_updated_at()` trigger. Seeded `(1, false, NULL)`.
+- RLS enabled; one read-only SELECT policy for `anon, authenticated`;
+  no write policies — clients cannot modify launch state. No admin UI yet;
+  no service-role credentials in client code.
+- `getLaunchState()` (`src/lib/auth/launch.ts`) is the single helper,
+  returning `{ launched, launchAt }`. No duplicated launch queries, no
+  global state library, no polling, no localStorage, no cookie truth,
+  no `Date.now()` authorization. `launchAt` is countdown DISPLAY only.
+
+## 14.3 Product-state integration — IMPLEMENTED
+
+- `getProductSession()` / `guardProductSession()` / `getOnboardingState()` /
+  `destinationForStep()` / `stepPath()` are preserved exactly; onboarding
+  and login semantics unchanged.
+- Additive-only `productPhaseFor(session, launch)` maps to
+  `public | onboarding | pre-launch | launched`.
+- `/api/account/state` additionally returns `launched` + `launchAt`
+  (resolved via `Promise.all` with onboarding state; single `getUser()`).
+  No private fields exposed (never USN, email from profile tables,
+  auth IDs, or verification metadata).
+
+## 14.4 Server-side launch gating — IMPLEMENTED
+
+- `/discover`, `/matches`, `/chat` resolve product session + launch state
+  together (`Promise.all`) and redirect PRE_LAUNCH (`guardLaunch()` → `/`)
+  server-side. Direct URL access cannot bypass.
+- `swipeAction()` (like/pass) checks `getLaunchState()` server-side and
+  rejects while PRE_LAUNCH. Match creation stays trigger-driven; message
+  operations remain match-scoped (see §14.7). Browser clock never unlocks.
+
+## 14.5 Permanent user identity — IMPLEMENTED (preserved)
+
+- `auth.users.id` is the stable internal identity. `profiles.user_id`,
+  `verification_records.user_id`, likes/passes/matches/messages, and future
+  username/invite ownership all key off it — never username, email, USN,
+  or nickname as a foreign key.
+
+```text
+auth.users.id
+    ↓
+stable user identity
+    ↓
+profile
+    ↓
+username / #spot / photos
+    ↓
+likes / passes
+    ↓
+match
+    ↓
+persistent messages
+```
+
+- `username ≠ primary relational identity`: renaming `@atharva` →
+  `@atharvapatil` leaves #spot, profile, photos, likes, passes, matches,
+  chat history, and invite ownership unchanged.
+
+## 14.6 Username — DESIGNED (schema live, UI NOT YET IMPLEMENTED)
+
+- `profiles.username TEXT NULL` with `profiles_username_format` check
+  (`^[A-Za-z0-9_]{3,30}$`) and partial unique index
+  `idx_profiles_username_lower ON (lower(username)) WHERE username IS NOT NULL`
+  → unique, case-insensitive, URL-safe, suitable for `/u/[username]`.
+- Chosen over a separate handles table: profiles already carries the
+  `user_id UNIQUE` stable key and the public/private RLS split, so a new
+  table adds joins without safety benefit. Lookup key only, never FK.
+- Exposes no USN/email/auth ID. UI, validation UX, and availability API
+  are NOT YET IMPLEMENTED.
+
+## 14.7 #spot — DESIGNED (mechanism live, assignment UI NOT YET IMPLEMENTED)
+
+- `profiles.spot INT NULL` (`profiles_spot_positive` check, partial unique
+  index `idx_profiles_spot_unique`). Immutable once assigned, survives
+  logout/login, username and profile changes.
+- Atomic allocation via `public.campus_spot_allocator` (singleton
+  `next_spot`) + `SECURITY DEFINER allocate_campus_spot()` (single
+  `UPDATE … RETURNING`, row-locked). Never `COUNT(*) + 1`, never
+  client-generated. Table has no grants/policies (server-only); `EXECUTE`
+  granted to `authenticated` for the function only.
+- Assignment wiring (call on registration completion) is NOT YET IMPLEMENTED.
+
+## 14.8 Profile/photos — IMPLEMENTED (existing behavior preserved)
+
+- Unchanged: nickname/age/year/branch/bio/interests + `profile_photos`
+  with server MIME/size limits. No image-compression behavior changed.
+
+## 14.9 Likes/passes — IMPLEMENTED (existing schema + PRE_LAUNCH lock)
+
+- `likes` / `passes` keyed by `from_user_id → auth.users.id`; gated by
+  `swipeAction()` launch check. Data model unchanged.
+
+## 14.10 Match — IMPLEMENTED (existing persistence preserved)
+
+- `matches(user_a_id, user_b_id)` via the `create_match_if_mutual()`
+  trigger; match lifecycle stays like → mutual like → MATCH → chat.
+  Messages link `match_id` + `sender_id → auth.users.id` (never username,
+  email, USN). Chat UI + realtime are NOT YET IMPLEMENTED (post-launch slice).
+
+## 14.11 Persistent chat history — DESIGNED
+
+- `messages(match_id, sender_id, body, created_at)` with match-scoped RLS
+  already exists and is untouched. History/realtime UI NOT YET IMPLEMENTED.
+
+## 14.12 Search — DESIGNED (endpoint NOT YET IMPLEMENTED)
+
+- Public fields only: `username` first, optional nickname/display-name only
+  if explicitly approved. Never USN/email/phone/auth ID/verification
+  metadata. Future endpoint must be normalized, case-insensitive (covered
+  by `idx_profiles_username_lower`), indexed, paginated, bounded, and
+  debounced client-side. No search endpoint created in STEP 1.
+
+## 14.13 Invite architecture — PLANNED
+
+- Username is the public identity; referral tracking will use stable
+  internal `owner_user_id`. If persistent referral links are required, use
+  a stable invite token rather than the mutable username. Conceptual:
+
+```text
+invite_links: id, owner_user_id → auth.users.id, token, created_at
+```
+
+- Table NOT created in STEP 1 (no foundation required yet). Invite UI,
+  landing page, and abuse-resistance NOT YET IMPLEMENTED.
+
+## 14.14 Image storage/compression future plan — PLANNED (deferred)
+
+- No compression implemented in STEP 1. `compress.ts`, the photo upload
+  queue, and existing image UI are untouched. Free-plan constraint holds:
+  no Supabase hosted transformations.
+- Future: original → browser resize to display dimensions → high-quality
+  encode → size validation → Supabase Storage. Target is perceptually /
+  visually lossless at `us` display sizes — never claimed as mathematically
+  lossless.
+
+## 14.15 Performance/load principles — unchanged (§4–§12 apply)
+
+- Mobile-first, measure-before-optimizing (`[perf]` labels + durations),
+  transform/opacity animations, bounded discover batches, paginated +
+  debounced search, optimized images without visible quality loss.
+- Launch load: concentrated traffic assumed; no unbounded queries, no
+  duplicate auth per request, no per-user countdown polling, lightweight
+  launch page. DB/storage/API bottlenecks to be measured before launch.

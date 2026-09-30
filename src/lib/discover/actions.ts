@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { getLaunchState } from "@/lib/auth/launch";
 
 export async function swipeAction(toUserId: string, direction: "like" | "pass"): Promise<{ matched: boolean; error?: string }> {
   const supabase = await createClient();
@@ -9,6 +10,10 @@ export async function swipeAction(toUserId: string, direction: "like" | "pass"):
   } = await supabase.auth.getUser();
   if (!user) return { matched: false, error: "Not authenticated" };
   if (user.id === toUserId) return { matched: false, error: "Invalid target" };
+  // PRE_LAUNCH lock: likes/passes are launch-only. Server state decides —
+  // never the browser clock.
+  const launch = await getLaunchState();
+  if (!launch.launched) return { matched: false, error: "Discover hasn't launched yet." };
 
   if (direction === "like") {
     const { error } = await supabase.from("likes").insert({ from_user_id: user.id, to_user_id: toUserId });

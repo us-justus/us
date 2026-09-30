@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAccountState } from "@/lib/auth/account";
 import { destinationForStep } from "@/lib/auth/redirect";
 import { getOnboardingState } from "@/lib/onboarding/state";
+import { getLaunchState } from "@/lib/auth/launch";
 
 /**
  * Server source of truth for account + onboarding state.
@@ -20,7 +21,8 @@ export async function GET() {
   const account = getAccountState(user);
   // Pass the already-authenticated user so getOnboardingState() does not
   // pay for a second auth.getUser() round-trip on this request.
-  const { step } = await getOnboardingState(user);
+  // Onboarding state and launch state are independent — resolve together.
+  const [{ step }, launch] = await Promise.all([getOnboardingState(user), getLaunchState()]);
   const next = destinationForStep(step);
 
   return NextResponse.json({
@@ -32,5 +34,9 @@ export async function GET() {
     emailConfirmed: account?.emailConfirmed ?? false,
     onboardingStep: step,
     next,
+    // Server-authoritative launch flag. launchAt (UTC) is display-only for
+    // a future countdown — never authorization.
+    launched: launch.launched,
+    launchAt: launch.launchAt,
   });
 }
