@@ -705,13 +705,27 @@ persistent messages
 - `messages(match_id, sender_id, body, created_at)` with match-scoped RLS
   already exists and is untouched. History/realtime UI NOT YET IMPLEMENTED.
 
-## 14.12 Search — DESIGNED (endpoint NOT YET IMPLEMENTED)
+## 14.12 Search — IMPLEMENTED (STEP 3B)
 
-- Public fields only: `username` first, optional nickname/display-name only
-  if explicitly approved. Never USN/email/phone/auth ID/verification
-  metadata. Future endpoint must be normalized, case-insensitive (covered
-  by `idx_profiles_username_lower`), indexed, paginated, bounded, and
-  debounced client-side. No search endpoint created in STEP 1.
+- Username-prefix search only (`GET /api/search?q=…`): nickname search was
+  never explicitly approved, so username stays the single lookup key.
+- Server-backed, bounded (`SEARCH_LIMIT = 20`, `SEARCH_MIN = 2`), prefix
+  match with LIKE-escaped input (no substring/fuzzy scan, no pg_trgm).
+  Case-insensitive via the existing `idx_profiles_username_lower` — no
+  migration, no new index, no RLS change (runs under the existing
+  authenticated "discover profiles select" policy).
+- Auth: completed campus/permanent sessions only (public → 401, incomplete
+  → 403, single `getUser()` reused). No launch gate — search survives
+  launch. Self excluded server-side via `auth.uid()`; blocks in either
+  direction and `is_active = false` rows excluded.
+- Response projects public fields only (`username`, `spot`, `nickname`,
+  `age`, `year`, `branch`) — `user_id` resolved internally and stripped.
+  Never USN/email/phone/auth ID/verification metadata. No `SELECT *`.
+- UI: `/search` (pre-launch + post-launch nav, debounced 250ms, stale
+  responses ignored, idle/searching/results/empty/error states, 44px
+  targets, mobile-first) → minimal public `/u/[username]` (server-resolved,
+  public fields + photos only, username-only URL).
+- Client: no search dependency, no polling, no photos in result rows.
 
 ## 14.13 Invite architecture — PLANNED
 
@@ -800,3 +814,37 @@ no polling, no client-clock logic).
 NOT YET IMPLEMENTED: search, invites, countdown, Three.js, post-launch
 chat UI/realtime, image compression.
 
+### STEP 3B status (pre-launch search)
+
+IMPLEMENTED: server-bounded username-prefix search (`GET /api/search`,
+limit 20, min length 2, LIKE-escaped, case-insensitive on the existing
+username index), authenticated-only access (completed sessions; survives
+launch), public-field-only projection (no USN/email/auth ID, no
+`SELECT *`), self/block/inactive exclusion server-side, debounced client
+search (`/search` in pre-launch + post-launch nav, stale-guard, full
+state set), minimal public `/u/[username]` profile (server-resolved,
+username-only URL, public fields + photos).
+
+NOT YET IMPLEMENTED: nickname search (never approved — username-only by
+default), invite links, referral tracking, countdown, Three.js, image
+compression, post-launch chat UI/realtime.
+
+### STEP 3B learnings (search)
+
+- Username-only held up: SPEC.md §14.12 never approved nickname search, so
+  the single lookup key kept the query a bounded prefix scan on the
+  existing `idx_profiles_username_lower` — no migration, no pg_trgm, no new
+  RLS policy (existing authenticated discover policy sufficed).
+- LIKE-escaping is load-bearing: `_` is a legal username char but a LIKE
+  wildcard, so the onboarding pre-check pattern had to be reused in both
+  the search API and the `/u/[username]` resolver.
+- Internal-IDs-in, public-fields-out: `user_id` is selected only to exclude
+  self/blocks server-side and is stripped before responding; the block
+  exclusion reuses the discover two-direction model with zero block-system
+  redesign.
+- No launch gate on discovery-of-people: search and `/u/[username]` are
+  product-guarded but launch-independent, so the feature survives launch
+  while Discover/Matches/Chat stay server-locked.
+- Supabase builder reassignment (`let q = …; q = q.not(…)`) blows the
+  generated-type budget (TS2589) — two terminal chains (blocked / unblocked
+  branch) type-check cleanly.

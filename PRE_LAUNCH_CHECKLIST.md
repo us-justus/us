@@ -33,22 +33,22 @@
 - [x] Campus status (STEP 3A: "pre-launch · you're in" + gathering copy on `/`)
 - [x] Permanent #spot (STEP 2: minimal identity panel on `/`)
 - [x] Profile summary (STEP 3A: @username + #spot identity with profile/settings actions)
-- [ ] Search entry
+- [x] Search entry (STEP 3B: /search in pre-launch nav + panel link)
 - [ ] Invite entry
 - [ ] Countdown
 - [ ] Launch state
 - [x] Locked feature messaging (STEP 2: minimal "locked until launch" line; full home deferred)
 
 ## E. Search
-- [ ] Username search
-- [ ] Public-field-only results
-- [ ] Debouncing
-- [ ] Pagination
-- [ ] Result limit
-- [ ] DB index
-- [ ] Empty state
-- [ ] Loading state
-- [ ] Error state
+- [x] Username search (STEP 3B: prefix, case-insensitive, username-only)
+- [x] Public-field-only results (STEP 3B: explicit projection, no user_id/USN/email)
+- [x] Debouncing (STEP 3B: 250ms, no dependency, stale-guard)
+- [ ] Pagination (not needed: hard cap 20, no paged UX)
+- [x] Result limit (STEP 3B: SEARCH_LIMIT = 20)
+- [x] DB index (STEP 3B: reused idx_profiles_username_lower, no migration)
+- [x] Empty state
+- [x] Loading state
+- [x] Error state
 - [ ] Abuse/rate-limit handling
 
 ## F. Invite
