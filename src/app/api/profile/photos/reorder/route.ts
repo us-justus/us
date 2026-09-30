@@ -21,8 +21,9 @@ export async function POST(req: Request) {
   const { data: profile } = await supabase.from("profiles").select("id, user_id").eq("user_id", user.id).maybeSingle();
   if (!profile) return NextResponse.json({ error: "Profile not found." }, { status: 404 });
 
-  const { data: photos } = await supabase.from("profile_photos").select("id, profile_id").eq("profile_id", profile.id);
-  const ownIds = new Set((photos ?? []).map((p) => p.id));
+  const { data: photos } = await supabase.from("profile_photos").select("id, profile_id, storage_path").eq("profile_id", profile.id);
+  const pathById = new Map((photos ?? []).map((p) => [p.id, p.storage_path] as const));
+  const ownIds = new Set(pathById.keys());
   if (ids.length !== ownIds.size) {
     // Must reorder exactly all photos; partial reorder is not allowed to keep display_order dense
     return NextResponse.json({ error: "Must provide all photo ids in order." }, { status: 400 });
@@ -30,18 +31,21 @@ export async function POST(req: Request) {
   for (const id of ids) {
     if (!ownIds.has(id)) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
   }
+  // Ownership validated above, so every id resolves to a stored path.
+  const orderedPaths = ids.map((id) => pathById.get(id) as string);
 
-  // Two-phase update to avoid unique constraint on (profile_id, display_order).
-  // Rows are independent, so each phase runs concurrently (2 batches total
-  // instead of 2N sequential round-trips).
-  const phase1 = await Promise.all(
-    ids.map((id, i) => supabase.from("profile_photos").update({ display_order: 100 + i }).eq("id", id)),
-  );
-  if (phase1.some((r) => r.error)) return NextResponse.json({ error: "Could not reorder." }, { status: 400 });
-  const phase2 = await Promise.all(
-    ids.map((id, i) => supabase.from("profile_photos").update({ display_order: i }).eq("id", id)),
-  );
-  if (phase2.some((r) => r.error)) return NextResponse.json({ error: "Could not reorder." }, { status: 400 });
+  // display_order carries a (profile_id, display_order) UNIQUE constraint plus
+  // a 0..5 CHECK, so in-place updates would need out-of-range scratch values
+  // that the CHECK forbids. Delete + re-insert instead: the delete frees the
+  // unique keys, the insert writes dense 0..n-1 orders (also healing any gaps
+  // left by deletions), and no other table references photo row IDs. Storage
+  // objects are untouched — rows keep pointing at the same storage_path.
+  const { error: delErr } = await supabase.from("profile_photos").delete().eq("profile_id", profile.id);
+  if (delErr) return NextResponse.json({ error: "Could not reorder." }, { status: 400 });
+  const { error: insErr } = await supabase
+    .from("profile_photos")
+    .insert(orderedPaths.map((storage_path, i) => ({ profile_id: profile.id, storage_path, display_order: i })));
+  if (insErr) return NextResponse.json({ error: "Could not reorder." }, { status: 400 });
 
   const { data: reordered } = await supabase
     .from("profile_photos")
