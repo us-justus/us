@@ -13,6 +13,7 @@ type Phase =
   | "link" // anonymous: link the recorded email to this user first
   | "pending" // verification email sent, waiting for inbox confirm
   | "password" // verified permanent identity: set the password
+  | "noemail" // explicit email skip: no Supabase password possible, pass through
   | "done";
 
 function PasswordFlow() {
@@ -32,8 +33,8 @@ function PasswordFlow() {
   const [pwErr, setPwErr] = useState<string | null>(null);
   const [pwBusy, setPwBusy] = useState(false);
 
-  /** Resolve where this user stands: recorded email + server account state. */
-  const resolveState = useCallback(async (): Promise<{ vrEmail: string | null; kind: string | null; next: string | null; step: string | null }> => {
+  /** Resolve where this user stands: recorded email + skip + server account state. */
+  const resolveState = useCallback(async (): Promise<{ vrEmail: string | null; skipped: boolean; kind: string | null; next: string | null; step: string | null }> => {
     const [emailRes, stateRes] = await Promise.all([
       fetch("/api/onboarding/email", { cache: "no-store" }),
       fetch("/api/account/state", { cache: "no-store" }),
@@ -42,6 +43,7 @@ function PasswordFlow() {
     const stateJ = await stateRes.json().catch(() => null);
     return {
       vrEmail: (emailJ?.email as string | null) ?? null,
+      skipped: emailJ?.emailSkipped === true,
       kind: (stateJ?.account?.kind as string | null) ?? null,
       next: (typeof stateJ?.next === "string" ? stateJ.next : null) as string | null,
       step: (typeof stateJ?.onboardingStep === "string" ? stateJ.onboardingStep : null) as string | null,
@@ -53,7 +55,7 @@ function PasswordFlow() {
     let cancelled = false;
     (async () => {
       try {
-        const { vrEmail, kind, next, step } = await resolveState();
+        const { vrEmail, skipped, kind, next, step } = await resolveState();
         if (cancelled) return;
         // Already past this step (grandfathered campus user, or finished):
         // follow the single server routing source.
@@ -62,8 +64,15 @@ function PasswordFlow() {
           return;
         }
         setEmail(vrEmail);
-        if (!vrEmail) {
+        if (!vrEmail && !skipped) {
           router.replace("/onboarding/email");
+          return;
+        }
+        if (!vrEmail && skipped) {
+          // No-email path: Supabase Auth cannot hold a password on an
+          // anonymous user without a verified email/phone, so there is no
+          // password to set. Pass through — same session, same user.
+          setPhase("noemail");
           return;
         }
         if (kind === "permanent-verified") setPhase("password");
@@ -181,6 +190,26 @@ function PasswordFlow() {
         </>
       )}
 
+      {phase === "noemail" && (
+        <>
+          <p className="text-[13px] leading-6 text-ink-soft max-w-[38ch]">
+            You skipped email, so there&apos;s no password to set — passwords
+            need an email to work. Your account stays on this device, same
+            profile, same photos. You can add an email later in Settings to
+            sign in elsewhere.
+          </p>
+          <Button onClick={() => router.push("/onboarding/profile")} className="w-full rounded-full">
+            continue
+          </Button>
+          <button
+            onClick={() => router.push("/onboarding/email")}
+            className="w-full py-2 text-[12px] tracking-[0.12em] uppercase text-ink-soft transition-colors hover:text-accent-deep hover:bg-accent-wash rounded-full min-h-[44px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            add an email instead
+          </button>
+        </>
+      )}
+
       {phase === "pending" && (
         <>
           <p className="font-display text-[22px] tracking-[-0.02em]">check your inbox.</p>
@@ -287,7 +316,7 @@ function PasswordFlow() {
 
 export default function PasswordPage() {
   return (
-    <Shell title="set a password." subtitle="This — plus your email — is how you sign back in. Same account, same everything." step="03 — password">
+    <Shell title="protect your sign-in." subtitle="Email accounts set a password here. Without an email, this device stays your way in. Same account, same everything either way." step="03 — password">
       <Suspense fallback={<p className="text-[13px] text-ink-soft">loading…</p>}>
         <PasswordFlow />
       </Suspense>
