@@ -5,8 +5,12 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 /**
- * Permanent users only. Anonymous users are never shown a sign-out action
- * (signing out would orphan the anonymous account).
+ * Ends the current Supabase session and returns to the landing page.
+ * Shown for every signed-in complete session — permanent and campus
+ * (no-email) alike. It only clears the session: username, #spot, profile,
+ * photos, and onboarding state are untouched server-side. Campus accounts
+ * without an email cannot sign back in from another device, so callers
+ * pair this with the "may prevent returning to it" notice.
  */
 export function SignOutButton() {
   const router = useRouter();
