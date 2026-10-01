@@ -8,6 +8,7 @@ import { useExistingSession } from "@/lib/auth/use-existing-session";
 import { getAccountState, validateAccountEmail, validateNewPassword } from "@/lib/auth/account";
 import { FieldError } from "@/components/onboarding/shell";
 import { ChangePasswordForm } from "@/components/settings/change-password-form";
+import { SignOutButton } from "@/components/settings/sign-out-button";
 
 /**
  * Anonymous → permanent conversion. Links an email identity to the CURRENT
@@ -41,6 +42,34 @@ function AccountFlow() {
   const account = getAccountState(user);
   const linkError = params.get("error");
   const justVerified = params.get("verified") === "1";
+
+  // Keep the private onboarding email record in sync with the verified Auth
+  // email (own-row upsert, RLS-safe). Login resolves the auth email fresh
+  // from Auth, so this is display hygiene — never identity.
+  useEffect(() => {
+    if (!justVerified || !account?.email) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const supabase = createClient();
+        const { data: { user: u } } = await supabase.auth.getUser();
+        if (!u || cancelled || !account.email) return;
+        const full = await supabase
+          .from("verification_records")
+          .upsert({ user_id: u.id, email: account.email, email_skipped: false }, { onConflict: "user_id" });
+        if (full.error && /email_skipped/i.test(full.error.message)) {
+          await supabase
+            .from("verification_records")
+            .upsert({ user_id: u.id, email: account.email }, { onConflict: "user_id" });
+        }
+      } catch {
+        // Best-effort only — verification itself already succeeded.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [justVerified, account?.email]);
 
   // Product guard (server /settings already redirects, this covers back/forward
   // cache and direct client navigation): logged-out → /login, incomplete
@@ -247,6 +276,26 @@ function AccountFlow() {
                 const j = await res.json().catch(() => null);
                 await refresh();
                 if (j?.account?.emailConfirmed) {
+                  // Sync the private onboarding email record with the just
+                  // verified Auth email (own row; best-effort hygiene).
+                  try {
+                    const supabase = createClient();
+                    const authedEmail =
+                      typeof j?.email === "string" ? (j.email as string) : null;
+                    const { data: { user: u } } = await supabase.auth.getUser();
+                    if (u && authedEmail) {
+                      const full = await supabase
+                        .from("verification_records")
+                        .upsert({ user_id: u.id, email: authedEmail, email_skipped: false }, { onConflict: "user_id" });
+                      if (full.error && /email_skipped/i.test(full.error.message)) {
+                        await supabase
+                          .from("verification_records")
+                          .upsert({ user_id: u.id, email: authedEmail }, { onConflict: "user_id" });
+                      }
+                    }
+                  } catch {
+                    // Best-effort only.
+                  }
                   router.replace("/settings/account?verified=1");
                 } else {
                   setNotice("Not verified yet — open the link in your email, then continue.");
@@ -294,8 +343,9 @@ function AccountFlow() {
       )}
       <div className={linkError === "link-expired" ? "mt-6" : ""}>
         <p className="text-[13px] leading-6 text-ink-soft max-w-[38ch]">
-          Add your email to this account. Your profile, photos, and matches stay exactly as they
-          are — same account, just secured.
+          No email on this account yet. Add one to sign in from other devices
+          and recover your password. Your profile, photos, and matches stay
+          exactly as they are — same account, just secured.
         </p>
         <div className="mt-5">
           <label className="text-[11px] tracking-[0.14em] uppercase text-ink-faint">email</label>
@@ -345,7 +395,36 @@ export default function AccountPage() {
         <Suspense fallback={<p className="mt-8 text-[13px] text-ink-soft">loading…</p>}>
           <AccountFlow />
         </Suspense>
+        <AccountSignOut />
       </div>
     </div>
+  );
+}
+
+/**
+ * Sign out for every signed-in complete session — email and no-email alike.
+ * Never conditioned on email presence or verification: it only ends the
+ * Supabase session (username, #spot, profile, photos, and onboarding state
+ * are untouched server-side). Shown below the account flow so all branches
+ * (secured, pending, anonymous) expose the same control.
+ */
+function AccountSignOut() {
+  const { status, user } = useExistingSession();
+  if (status !== "ready" || !user) return null;
+  const account = getAccountState(user);
+  if (!account) return null;
+  return (
+    <section className="mt-8">
+      <div className="h-px bg-line" />
+      <div className="py-5">
+        <SignOutButton />
+        {account.kind === "anonymous" && (
+          <p className="mt-3 text-[11px] leading-4 text-ink-faint">
+            Signing out before securing your account may prevent returning to it.
+          </p>
+        )}
+      </div>
+      <div className="h-px bg-line" />
+    </section>
   );
 }
