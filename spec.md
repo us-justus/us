@@ -82,14 +82,25 @@ The product must NOT feel:
 ### Authentication / verification
 
 - USN — mandatory private campus identity, immutable after verification
-- Verified email + password — mandatory permanent authentication
-  (Supabase Auth owns passwords; USN is never a password)
+- Email — OPTIONAL account field (never synthesized; no fake emails).
+  Supplied emails are verified and enable cross-device sign-in + recovery.
+- Password — required for permanent authentication when an email is present
+  (Supabase Auth owns passwords; USN is never a password). Supabase Auth
+  cannot hold a password on an anonymous user without a verified
+  email/phone, so no-email accounts stay device-bound campus accounts until
+  an email is added later in Settings.
 - USN format validation using college-specific regex
 - Internal anonymous user ID (onboarding identity; UID preserved on
   conversion — never `signUp`, never a second user, never profile migration)
-- Onboarding: USN → email → password → profile → photos → discover
-- Login: USN + email + password → password auth, then server-side USN
-  verification against the authenticated user; one generic failure message
+- Onboarding: USN → email (optional, skippable) → password → profile →
+  photos → discover. Email verification applies only when an email is
+  supplied; the no-email path passes the password step through without one.
+- Login: USN + password → server-side USN → auth-email mapping (email never
+  leaves the server), password auth, then server-side USN verification
+  against the authenticated user; one generic failure message.
+  No-email accounts fail with the same generic message (no cross-device
+  credential exists); recovery for them is email-add-in-Settings only, never
+  SMS/OTP workarounds.
 - Verification data (USN, email, auth IDs, metadata) must never appear on
   public profiles
 
@@ -182,17 +193,20 @@ account is permanent. Implemented in `src/lib/auth/product-state.ts`
   Sees landing, login, sign-up/enter, public info only. Header shows `us` +
   `log in` + `enter`. Never discover/matches/chat/profile/settings.
   `ENTER` → `/onboarding` (the sign-up flow; anonymous auth is established
-  internally, never presented as "anonymous login"). `LOG IN` → `/login`
-  (USN + email + password; verified server-side).
+  internally, never presented as "anonymous login").   `LOG IN` → `/login`
+  (USN + password; verified server-side).
 - ONBOARDING — session exists, step != complete (`/onboarding/*`: usn →
   email → password → profile → photos). Minimal header (`us` + progress
   context + back nav). Never product nav, never "account isn't secured yet"
-  messaging. Email is required (it secures the account and is the sign-in
-  identity); the password step links it to the current anonymous user,
-  verifies it, and sets the password — same `auth.uid()`, same data.
-- CAMPUS PRODUCT SESSION — onboarding complete on a still-anonymous account.
-  Full product nav (discover/matches/chat/profile/settings). The "secure your
-  account" message belongs HERE (Settings), as an account/security action.
+  messaging. Email is optional (recovery + cross-device sign-in when
+  supplied; cleanly skippable otherwise); the password step links a supplied
+  email to the current anonymous user, verifies it, and sets the password —
+  same `auth.uid()`, same data. Skipped-email accounts pass the password
+  step through and finish as campus accounts on the same session.
+- CAMPUS PRODUCT SESSION — onboarding complete on a still-anonymous account
+  (includes completed no-email accounts). Full product nav
+  (discover/matches/chat/profile/settings). The "secure your account" message
+  belongs HERE (Settings), as an account/security action.
 - PERMANENT ACCOUNT — verified email + password, non-anonymous. Full product
   nav; Settings shows verified email, change password, sign out. Sign-out →
   `/` with public navigation restored.
@@ -214,12 +228,16 @@ onboarding, login, and account semantics are unchanged.
 - Anonymous Supabase Auth is the V1 session foundation; the email/password
   upgrade converts the CURRENT user via `updateUser()` (UID preserved) and
   must never mint a second identity (`signUp` is forbidden for conversion).
-- Login requires USN + email + password: client `signInWithPassword()`, then
-  `POST /api/auth/verify-usn` confirms the submitted USN belongs to the
-  authenticated user (`verification_records.user_id`, server-derived —
-  client user IDs never trusted, USN never returned). Every credential
-  failure returns one generic message; USN is never a password and never
-  authenticates alone.
+- Login requires USN + password only: `POST /api/auth/login` resolves the
+  private USN → auth-email mapping server-side via the password-gated
+  `resolve_login_email()` RPC (email returned solely on valid password, never
+  to the client), signs in with Supabase Auth, then confirms the submitted
+  USN belongs to the authenticated user (`verification_records.user_id`,
+  server-derived — client user IDs never trusted, USN never returned).
+  Every credential failure returns one generic message; USN is never a
+  password and never authenticates alone. No-email accounts have no
+  cross-device credential and fail generically; their recovery path is
+  adding an email in Settings while signed in on the original device.
 - `ensureAnonymousSession()` (`src/lib/auth/session.ts`) is the single place
   that may establish a session. Pages use `useAnonymousSession()`; pages that
   must never create a session (`/login`, `/settings`, `/auth/*`) use
