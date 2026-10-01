@@ -10,32 +10,40 @@ import { normalizeUSN, validateUSN } from "@/lib/verification/usn";
 import { FieldError } from "@/components/onboarding/shell";
 
 /**
- * Sign-in for permanent (email + password) accounts, bound to campus identity.
+ * Sign-in with USN + password, bound to campus identity.
  *
  * Never calls ensureAnonymousSession — no anonymous user is minted here.
+ * Email is optional across the product, so it is not the login identifier:
+ * USN exists for every verified student.
  *
- * Flow: USN + email + password → signInWithPassword() (Supabase Auth owns
- * passwords; USN is never a password) → POST /api/auth/verify-usn, which
- * checks server-side that the submitted USN belongs to the authenticated
- * user. All credential failures return one generic message so login never
- * reveals whether a USN or email exists. Destination comes from
- * /api/auth/verify-usn (server onboarding state): complete → /discover,
- * otherwise the onboarding step.
+ * Flow: USN + password → POST /api/auth/login, which resolves the private
+ * USN → auth-email mapping server-side (email never leaves the server),
+ * authenticates with Supabase Auth (Supabase owns passwords; USN is never a
+ * password and never authenticates alone), then verifies server-side that
+ * the submitted USN belongs to the authenticated user. All credential
+ * failures return one generic message so login never reveals whether a USN
+ * exists. Destination comes from the server onboarding state: complete →
+ * /discover, otherwise the onboarding step.
+ *
+ * No-email accounts have no cross-device credential (Supabase Auth cannot
+ * hold a password without a verified email/phone): they stay signed in on
+ * their original device and unlock sign-in elsewhere by adding an email in
+ * Settings. They fail here with the same generic message.
  */
-const GENERIC = "Incorrect USN, email, or password.";
+const GENERIC = "Incorrect USN or password.";
 
 function LoginFlow() {
   const router = useRouter();
   const { status, user } = useExistingSession();
 
   const [usn, setUsn] = useState("");
-  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const [forgot, setForgot] = useState(false);
+  const [resetEmail, setResetEmail] = useState("");
   const [resetSent, setResetSent] = useState(false);
   const [resetErr, setResetErr] = useState<string | null>(null);
   const [resetBusy, setResetBusy] = useState(false);
@@ -43,35 +51,21 @@ function LoginFlow() {
   async function signIn() {
     setError(null);
     const normalizedUsn = normalizeUSN(usn);
-    if (!validateUSN(normalizedUsn)) {
-      setError("Enter your USN, email, and password.");
-      return;
-    }
-    if (validateAccountEmail(email.trim()) || !password) {
-      setError("Enter your USN, email, and password.");
+    if (!validateUSN(normalizedUsn) || !password) {
+      setError("Enter your USN and password.");
       return;
     }
     setBusy(true);
-    const supabase = createClient();
     try {
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
-      });
-      // Generic — never reveal whether the email exists.
-      if (signInError) throw new Error(GENERIC);
-      const res = await fetch("/api/auth/verify-usn", {
+      // Fully server-side: the auth email (if any) never touches the client.
+      // The server route sets the session cookies on success.
+      const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ usn: normalizedUsn }),
+        body: JSON.stringify({ usn: normalizedUsn, password }),
       });
       const j = await res.json().catch(() => null);
-      if (!res.ok) {
-        // USN mismatch (or missing session): clear the half-authenticated
-        // client session so no credential lingers, then report generically.
-        await supabase.auth.signOut();
-        throw new Error(typeof j?.error === "string" ? j.error : GENERIC);
-      }
+      if (!res.ok) throw new Error(typeof j?.error === "string" ? j.error : GENERIC);
       // The destination route re-renders server-side with the fresh session
       // cookies, and the header re-resolves via its auth subscription — no
       // router.refresh() needed after the mutation.
@@ -86,7 +80,7 @@ function LoginFlow() {
   async function sendReset() {
     setResetErr(null);
     setResetSent(false);
-    const err = validateAccountEmail(email);
+    const err = validateAccountEmail(resetEmail);
     if (err) {
       setResetErr(err);
       return;
@@ -94,7 +88,7 @@ function LoginFlow() {
     setResetBusy(true);
     try {
       const supabase = createClient();
-      await supabase.auth.resetPasswordForEmail(email.trim(), {
+      await supabase.auth.resetPasswordForEmail(resetEmail.trim(), {
         redirectTo: `${window.location.origin}/auth/confirm?next=/auth/update-password`,
       });
       // Always show success — never reveal whether the email exists.
@@ -115,9 +109,9 @@ function LoginFlow() {
   // Already signed in with a PERMANENT account: route by product state
   // (single server source). Anonymous sessions are onboarding identities, not
   // login states — an anonymous holder must still see the credential form,
-  // since signInWithPassword() replaces the anonymous session with the
-  // permanent one. Gating on `user` alone hid the form on every device that
-  // had ever started onboarding (no password field rendered at all).
+  // since sign-in replaces the anonymous session with the permanent one.
+  // Gating on `user` alone hid the form on every device that had ever
+  // started onboarding (no password field rendered at all).
   const isAnonymous = (user as { is_anonymous?: boolean } | null)?.is_anonymous === true;
   if (status === "ready" && user && !isAnonymous) {
     return <SignedInContinue />;
@@ -151,24 +145,6 @@ function LoginFlow() {
           autoComplete="username"
           enterKeyHint="next"
           className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base uppercase tracking-[0.08em] text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft placeholder:normal-case placeholder:tracking-normal"
-        />
-      </div>
-      <div className="mt-4">
-        <label htmlFor="login-email" className="text-[11px] tracking-[0.14em] uppercase text-ink-faint">email</label>
-        <input
-          id="login-email"
-          name="email"
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="you@campus.edu"
-          inputMode="email"
-          autoCapitalize="none"
-          autoCorrect="off"
-          spellCheck={false}
-          autoComplete="email"
-          enterKeyHint="next"
-          className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft"
         />
       </div>
       {!forgot && (
@@ -228,8 +204,28 @@ function LoginFlow() {
         <div className="mt-5 rounded-[24px] border border-line bg-paper-2 px-5 py-6">
           <p className="font-display text-[20px] tracking-[-0.02em]">reset password.</p>
           <p className="mt-1 text-[13px] leading-6 text-ink-soft">
-            Enter your account email above and we&apos;ll send a reset link.
+            Reset links go to your account email — only accounts with an email
+            can use this. Signed up without one? Sign in on your original
+            device and add an email in Settings first.
           </p>
+          <div className="mt-4">
+            <label htmlFor="login-reset-email" className="text-[11px] tracking-[0.14em] uppercase text-ink-faint">account email</label>
+            <input
+              id="login-reset-email"
+              name="reset-email"
+              type="email"
+              value={resetEmail}
+              onChange={(e) => setResetEmail(e.target.value)}
+              placeholder="you@campus.edu"
+              inputMode="email"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              autoComplete="email"
+              enterKeyHint="send"
+              className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft"
+            />
+          </div>
           {resetErr && (
             <div className="mt-3">
               <FieldError msg={resetErr} />
