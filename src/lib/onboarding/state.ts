@@ -9,17 +9,21 @@ export type OnboardingStep = "usn" | "email" | "password" | "profile" | "photos"
  * Single source of onboarding truth (DB + auth state, never localStorage).
  *
  * Flow: usn → email → password → profile → photos → complete.
+ * Email is OPTIONAL (STEP 3C): usn → email → skip → password → profile →
+ * photos → complete is equally valid. No fake email is ever synthesized.
  *
  * - `usn`: no verified USN on verification_records.
- * - `email`: USN present but no email. Email is REQUIRED for a permanent
- *   (login-capable) account — it secures the account and is the sign-in
- *   identity alongside the password.
+ * - `email`: USN present, no email recorded, and no explicit skip yet.
  * - `password`: email recorded but the Supabase Auth identity is not yet a
  *   verified permanent account (anonymous, or email-change pending). The
  *   password step links the email to the CURRENT anonymous user (UID
  *   preserved, never signUp), verifies it, and sets the password.
  *   Accounts that already built a profile (existing campus sessions) are
  *   grandfathered past this gate — they secure via Settings instead.
+ *   For the no-email path (explicit skip, `email_skipped`), the password
+ *   step is a pass-through: Supabase Auth cannot hold a password on an
+ *   anonymous user without a verified email/phone, so these accounts stay
+ *   device-bound campus accounts until an email is added later in Settings.
  * - `profile` / `photos` / `complete`: as before.
  *
  * Pass the already-authenticated User whenever the caller has it so this
@@ -41,11 +45,31 @@ export async function getOnboardingState(
     perfLog("onboarding.state", t);
     return { user: { id: userId }, step };
   };
-  const { data: vr } = await supabase.from("verification_records").select("usn, email").eq("user_id", userId).maybeSingle();
+  // email_skipped arrives with the STEP 3C migration. If the remote schema
+  // predates it, fall back to the legacy projection so the email path keeps
+  // working (skip simply unavailable until the migration is applied).
+  type VrRow = { usn: string | null; email: string | null; email_skipped?: boolean | null };
+  let vr: VrRow | null = null;
+  const full = await supabase
+    .from("verification_records")
+    .select("usn, email, email_skipped")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!full.error) {
+    vr = full.data as unknown as VrRow | null;
+  } else if (/email_skipped/i.test(full.error.message ?? "")) {
+    const legacy = await supabase
+      .from("verification_records")
+      .select("usn, email")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (!legacy.error) vr = legacy.data as unknown as VrRow | null;
+  }
   if (!vr || !vr.usn) {
     return done("usn");
   }
-  if (!vr.email) {
+  const skipped = vr.email_skipped === true;
+  if (!vr.email && !skipped) {
     return done("email");
   }
   const { data: profile } = await supabase.from("profiles").select("id").eq("user_id", userId).maybeSingle();
