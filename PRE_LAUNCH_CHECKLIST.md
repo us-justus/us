@@ -144,8 +144,8 @@
 - [ ] Report
 
 ## O. Final Launch Gate
-- [ ] Full fresh registration tested
-- [ ] Existing user login tested
+- [ ] Full fresh registration tested (email + no-email paths untested live)
+- [ ] Existing user login tested (USN + password untested live)
 - [ ] Logout/login tested
 - [ ] Pre-launch lock tested
 - [ ] Launch transition tested
@@ -157,3 +157,14 @@
 - [ ] Security audit complete
 - [ ] Load review complete
 - [ ] Production environment verified
+
+## P. Optional email (STEP 3C)
+- [x] Email optional in onboarding (skip path, no fake emails)
+- [x] No-email password pass-through (Supabase rejects password w/o verified email)
+- [x] USN + password login route (password-gated USN → email RPC, server-only)
+- [x] Skip-state migration written (20261001000001_optional_email.sql)
+- [x] Recovery copy truthful for no-email accounts (email-add-in-Settings only)
+- [x] Search / username / #spot untouched
+- [ ] Migration applied to hosted Supabase (code ships fallbacks; skip unavailable until applied)
+- [ ] Live E2E: email account (onboarding → verify → login → relogin → search)
+- [ ] Live E2E: no-email account (skip → complete → on-device access → search)
