@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { validateNickname, validateAge, validateYear, validateBranch, validateBio } from "@/lib/validation/profile";
 import { normalizeUsername, validateUsername } from "@/lib/validation/username";
 import { perfLog, perfStart } from "@/lib/utils/perf";
+import { cookies } from "next/headers";
 
 export async function POST(req: Request) {
   const t = perfStart();
@@ -95,5 +96,21 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Could not save profile." }, { status: 400 });
   }
   perfLog("profile.save", t);
+
+  // Record referral attribution if an invite cookie is present.
+  // This is the single point where a completed user is attributed to an inviter.
+  // The referral is immutable after creation (enforced by the unique constraint
+  // on invitee_user_id). Self-referrals are rejected by the function.
+  const cookieStore = await cookies();
+  const inviteToken = cookieStore.get("us_invite")?.value;
+  if (inviteToken) {
+    await supabase.rpc("record_referral", {
+      p_invite_token: inviteToken,
+      p_invitee_user_id: user.id,
+    });
+    // Clear the cookie after recording — attribution is now persisted server-side.
+    cookieStore.delete("us_invite");
+  }
+
   return NextResponse.json({ ok: true, username: normalized, spot });
 }
