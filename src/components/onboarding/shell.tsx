@@ -1,10 +1,14 @@
 "use client";
 import * as motion from "motion/react-client";
+import { useReducedMotion } from "motion/react";
 import Link from "next/link";
 
 export function Shell({ title, subtitle, step, children }: { title: string; subtitle: string; step?: string; children: React.ReactNode }) {
+  // motion/react animations are JS-driven and ignore the CSS-only
+  // reduced-motion reset — honor the OS setting here like MatchOverlay does.
+  const reduceMotion = useReducedMotion();
   return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }} className="flex flex-col">
+    <motion.div initial={{ opacity: 0, y: reduceMotion ? 0 : 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reduceMotion ? 0 : 0.4, ease: [0.22, 1, 0.36, 1] }} className="flex flex-col">
       {step && (
         <p className="flex items-center gap-2 text-[11px] tracking-[0.18em] uppercase text-ink-faint">
           <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
