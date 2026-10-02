@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Instrument_Serif } from "next/font/google";
 import { SiteHeader } from "@/components/layout/site-header";
+import { AmbientHeartField } from "@/components/ambient/ambient-heart-field";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -40,8 +41,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${geistSans.variable} ${display.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-paper text-ink">
+        <AmbientHeartField />
         <SiteHeader />
-        <main className="flex flex-1 flex-col">{children}</main>
+        <main className="relative z-10 flex flex-1 flex-col">{children}</main>
       </body>
     </html>
   );
