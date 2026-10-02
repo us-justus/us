@@ -12,8 +12,10 @@ import { perfLog, perfStart } from "@/lib/utils/perf";
  *   Linking/verifying it to the CURRENT anonymous user (UID preserved, never
  *   signUp) plus the password happens on the password step.
  * - POST { skip: true }: records an explicit skip (email NULL,
- *   email_skipped true). No email identity is created, no verification is
- *   attempted. Never synthesizes a fake email from USN/username.
+ *   email_skipped true). No user email is recorded and no verification is
+ *   attempted. The password step then attaches a confirmed internal sign-in
+ *   identity plus the chosen password to the same user (never derived from
+ *   USN/username).
  * - Stored on the private verification record only — never exposed publicly.
  */
 export async function POST(req: Request) {
