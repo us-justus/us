@@ -745,18 +745,35 @@ persistent messages
   public fields + photos only, username-only URL).
 - Client: no search dependency, no polling, no photos in result rows.
 
-## 14.13 Invite architecture — PLANNED
+## 14.13 Invite architecture — IMPLEMENTED (STEP 3D)
 
-- Username is the public identity; referral tracking will use stable
-  internal `owner_user_id`. If persistent referral links are required, use
-  a stable invite token rather than the mutable username. Conceptual:
-
-```text
-invite_links: id, owner_user_id → auth.users.id, token, created_at
-```
-
-- Table NOT created in STEP 1 (no foundation required yet). Invite UI,
-  landing page, and abuse-resistance NOT YET IMPLEMENTED.
+- Stable user-linked invite: `invites` table keyed on `inviter_user_id →
+  auth.users.id` (never username, #spot, USN, or email). One active invite
+  per user (partial unique index `idx_invites_inviter_active`).
+- Opaque token: `encode(gen_random_bytes(16), 'hex')` — 32-char hex string.
+  Never encodes USN, email, auth ID, or private data. URL format:
+  `/invite/<token>`.
+- Invite creation: `GET /api/invite` → `get_or_create_invite()` RPC
+  (concurrency-safe via `ON CONFLICT DO NOTHING`). Same user → same URL.
+- Invite landing: `/invite/[token]` server-resolved via `resolve_invite_token()`
+  RPC. Returns only public inviter fields (username, spot, nickname). Never
+  returns inviter_user_id, USN, email, or verification metadata.
+- Attribution: `POST /api/invite/enter` sets HttpOnly cookie `us_invite` (7-day
+  max-age, SameSite=Lax). Cookie survives onboarding flow. Read + cleared in
+  `POST /api/onboarding/profile` after profile save.
+- Referral recording: `record_referral()` RPC called once at profile completion.
+  `referrals` table with `invitee_user_id UNIQUE` (idempotent, immutable).
+  Self-referrals rejected.
+- RLS: `invites` has authenticated-only policies (own select/insert/update).
+  No anon select policy — token resolution is server-side only. `referrals`
+  has inviter/invitee select policies. No public access.
+- Pre-launch availability: invite route is NOT launch-gated. Discover/Matches/
+  Chat remain server-locked.
+- Sharing: polished share-card sheet (STEP 3D.1: `InviteShareCard` preview
+  with dynamic username/#spot, canvas-rendered PNG for native file share,
+  Web Share → clipboard → legacy → manual fallbacks). No sharing dependency.
+- Migration: `supabase/migrations/20261001000003_invites.sql` — CREATED, NOT
+  YET APPLIED to hosted Supabase.
 
 ## 14.14 Image storage/compression future plan — PLANNED (deferred)
 
@@ -866,3 +883,26 @@ compression, post-launch chat UI/realtime.
 - Supabase builder reassignment (`let q = …; q = q.not(…)`) blows the
   generated-type budget (TS2589) — two terminal chains (blocked / unblocked
   branch) type-check cleanly.
+
+### STEP 3D.1 learnings (invite share card)
+
+- Props-down beat a new fetch: username/#spot flow PrelaunchPanel →
+  InviteButton → sheet, so the card preview renders with zero network and
+  zero extra auth calls; only Share/Copy taps touch `/api/invite`.
+- Fetch-on-tap beat fetch-on-open: the stable invite URL is fetched lazily
+  on the first Share/Copy tap and cached (one invite per inviter, token
+  immutable), so opening the sheet costs no request. This also kept effects
+  free of state writes — the initial fetch-on-open design failed
+  `react-hooks/set-state-in-effect` and `react-hooks/refs` lint, and the
+  event-driven version is lint-clean with less code.
+- Fixed-export canvas: a deterministic 1080×1350 PNG is HiDPI by
+  construction (no DPR branching, no layout-dependent sizing), uses system
+  serif/sans only (no remote fonts, no network, no library), and mirrors
+  the React preview; the token and all private data stay out of the image.
+- Fallback chain preserved exactly: native file share → native URL/text
+  share → Clipboard API → legacy textarea+execCommand → manual readonly
+  field, with the absolutize-against-origin fix kept for LAN + production.
+- Reuse without building the feature: share primitives (absolutize, legacy
+  copy, share text, capability detection, clipboard fallbacks) live
+  UI-agnostic in `share-button.tsx`, so a future Settings "share my
+  profile" reuses them; nothing Settings-specific shipped.
