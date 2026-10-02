@@ -27,10 +27,10 @@ export async function getDiscoverProfiles(): Promise<DiscoverProfile[]> {
 
   const { data: profiles, error } = await supabase
     .from("profiles")
-    .select("user_id, nickname, age, year, branch, bio, interests, is_active")
+    .select("user_id, username, nickname, age, year, branch, bio, interests, is_active")
     .eq("is_active", true)
     .not("user_id", "in", `(${excludedArr.join(",")})`)
-    .limit(DISCOVER_LIMIT * 2) as { data: { user_id: string; nickname: string; age: number; year: string; branch: string; bio: string | null; interests: string[] | null; is_active: boolean }[] | null; error: unknown };
+    .limit(DISCOVER_LIMIT * 2) as { data: { user_id: string; username: string | null; nickname: string; age: number; year: string; branch: string; bio: string | null; interests: string[] | null; is_active: boolean }[] | null; error: unknown };
   if (error || !profiles?.length) return [];
 
   const filtered = profiles.slice(0, DISCOVER_LIMIT);
@@ -57,12 +57,13 @@ export async function getDiscoverProfiles(): Promise<DiscoverProfile[]> {
   }
 
   const result: DiscoverProfile[] = [];
-  for (const p of filtered as { user_id: string; nickname: string; age: number; year: string; branch: string; bio: string | null; interests: string[] | null }[]) {
+  for (const p of filtered as { user_id: string; username: string | null; nickname: string; age: number; year: string; branch: string; bio: string | null; interests: string[] | null }[]) {
     const pid = idByUserId.get(p.user_id);
     const photos = pid ? (photosByProfileId.get(pid) ?? []) : [];
     if (!photos.length) continue;
     result.push({
       userId: p.user_id,
+      username: p.username ?? "",
       nickname: p.nickname,
       age: p.age,
       year: p.year,
