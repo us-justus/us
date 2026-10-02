@@ -28,10 +28,10 @@
   --line-strong: #ddd6cb;
   /* Brand coral, sampled from src/app/favicon.ico (#FF6666 field, #FFCCCC
      detail). --accent is decorative/interactive only — never body text on
-     light backgrounds. --accent-deep (the previous terracotta accent) is the
-     text-safe coral for links, errors, and selected text on light surfaces. */
+     light backgrounds. --accent-deep is the text-safe, subtly warmer/deeper
+     end of the same coral spectrum. */
   --accent: #ff6666;
-  --accent-deep: #a63d2f;
+  --accent-deep: #a53a32;
   --accent-hover: #f25555;
   --accent-soft: #ffcccc;
   --accent-wash: #fff0ee;
