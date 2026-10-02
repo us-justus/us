@@ -11,7 +11,8 @@ export function Placeholder({
 }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
-      <p className="text-[11px] tracking-[0.2em] uppercase text-ink-faint">
+      <p className="flex items-center gap-2 text-[11px] tracking-[0.2em] uppercase text-ink-faint">
+        <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
         {caption}
       </p>
       <h1 className="mt-3 font-display text-[32px] sm:text-[40px] tracking-[-0.03em] leading-none">
