@@ -25,10 +25,10 @@ import { FieldError } from "@/components/onboarding/shell";
  * exists. Destination comes from the server onboarding state: complete →
  * /discover, otherwise the onboarding step.
  *
- * No-email accounts have no cross-device credential (Supabase Auth cannot
- * hold a password without a verified email/phone): they stay signed in on
- * their original device and unlock sign-in elsewhere by adding an email in
- * Settings. They fail here with the same generic message.
+ * Email-skipped accounts that set a password hold a confirmed internal
+ * sign-in identity (server-attached, never displayed) and sign in here with
+ * the same USN + password. Legacy anonymous accounts with no password fail
+ * here with the same generic message.
  */
 const GENERIC = "Incorrect USN or password.";
 
@@ -204,9 +204,10 @@ function LoginFlow() {
         <div className="mt-5 rounded-[24px] border border-line bg-paper-2 px-5 py-6">
           <p className="font-display text-[20px] tracking-[-0.02em]">reset password.</p>
           <p className="mt-1 text-[13px] leading-6 text-ink-soft">
-            Reset links go to your account email — only accounts with an email
-            can use this. Signed up without one? Sign in on your original
-            device and add an email in Settings first.
+            Reset links go to your account email — only accounts with a real
+            email can use this. Signed up without one and never set a
+            password? Sign in on your original device and add an email in
+            Settings first.
           </p>
           <div className="mt-4">
             <label htmlFor="login-reset-email" className="text-[11px] tracking-[0.14em] uppercase text-ink-faint">account email</label>
