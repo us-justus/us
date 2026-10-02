@@ -34,7 +34,7 @@
 - [x] Permanent #spot (STEP 2: minimal identity panel on `/`)
 - [x] Profile summary (STEP 3A: @username + #spot identity with profile/settings actions)
 - [x] Search entry (STEP 3B: /search in pre-launch nav + panel link)
-- [ ] Invite entry
+- [x] Invite entry (STEP 3D: "invite friends" action on pre-launch home with Web Share API)
 - [ ] Countdown
 - [ ] Launch state
 - [x] Locked feature messaging (STEP 2: minimal "locked until launch" line; full home deferred)
@@ -52,13 +52,13 @@
 - [ ] Abuse/rate-limit handling
 
 ## F. Invite
-- [ ] Public URL design
-- [ ] Invite landing page
-- [ ] Referrer tracking design
-- [ ] Duplicate invite handling
-- [ ] Abuse prevention
-- [ ] Mobile share behavior
-- [ ] Privacy audit
+- [x] Public URL design (STEP 3D: /invite/<token>, opaque 32-char hex)
+- [x] Invite landing page (STEP 3D: server-resolved, valid/invalid/disabled/self/auth states)
+- [x] Referrer tracking design (STEP 3D: stable user-linked, cookie attribution, immutable referral record)
+- [x] Duplicate invite handling (STEP 3D: one active per user, concurrency-safe RPC)
+- [x] Abuse prevention (STEP 3D: no public token exposure, server-side resolution only)
+- [x] Mobile share behavior (STEP 3D: Web Share API + clipboard fallback; STEP 3D.1: share-card sheet with dynamic username/#spot, canvas image for native file share)
+- [x] Privacy audit (STEP 3D: public fields only, no USN/email/auth ID exposed)
 
 ## G. Countdown
 - [ ] Authoritative launch timestamp
