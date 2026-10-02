@@ -18,7 +18,7 @@ type SheetStatus =
   | "idle"
   | "working"
   | "ready"
-  | "shared"
+  | "unavailable"
   | "copied"
   | "manual"
   | "error";
@@ -34,8 +34,9 @@ type SheetStatus =
  * The stable invite URL is fetched lazily on first Share/Copy tap (cached
  * after) — never on page render, never just to show the preview.
  *
- * Fallback order (LAN-safe): native file share → native URL/text share →
- * Clipboard API → legacy execCommand → manual readonly field.
+ * Fallback order (LAN-safe): COPY LINK is the only path that copies
+ * (Clipboard API → legacy execCommand → manual readonly field). SHARE only
+ * invokes navigator.share() and never falls through to copying.
  */
 export function InviteShareSheet({
   username,
@@ -80,8 +81,10 @@ export function InviteShareSheet({
     // Keep the cached URL (stable one-per-inviter) but drop transient
     // result messaging so a reopen starts from a clean preview.
     setStatus((s) =>
-      s === "shared" || s === "copied" || s === "manual" || s === "error"
-        ? inviteUrl ? "ready" : "idle"
+      s === "unavailable" || s === "copied" || s === "manual" || s === "error"
+        ? inviteUrl
+          ? "ready"
+          : "idle"
         : s,
     );
     setErrorMsg(null);
@@ -112,41 +115,50 @@ export function InviteShareSheet({
       const text = inviteShareText(spot);
       const { share, fileShare } = detectShareSupport();
 
-      if (share) {
-        // Prefer file share (card image) where supported; fall back to
-        // URL/text share. Never throw when unsupported.
-        if (fileShare) {
-          try {
-            const blob = await generateInviteCardImage({ username, spot });
-            const file = new File([blob], inviteCardFileName(username), {
-              type: "image/png",
-            });
-            await navigator.share({ files: [file], title, text, url });
-            setStatus("shared");
-            return;
-          } catch (err) {
-            if (err instanceof Error && err.name === "AbortError") {
-              setStatus("ready");
-              return;
-            }
-            // Fall through to URL/text share.
-          }
-        }
+      // SHARE must never silently copy. When native share is unavailable,
+      // show the fallback state and leave COPY LINK as the explicit
+      // alternative.
+      if (!share) {
+        setStatus("unavailable");
+        return;
+      }
+
+      // Prefer file share (card image) where supported; fall back to
+      // URL/text share. Image sharing is optional — never a prerequisite
+      // for opening the native sheet. Never fall through to copying.
+      if (fileShare) {
         try {
-          await navigator.share({ title, text, url });
-          setStatus("shared");
+          const blob = await generateInviteCardImage({ username, spot });
+          const file = new File([blob], inviteCardFileName(username), {
+            type: "image/png",
+          });
+          await navigator.share({ files: [file], title, text, url });
+          // Success or cancel both return to the normal card UI.
+          setStatus("ready");
           return;
         } catch (err) {
           if (err instanceof Error && err.name === "AbortError") {
             setStatus("ready");
             return;
           }
-          // Fall through to clipboard.
+          // Fall through to URL/text share.
         }
       }
-
-      const outcome = await copyTextWithFallbacks(url);
-      setStatus(outcome === "copied" ? "copied" : "manual");
+      try {
+        await navigator.share({ title, text, url });
+        setStatus("ready");
+        return;
+      } catch (err) {
+        // User cancellation is normal — no error, no copy.
+        if (err instanceof Error && err.name === "AbortError") {
+          setStatus("ready");
+          return;
+        }
+        // Unexpected share errors surface the unavailable state.
+        // Never copy, never expose raw browser errors.
+        setStatus("unavailable");
+        return;
+      }
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : "Could not create invite.");
       setStatus("error");
@@ -204,7 +216,7 @@ export function InviteShareSheet({
             ref={closeRef}
             onClick={handleClose}
             aria-label="Close"
-            className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-line text-[16px] text-ink-soft transition-colors hover:bg-paper-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-line text-[16px] text-ink-soft transition-colors hover:bg-accent-wash hover:border-accent-soft hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             ×
           </button>
@@ -230,9 +242,9 @@ export function InviteShareSheet({
             {errorMsg}
           </p>
         )}
-        {status === "shared" && (
-          <p className="mt-3 text-center text-[11px] tracking-[0.12em] uppercase text-ink-faint">
-            shared — thank you
+        {status === "unavailable" && (
+          <p role="status" className="mt-3 text-center text-[11px] tracking-[0.12em] uppercase text-ink-faint">
+            sharing isn&apos;t available here
           </p>
         )}
         {status === "copied" && (
@@ -267,7 +279,7 @@ export function InviteShareSheet({
           <button
             onClick={handleCopy}
             disabled={!canAct}
-            className="inline-flex min-h-[44px] w-full items-center justify-center rounded-full border border-line bg-paper px-8 py-[13px] text-[12px] tracking-[0.16em] uppercase font-medium text-ink transition-colors hover:bg-paper-2 hover:border-accent-soft hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40"
+            className="inline-flex min-h-[44px] w-full items-center justify-center rounded-full border border-line bg-paper px-8 py-[13px] text-[12px] tracking-[0.16em] uppercase font-medium text-ink transition-colors hover:bg-accent-wash hover:border-accent-soft hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40"
           >
             copy link
           </button>
