@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Wordmark } from "@/components/brand/wordmark";
+import { InviteButton } from "@/components/prelaunch/invite-button";
 
 /**
  * PRE_LAUNCH home (STEP 3A slice).
@@ -84,7 +85,15 @@ export function PrelaunchPanel({ username, spot }: { username: string | null; sp
                     find your campus →
                   </span>
                 </li>
-                <SoonRow name="invites" note="not yet active" />
+                <li className="flex min-h-[44px] items-center justify-between gap-4 py-2.5">
+                  <span className="text-[14px] tracking-[0.04em] text-ink lowercase">invites</span>
+                  <span className="shrink-0 text-[11px] tracking-[0.14em] uppercase text-ink-faint">
+                    share your link →
+                  </span>
+                </li>
+                <li className="py-2.5">
+                  <InviteButton username={username} spot={spot} />
+                </li>
               </ul>
             </div>
           </>
@@ -134,17 +143,4 @@ function LockedRow({ name, note }: { name: string; note: string }) {
   );
 }
 
-/**
- * Clearly-marked placeholder for a future entry point. Plain text with a
- * "soon" marker — no href, no button, no fake functionality.
- */
-function SoonRow({ name, note }: { name: string; note: string }) {
-  return (
-    <li className="flex min-h-[44px] items-center justify-between gap-4 py-2.5">
-      <span className="text-[14px] tracking-[0.04em] text-ink-faint lowercase">{name}</span>
-      <span className="shrink-0 rounded-full border border-line bg-paper px-3 py-1 text-[11px] tracking-[0.14em] uppercase text-ink-faint">
-        soon · {note}
-      </span>
-    </li>
-  );
-}
+
