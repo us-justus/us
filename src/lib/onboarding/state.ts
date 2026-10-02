@@ -10,20 +10,20 @@ export type OnboardingStep = "usn" | "email" | "password" | "profile" | "photos"
  *
  * Flow: usn → email → password → profile → photos → complete.
  * Email is OPTIONAL (STEP 3C): usn → email → skip → password → profile →
- * photos → complete is equally valid. No fake email is ever synthesized.
+ * photos → complete is equally valid. Skipped-email accounts set a password
+ * on an internal confirmed sign-in identity (server-attached, never shown).
  *
  * - `usn`: no verified USN on verification_records.
  * - `email`: USN present, no email recorded, and no explicit skip yet.
  * - `password`: email recorded but the Supabase Auth identity is not yet a
- *   verified permanent account (anonymous, or email-change pending). The
- *   password step links the email to the CURRENT anonymous user (UID
- *   preserved, never signUp), verifies it, and sets the password.
+ *   verified permanent account (anonymous, or email-change pending), OR an
+ *   explicit email skip without a permanent identity yet. The password step
+ *   links the email to the CURRENT anonymous user (UID preserved, never
+ *   signUp), verifies it, and sets the password; the skipped path attaches
+ *   a confirmed internal identity plus the password via
+ *   POST /api/onboarding/password (same UID, no email sent).
  *   Accounts that already built a profile (existing campus sessions) are
  *   grandfathered past this gate — they secure via Settings instead.
- *   For the no-email path (explicit skip, `email_skipped`), the password
- *   step is a pass-through: Supabase Auth cannot hold a password on an
- *   anonymous user without a verified email/phone, so these accounts stay
- *   device-bound campus accounts until an email is added later in Settings.
  * - `profile` / `photos` / `complete`: as before.
  *
  * Pass the already-authenticated User whenever the caller has it so this
