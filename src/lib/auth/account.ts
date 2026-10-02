@@ -1,5 +1,7 @@
 import type { User } from "@supabase/supabase-js";
 
+export { displayAccountEmail, isInternalEmail } from "@/lib/auth/internal-email";
+
 export type AccountKind = "anonymous" | "permanent-unverified" | "permanent-verified";
 
 export type AccountState = {
