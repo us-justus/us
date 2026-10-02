@@ -55,7 +55,10 @@ export default function UpdatePasswordPage() {
   return (
     <div className="flex flex-1 flex-col pb-[env(safe-area-inset-bottom)]">
       <div className="mx-auto w-full max-w-[560px] flex-1 px-6 sm:px-8 py-8 sm:py-10">
-        <p className="text-[11px] tracking-[0.18em] uppercase text-ink-faint">reset password</p>
+        <p className="flex items-center gap-2 text-[11px] tracking-[0.18em] uppercase text-ink-faint">
+          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
+          reset password
+        </p>
         <h1 className="mt-2 font-display text-[30px] sm:text-[34px] tracking-[-0.03em] leading-none">
           choose a new one.
         </h1>
