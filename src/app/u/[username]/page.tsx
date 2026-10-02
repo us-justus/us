@@ -88,14 +88,20 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
   const urls: PublicPhoto[] = ((photos ?? []) as { storage_path: string }[]).map((p) => ({
     url: supabase.storage.from("profile-photos").getPublicUrl(p.storage_path).data.publicUrl,
   }));
+  // Product maximum is 6 photos (already ordered by display_order ASC above).
+  // Primary + up to 5 more = all available photos. Previously `slice(1, 4)`
+  // truncated 6-photo profiles to 4.
   const primary = urls[0];
-  const rest = urls.slice(1, 4);
+  const rest = urls.slice(1, 6);
 
   return (
     <div className="flex flex-1 flex-col">
       <div className="mx-auto w-full max-w-[560px] flex-1 px-6 sm:px-8 py-10 sm:py-14">
-        <p className="text-[11px] tracking-[0.18em] uppercase text-ink-faint">campus profile</p>
-        <h1 className="mt-2 font-display text-[30px] tracking-[-0.03em] leading-none">
+        <p className="flex items-center gap-2 text-[11px] tracking-[0.18em] uppercase text-ink-faint">
+          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
+          campus profile
+        </p>
+        <h1 className="mt-2 font-display text-[30px] sm:text-[34px] tracking-[-0.03em] leading-none">
           @{profile.username}
         </h1>
         <p className="mt-2 text-[13px] tracking-[0.04em] text-ink-soft">
