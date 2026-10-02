@@ -20,8 +20,11 @@ export default async function SearchPage() {
   return (
     <div className="flex flex-1 flex-col">
       <div className="mx-auto w-full max-w-[560px] flex-1 px-6 sm:px-8 py-10 sm:py-14">
-        <p className="text-[11px] tracking-[0.18em] uppercase text-ink-faint">search</p>
-        <h1 className="mt-2 font-display text-[30px] tracking-[-0.03em] leading-none">
+        <p className="flex items-center gap-2 text-[11px] tracking-[0.18em] uppercase text-ink-faint">
+          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
+          search
+        </p>
+        <h1 className="mt-2 font-display text-[30px] sm:text-[34px] tracking-[-0.03em] leading-none">
           find your campus.
         </h1>
         <div className="mt-8">
