@@ -41,7 +41,7 @@ export function PhotoCarousel({
             {photos.map((_, i) => (
               <div
                 key={i}
-                className={`h-[2px] flex-1 rounded-full transition-colors ${i === idx ? "bg-white" : "bg-white/35"}`}
+                className={`h-[2px] flex-1 rounded-full transition-colors ${i === idx ? "bg-paper" : "bg-paper/35"}`}
               />
             ))}
           </div>
