@@ -23,10 +23,11 @@ import { getOnboardingState } from "@/lib/onboarding/state";
  * Every credential failure yields the same generic message so login never
  * reveals whether a USN exists. (USN existence is already visible via the
  * onboarding duplicate-USN response, so nothing new leaks either way.)
- * No-email accounts fail here with the same generic message: without an
- * auth email there is no cross-device credential, by Supabase Auth design.
- * Those accounts stay signed in on their original device and can add an
- * email later in Settings to unlock sign-in elsewhere.
+ * Email-skipped accounts that set a password sign in here normally (their
+ * server-attached internal identity resolves through the same RPC).
+ * Legacy anonymous accounts with no password fail with the same generic
+ * message; their recovery path is email-add-in-Settings while signed in on
+ * the original device.
  */
 const GENERIC = "Incorrect USN or password.";
 
