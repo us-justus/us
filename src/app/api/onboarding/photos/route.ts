@@ -44,7 +44,12 @@ export async function POST(req: Request) {
   const { error: upErr } = await supabase.storage.from("profile-photos").upload(path, buf, { contentType: file.type, upsert: false });
   if (upErr) return NextResponse.json({ error: "Upload failed." }, { status: 400 });
   const { error: dbErr } = await supabase.from("profile_photos").insert({ profile_id: profile.id, storage_path: path, display_order });
-  if (dbErr) return NextResponse.json({ error: "Could not save photo." }, { status: 400 });
+  if (dbErr) {
+    // Storage succeeded but the row did not — remove this operation's object
+    // so it is not silently orphaned. Existing user photos are untouched.
+    await supabase.storage.from("profile-photos").remove([path]);
+    return NextResponse.json({ error: "Could not save photo." }, { status: 400 });
+  }
   const { data: photos } = await supabase.from("profile_photos").select("id, storage_path, display_order").eq("profile_id", profile.id).order("display_order");
   const mapped = (photos||[]).map(p=>({ ...p, url: supabase.storage.from("profile-photos").getPublicUrl(p.storage_path).data.publicUrl }));
   perfLog("photo.upload", t);
