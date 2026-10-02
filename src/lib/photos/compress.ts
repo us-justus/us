@@ -28,7 +28,7 @@
  */
 
 export const PHOTO_MAX_LONG_EDGE = 1440;
-export const PHOTO_ENCODE_QUALITY = 0.82;
+export const PHOTO_ENCODE_QUALITY = 0.88;
 /** Files at/below this size that need no resize upload untouched (zero loss). */
 export const PHOTO_PASSTHROUGH_MAX_BYTES = 1.5 * 1024 * 1024;
 
