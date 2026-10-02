@@ -23,8 +23,8 @@ import { perfLog, perfStart } from "@/lib/utils/perf";
  * - Runs under the existing "discover profiles select" RLS policy
  *   (authenticated). No new policy, no weakening, no SECURITY DEFINER.
  */
-export const SEARCH_LIMIT = 20;
-export const SEARCH_MIN = 2;
+const SEARCH_LIMIT = 20;
+const SEARCH_MIN = 2;
 
 export type SearchResult = {
   username: string;
