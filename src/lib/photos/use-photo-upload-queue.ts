@@ -9,22 +9,29 @@ export type QueuedStatus = "selected" | "optimizing" | "uploading" | "failed";
 export type QueuedPhoto = {
   /** Client-only id. Never sent anywhere; never a file path. */
   localId: string;
-  /** Browser-local object URL of the ORIGINAL file — instant preview. */
+  /** Browser-local object URL — instant preview. */
   previewUrl: string;
   file: File;
   status: QueuedStatus;
   error: string | null;
+  /**
+   * True when the file already went through the crop → resize → encode
+   * pipeline (PhotoCropDialog). The queue uploads it directly instead of
+   * re-encoding a second time (which would only add generation loss).
+   */
+  preprocessed: boolean;
 };
 
 /**
  * Preview-first photo upload queue, shared by onboarding + profile edit.
  *
- * original File
- *   ├── local preview (URL.createObjectURL) → immediate UI, full quality
- *   └── compression (compress.ts) → optimized Blob → upload
+ * Cropped flow (MVP-1): the crop dialog processes the image (crop → resize
+ * → high-quality encode) BEFORE upload, shows a true preview of the exact
+ * bytes, and hands the result to `enqueueReady` — uploaded directly with no
+ * second encode pass.
  *
- * - The preview shows BEFORE compression/upload start and always renders the
- *   original selection (never the compressed output).
+ * - The preview shows BEFORE upload starts and always renders the exact
+ *   bytes that will be uploaded (never the unprocessed original).
  * - Uploads run sequentially in the background so concurrent picks can't
  *   collide on server display_order — but the UI never blocks: picking,
  *   deleting, and reordering stay interactive throughout.
@@ -58,8 +65,19 @@ export function usePhotoUploadQueue(opts: {
         next.status = "optimizing";
         next.error = null;
         sync();
-        // Client optimization only — the server re-validates type/size/count.
-        const prepared = await preparePhotoForUpload(next.file);
+        // Preprocessed files (crop dialog output) upload directly — a
+        // second encode would only add generation loss. Anything else goes
+        // through client optimization; the server re-validates regardless.
+        const prepared = next.preprocessed
+          ? {
+              file: next.file,
+              originalBytes: next.file.size,
+              processedBytes: next.file.size,
+              compressionMs: 0,
+              resized: true,
+              passthrough: false,
+            }
+          : await preparePhotoForUpload(next.file);
         // The tile may have been removed while compressing.
         if (!itemsRef.current.some((i) => i.localId === next.localId)) continue;
         next.status = "uploading";
@@ -100,7 +118,33 @@ export function usePhotoUploadQueue(opts: {
       const localId = `local-${Date.now()}-${seqRef.current}`;
       itemsRef.current = [
         ...itemsRef.current,
-        { localId, previewUrl, file, status: "selected", error: null },
+        { localId, previewUrl, file, status: "selected", error: null, preprocessed: false },
+      ];
+      sync();
+      void pump();
+    },
+    [pump, sync],
+  );
+
+  /**
+   * Enqueue an already-processed file (crop dialog output). The preview is
+   * the exact upload bytes; the queue skips optimization and uploads
+   * directly. Sequential pumping still applies (no display_order races).
+   */
+  const enqueueReady = useCallback(
+    (file: File) => {
+      seqRef.current += 1;
+      const localId = `local-${Date.now()}-${seqRef.current}`;
+      itemsRef.current = [
+        ...itemsRef.current,
+        {
+          localId,
+          previewUrl: URL.createObjectURL(file),
+          file,
+          status: "selected",
+          error: null,
+          preprocessed: true,
+        },
       ];
       sync();
       void pump();
@@ -139,5 +183,5 @@ export function usePhotoUploadQueue(opts: {
     };
   }, []);
 
-  return { pending: items, enqueue, retry, removePending: remove };
+  return { pending: items, enqueue, enqueueReady, retry, removePending: remove };
 }
