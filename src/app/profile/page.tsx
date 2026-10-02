@@ -25,7 +25,10 @@ export default async function ProfilePage() {
     return (
       <div className="flex flex-1 flex-col">
         <div className="mx-auto w-full max-w-[560px] flex-1 px-6 sm:px-8 py-10 sm:py-14">
-          <p className="text-[11px] tracking-[0.18em] uppercase text-ink-faint">your profile</p>
+          <p className="flex items-center gap-2 text-[11px] tracking-[0.18em] uppercase text-ink-faint">
+            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
+            your profile
+          </p>
           <h1 className="mt-2 font-display text-[30px] tracking-[-0.03em] leading-none">couldn&apos;t load.</h1>
           <p className="mt-3 text-[13px] leading-6 text-ink-soft max-w-[38ch]">
             {error} Refresh to try again — your profile was not changed.
@@ -45,7 +48,10 @@ export default async function ProfilePage() {
     return (
       <div className="flex flex-1 flex-col">
         <div className="mx-auto w-full max-w-[560px] flex-1 px-6 sm:px-8 py-10 sm:py-14">
-          <p className="text-[11px] tracking-[0.18em] uppercase text-ink-faint">your profile</p>
+          <p className="flex items-center gap-2 text-[11px] tracking-[0.18em] uppercase text-ink-faint">
+            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
+            your profile
+          </p>
           <h1 className="mt-2 font-display text-[30px] tracking-[-0.03em] leading-none">no profile yet.</h1>
           <p className="mt-3 text-[13px] leading-6 text-ink-soft max-w-[38ch]">
             Finish onboarding to create your profile.
@@ -69,7 +75,10 @@ export default async function ProfilePage() {
       <div className="mx-auto w-full max-w-[560px] flex-1 px-4 sm:px-8 py-8 sm:py-10">
         {/* header */}
         <div className="px-2 sm:px-0">
-          <p className="text-[11px] tracking-[0.18em] uppercase text-ink-faint">your profile</p>
+          <p className="flex items-center gap-2 text-[11px] tracking-[0.18em] uppercase text-ink-faint">
+            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
+            your profile
+          </p>
           <div className="mt-3 flex items-start justify-between gap-4">
             <div>
               <h1 className="font-display text-[30px] sm:text-[34px] tracking-[-0.03em] leading-none">
