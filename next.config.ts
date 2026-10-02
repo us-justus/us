@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  allowedDevOrigins: ["192.168.0.100", "192.168.0.106"],
+  allowedDevOrigins: ["192.168.0.100", "192.168.0.106", "192.168.1.4"],
   // Supabase Storage hosts profile photos. Declared here so a future
   // migration from raw <img> to next/image works without a config change;
   // AVIF/WebP first keeps mobile decode + bandwidth minimal.
