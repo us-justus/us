@@ -20,7 +20,9 @@ const INK = "#171615";
 const INK_SOFT = "#6f6862";
 const INK_FAINT = "#9a948f";
 const ACCENT = "#ff6666";
-const ACCENT_DEEP = "#a63d2f";
+// Canvas cannot read CSS vars — these constants must mirror the token
+// values in src/app/globals.css exactly.
+const ACCENT_DEEP = "#a53a32";
 const LINE = "#e9e0dc";
 
 function roundRect(
