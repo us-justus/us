@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { useCallback, useEffect, useState } from "react";
+import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { Wordmark } from "@/components/brand/wordmark";
 import { cn } from "@/lib/utils/cn";
 import { createClient } from "@/lib/supabase/client";
@@ -13,6 +13,7 @@ const productLinks = [
   { href: "/search", label: "search" },
   { href: "/matches", label: "matches" },
   { href: "/chat", label: "chat" },
+  { href: "/notifications", label: "notifications" },
   { href: "/profile", label: "profile" },
   { href: "/settings", label: "settings" },
 ];
@@ -52,37 +53,55 @@ export function SiteHeader() {
   const [open, setOpen] = useState(false);
   const [headerState, setHeaderState] = useState<HeaderState>("loading");
   const [launched, setLaunched] = useState(false);
+  const [unread, setUnread] = useState(0);
+  // The dropdown animation is JS-driven (motion/react) and ignores the
+  // CSS-only reduced-motion reset — collapse it for reduced-motion users.
+  const reduceMotion = useReducedMotion();
 
   const isOnboardingRoute = pathname.startsWith("/onboarding");
   const isLanding = pathname === "/";
 
-  useEffect(() => {
-    let cancelled = false;
-    async function resolve() {
-      try {
-        const res = await fetch("/api/account/state", { cache: "no-store" });
-        const j = await res.json().catch(() => null);
-        if (cancelled) return;
-        if (!j?.signedIn) {
-          setHeaderState("public");
-          return;
-        }
-        setHeaderState(j.onboardingStep === "complete" ? "product" : "onboarding");
-        setLaunched(j.launched === true);
-      } catch {
-        if (!cancelled) setHeaderState("public");
+  // Server (/api/account/state) remains the single decider — this only
+  // re-resolves it. The header instance outlives client-side navigations
+  // (root layout persists), and server-side auth mutations (e.g. POST
+  // /api/auth/login sets cookies without touching browser localStorage) do
+  // not reliably fire onAuthStateChange — so a mount-only fetch stays stuck
+  // on the pre-sign-in state (public LOG IN + ENTER) after ENTER/LOG IN
+  // route to /discover. Re-resolving on every pathname change keeps the
+  // header in sync: exactly one resolution per navigation.
+  const resolve = useCallback(async () => {
+    try {
+      const res = await fetch("/api/account/state", { cache: "no-store" });
+      const j = await res.json().catch(() => null);
+      if (!j?.signedIn) {
+        setHeaderState("public");
+        return;
       }
+      setHeaderState(j.onboardingStep === "complete" ? "product" : "onboarding");
+      setLaunched(j.launched === true);
+      setUnread(typeof j.unreadCount === "number" && j.unreadCount > 0 ? j.unreadCount : 0);
+    } catch {
+      setHeaderState("public");
     }
+  }, []);
+
+  useEffect(() => {
+    // Header state is external server truth (/api/account/state), not derived
+    // render state — re-sync it on every navigation. Same justification as
+    // the session bootstrap disable in use-anonymous-session.ts.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void resolve();
+  }, [resolve, pathname]);
+
+  useEffect(() => {
     const supabase = createClient();
     const { data: sub } = supabase.auth.onAuthStateChange(() => {
       void resolve();
     });
     return () => {
-      cancelled = true;
       sub.subscription.unsubscribe();
     };
-  }, []);
+  }, [resolve]);
 
   // Onboarding routes are always minimal, even before the session resolves —
   // the USN page must never show product navigation.
@@ -91,6 +110,10 @@ export function SiteHeader() {
   // PRE_LAUNCH offers only home/search/profile/settings; the full dating nav
   // returns once the server reports launched = true.
   const visibleLinks = launched ? productLinks : prelaunchLinks;
+
+  // The public landing hero owns its wordmark and its two actions. Keep the
+  // shared product header for completed sessions, where it provides navigation.
+  if (isLanding && !showProductNav) return null;
 
   return (
     <header
@@ -109,18 +132,40 @@ export function SiteHeader() {
         {/* desktop */}
         {showProductNav ? (
           <nav className="hidden sm:flex items-center gap-1" aria-label="product">
-            {visibleLinks.map((l) => (
-              <Link
-                key={l.href}
-                href={l.href}
-                className={cn(
-                  "inline-flex min-h-[44px] items-center px-3 py-1.5 text-[13px] tracking-[0.08em] lowercase rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-                  pathname === l.href ? "text-accent-deep bg-accent-wash" : "text-ink-soft hover:text-accent-deep hover:bg-accent-wash",
-                )}
-              >
-                {l.label}
-              </Link>
-            ))}
+            {visibleLinks.map((l) =>
+              l.href === "/notifications" ? (
+                <Link
+                  key={l.href}
+                  href={l.href}
+                  aria-label={unread > 0 ? `notifications, ${unread} unread` : "notifications"}
+                  className={cn(
+                    "inline-flex h-11 w-11 items-center justify-center rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+                    pathname === l.href ? "text-accent-deep bg-accent-wash" : "text-ink-soft hover:text-accent-deep hover:bg-accent-wash",
+                  )}
+                >
+                  <span className="relative inline-flex items-center justify-center">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+                      <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+                    </svg>
+                    {unread > 0 && (
+                      <span aria-hidden className="absolute -right-[5px] -top-[2px] h-1.5 w-1.5 rounded-full bg-accent" />
+                    )}
+                  </span>
+                </Link>
+              ) : (
+                <Link
+                  key={l.href}
+                  href={l.href}
+                  className={cn(
+                    "inline-flex min-h-[44px] items-center px-3 py-1.5 text-[13px] tracking-[0.08em] lowercase rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+                    pathname === l.href ? "text-accent-deep bg-accent-wash" : "text-ink-soft hover:text-accent-deep hover:bg-accent-wash",
+                  )}
+                >
+                  {l.label}
+                </Link>
+              ),
+            )}
           </nav>
         ) : effective === "onboarding" ? (
           <nav className="hidden sm:flex items-center gap-1" aria-label="onboarding">
@@ -178,10 +223,10 @@ export function SiteHeader() {
       <AnimatePresence>
         {open && (
           <motion.div
-            initial={{ opacity: 0, y: -6 }}
+            initial={{ opacity: 0, y: reduceMotion ? 0 : -6 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.18 }}
+            exit={{ opacity: 0, y: reduceMotion ? 0 : -6 }}
+            transition={{ duration: reduceMotion ? 0 : 0.18 }}
             // Absolute overlay: opening the menu must not push page content
             // down (layout shift) or move the dismiss target mid-tap.
             className="absolute inset-x-0 top-full border-b border-line bg-paper shadow-[0_16px_32px_rgba(23,22,20,0.08)] sm:hidden"
@@ -189,19 +234,43 @@ export function SiteHeader() {
             <nav className="px-6 py-5 flex flex-col gap-1" aria-label="mobile">
               {showProductNav ? (
                 <>
-                  {visibleLinks.map((l) => (
-                    <Link
-                      key={l.href}
-                      href={l.href}
-                      onClick={() => setOpen(false)}
-                      className={cn(
-                        "inline-flex min-h-[44px] items-center py-2.5 text-[14px] tracking-[0.08em] lowercase border-b border-line last:border-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-                        pathname === l.href ? "text-accent-deep bg-accent-wash" : "text-ink-soft hover:text-accent-deep",
-                      )}
-                    >
-                      {l.label}
-                    </Link>
-                  ))}
+                  {visibleLinks.map((l) =>
+                    l.href === "/notifications" ? (
+                      <Link
+                        key={l.href}
+                        href={l.href}
+                        onClick={() => setOpen(false)}
+                        aria-label={unread > 0 ? `notifications, ${unread} unread` : "notifications"}
+                        className={cn(
+                          "inline-flex min-h-[44px] items-center gap-3 py-2.5 border-b border-line last:border-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+                          pathname === l.href ? "text-accent-deep" : "text-ink-soft hover:text-accent-deep",
+                        )}
+                      >
+                        <span className="relative inline-flex items-center justify-center">
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                            <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+                            <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+                          </svg>
+                          {unread > 0 && (
+                            <span aria-hidden className="absolute -right-[5px] -top-[2px] h-1.5 w-1.5 rounded-full bg-accent" />
+                          )}
+                        </span>
+                        <span className="text-[14px] tracking-[0.08em] lowercase">notifications</span>
+                      </Link>
+                    ) : (
+                      <Link
+                        key={l.href}
+                        href={l.href}
+                        onClick={() => setOpen(false)}
+                        className={cn(
+                          "inline-flex min-h-[44px] items-center py-2.5 text-[14px] tracking-[0.08em] lowercase border-b border-line last:border-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+                          pathname === l.href ? "text-accent-deep bg-accent-wash" : "text-ink-soft hover:text-accent-deep",
+                        )}
+                      >
+                        {l.label}
+                      </Link>
+                    ),
+                  )}
                 </>
               ) : effective === "onboarding" ? (
                 <p className="py-2.5 text-[11px] tracking-[0.18em] uppercase text-ink-faint">
