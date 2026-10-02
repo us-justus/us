@@ -26,6 +26,24 @@ export async function POST(req: Request) {
   }
   if (!user) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
 
+  // USN is immutable once a profile exists: reject any change past that
+  // point (identical retry passes through idempotently).
+  const [{ data: existingVr }, { data: existingProfile }] = await Promise.all([
+    supabase.from("verification_records").select("usn").eq("user_id", user.id).maybeSingle(),
+    supabase.from("profiles").select("id").eq("user_id", user.id).maybeSingle(),
+  ]);
+  if (existingProfile) {
+    const stored = existingVr?.usn ? normalizeUSN(String(existingVr.usn)) : "";
+    if (stored && stored !== normalized) {
+      return NextResponse.json({ error: "Your USN is already set and can't be changed." }, { status: 409 });
+    }
+    if (stored === normalized) {
+      perfLog("onboarding.usn", t);
+      return NextResponse.json({ ok: true });
+    }
+    return NextResponse.json({ error: "Your USN is already set and can't be changed." }, { status: 409 });
+  }
+
   const { error } = await supabase.from("verification_records").upsert(
     { user_id: user.id, usn: normalized, verification_status: "verified" },
     { onConflict: "user_id" }
