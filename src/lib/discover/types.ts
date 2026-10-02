@@ -1,5 +1,6 @@
 export type DiscoverProfile = {
   userId: string;
+  username: string;
   nickname: string;
   age: number;
   year: string;
