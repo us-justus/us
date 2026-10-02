@@ -159,9 +159,10 @@
 - [ ] Production environment verified
 
 ## P. Optional email (STEP 3C)
-- [x] Email optional in onboarding (skip path, no fake emails)
-- [x] No-email password pass-through (Supabase rejects password w/o verified email)
-- [x] USN + password login route (password-gated USN → email RPC, server-only)
+- [x] Email optional in onboarding (skip path, internal sign-in identity + password)
+- [x] Skipped-email password conversion (POST /api/onboarding/password attaches confirmed internal identity, same UID)
+- [x] Internal identity never displayed (displayAccountEmail suppression in UI + /api/account/state)
+- [x] USN + password login route (password-gated USN → email RPC, server-only; covers internal identities)
 - [x] Skip-state migration written (20261001000001_optional_email.sql)
 - [x] Recovery copy truthful for no-email accounts (email-add-in-Settings only)
 - [x] Search / username / #spot untouched
