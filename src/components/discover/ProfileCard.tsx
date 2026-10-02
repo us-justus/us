@@ -3,7 +3,13 @@
 import type { DiscoverProfile } from "@/lib/discover/types";
 import { PhotoCarousel } from "./PhotoCarousel";
 
-export function ProfileCard({ profile, priority = false }: { profile: DiscoverProfile; priority?: boolean }) {
+export function ProfileCard({
+  profile,
+  priority = false,
+}: {
+  profile: DiscoverProfile;
+  priority?: boolean;
+}) {
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden rounded-[28px] border border-line bg-paper shadow-[0_16px_40px_rgba(23,22,20,0.08)]">
       <div className="relative flex-1 overflow-hidden bg-paper-2">
