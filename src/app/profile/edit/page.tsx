@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/onboarding/shell";
 import { useExistingSession } from "@/lib/auth/use-existing-session";
 import { usePhotoUploadQueue } from "@/lib/photos/use-photo-upload-queue";
+import { PhotoCropDialog } from "@/components/photos/photo-crop-dialog";
 import {
   BRANCHES,
   YEARS,
@@ -44,13 +45,16 @@ export default function EditProfilePage() {
 
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [photoError, setPhotoError] = useState<string | null>(null);
-  // Preview-first uploads: the original selection renders instantly as a
-  // local tile; compression + upload run sequentially in the background so
-  // the page (save, delete, reorder) never blocks on network.
-  const { pending, enqueue, retry, removePending } = usePhotoUploadQueue({
+  // Crop-first uploads: each pick opens the crop editor; only the confirmed,
+  // processed result enters the queue, so the tile preview is always the
+  // exact upload bytes. Uploads run sequentially in the background so the
+  // page (save, delete, reorder) never blocks on network.
+  const { pending, enqueueReady, retry, removePending } = usePhotoUploadQueue({
     endpoint: "/api/profile/photos",
     onUploaded: (next: Photo[]) => setPhotos(next),
   });
+  const [cropQueue, setCropQueue] = useState<File[]>([]);
+  const activeCrop = cropQueue[0] ?? null;
   const [reordering, setReordering] = useState(false);
 
   const [initial, setInitial] = useState<Record<string, string> | null>(null);
@@ -207,7 +211,8 @@ export default function EditProfilePage() {
     const files = [...(e.target.files ?? [])];
     e.target.value = "";
     if (!files.length) return;
-    let slots = MAX_PHOTOS - (photos.length + pending.length);
+    let slots = MAX_PHOTOS - (photos.length + pending.length + cropQueue.length);
+    const valid: File[] = [];
     for (const file of files) {
       if (slots <= 0) {
         setPhotoError(`Max ${MAX_PHOTOS} photos.`);
@@ -219,9 +224,14 @@ export default function EditProfilePage() {
         continue;
       }
       setPhotoError(null);
-      enqueue(file);
+      valid.push(file);
       slots -= 1;
     }
+    if (valid.length) setCropQueue((q) => [...q, ...valid]);
+  }
+
+  function dropActiveCrop() {
+    setCropQueue((q) => q.slice(1));
   }
 
   async function remove(id: string) {
@@ -268,7 +278,10 @@ export default function EditProfilePage() {
     return (
       <div className="flex flex-1 flex-col">
         <div className="mx-auto w-full max-w-[560px] px-6 sm:px-8 py-10">
-          <p className="text-[11px] tracking-[0.18em] uppercase text-ink-faint">edit profile</p>
+          <p className="flex items-center gap-2 text-[11px] tracking-[0.18em] uppercase text-ink-faint">
+            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
+            edit profile
+          </p>
           <p className="mt-6 text-[13px] text-ink-soft">You&apos;re signed out. Sign in to edit your profile.</p>
           <Button onClick={() => router.replace("/login")} className="mt-6 w-full rounded-full">
             Sign in
@@ -282,7 +295,10 @@ export default function EditProfilePage() {
     return (
       <div className="flex flex-1 flex-col">
         <div className="mx-auto w-full max-w-[560px] px-6 sm:px-8 py-10">
-          <p className="text-[11px] tracking-[0.18em] uppercase text-ink-faint">edit profile</p>
+          <p className="flex items-center gap-2 text-[11px] tracking-[0.18em] uppercase text-ink-faint">
+            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
+            edit profile
+          </p>
           <p className="mt-6 text-[13px] text-ink-soft">
             {sessionStatus !== "ready" ? "checking your session…" : "loading your profile…"}
           </p>
@@ -295,7 +311,10 @@ export default function EditProfilePage() {
     return (
       <div className="flex flex-1 flex-col">
         <div className="mx-auto w-full max-w-[560px] px-6 sm:px-8 py-10">
-          <p className="text-[11px] tracking-[0.18em] uppercase text-ink-faint">edit profile</p>
+          <p className="flex items-center gap-2 text-[11px] tracking-[0.18em] uppercase text-ink-faint">
+            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
+            edit profile
+          </p>
           <div className="mt-6">
             <FieldError msg={error} />
           </div>
@@ -311,7 +330,7 @@ export default function EditProfilePage() {
           </Button>
           <Link
             href="/profile"
-            className="mt-3 flex w-full justify-center rounded-full border border-line bg-paper px-8 py-[14px] text-[12px] tracking-[0.14em] uppercase font-medium text-ink-soft hover:bg-paper-2 transition-colors"
+            className="mt-3 flex w-full justify-center rounded-full border border-line bg-paper px-8 py-[14px] text-[12px] tracking-[0.14em] uppercase font-medium text-ink-soft transition-colors hover:bg-accent-wash hover:border-accent-soft hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             back to profile
           </Link>
@@ -330,7 +349,10 @@ export default function EditProfilePage() {
           >
             ← back to profile
           </Link>
-          <p className="mt-6 text-[11px] tracking-[0.18em] uppercase text-ink-faint">edit profile</p>
+          <p className="mt-6 flex items-center gap-2 text-[11px] tracking-[0.18em] uppercase text-ink-faint">
+            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
+            edit profile
+          </p>
           <h1 className="mt-2 font-display text-[28px] sm:text-[32px] tracking-[-0.03em] leading-none">make it you.</h1>
           <p className="mt-3 text-[13px] leading-6 text-ink-soft max-w-[38ch]">
             Your USN is never editable here and never shown publicly.
@@ -398,8 +420,8 @@ export default function EditProfilePage() {
             {pending.map((q) => (
               <div key={q.localId} className="group relative flex flex-col">
                 <div className="relative aspect-[3/4] overflow-hidden rounded-2xl border border-line bg-paper-2">
-                  {/* Local preview of the ORIGINAL selection — instant, full
-                      quality, before compression/upload finish. */}
+                  {/* Local preview of the PROCESSED photo — the exact bytes
+                      being uploaded, before the upload finishes. */}
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={q.previewUrl} alt="upload preview" className="h-full w-full object-cover" />
                   <span className="absolute left-2 top-2 rounded-full border border-accent-soft bg-accent-wash/95 px-2 py-0.5 text-[10px] tracking-[0.12em] uppercase font-medium text-accent-deep">
@@ -587,6 +609,18 @@ export default function EditProfilePage() {
           </p>
         </div>
       </div>
+      {activeCrop && (
+        <PhotoCropDialog
+          key={`${activeCrop.name}-${activeCrop.size}-${activeCrop.lastModified}`}
+          file={activeCrop}
+          queueLabel={cropQueue.length > 1 ? `${cropQueue.length} to frame` : undefined}
+          onCancel={dropActiveCrop}
+          onConfirm={(processed) => {
+            enqueueReady(processed);
+            dropActiveCrop();
+          }}
+        />
+      )}
     </div>
   );
 }
