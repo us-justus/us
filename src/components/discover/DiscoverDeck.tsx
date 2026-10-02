@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
-import { motion, useMotionValue, useTransform, animate } from "motion/react";
+import { motion, useMotionValue, useTransform, animate, AnimatePresence } from "motion/react";
 import type { DiscoverProfile } from "@/lib/discover/types";
 import {
   CARD_STACK_OFFSET,
@@ -15,14 +15,17 @@ import {
 import { ProfileCard } from "./ProfileCard";
 import { SwipeActions } from "./SwipeActions";
 import { MatchOverlay } from "./MatchOverlay";
+import { PhotoConstellation } from "./PhotoConstellation";
 import { swipeAction } from "@/lib/discover/actions";
 
 function DraggableCard({
   profile,
   onSwipe,
+  onOpenConstellation,
 }: {
   profile: DiscoverProfile;
   onSwipe: (dir: "like" | "pass") => void;
+  onOpenConstellation: () => void;
 }) {
   const x = useMotionValue(0);
   const rotate = useTransform(x, (v) => Math.max(-MAX_ROTATION, Math.min(MAX_ROTATION, v * 0.06)));
@@ -50,6 +53,12 @@ function DraggableCard({
       dragConstraints={{ left: 0, right: 0 }}
       style={{ x, rotate, touchAction: "pan-y" }}
       onDragEnd={handleDragEnd}
+      // Motion owns tap-vs-drag recognition; carousel buttons own their taps.
+      onTap={(e: Event) => {
+        const t = e.target as HTMLElement | null;
+        if (t?.closest?.("button")) return;
+        onOpenConstellation();
+      }}
       className="absolute inset-0 cursor-grab active:cursor-grabbing"
     >
       <ProfileCard profile={profile} priority />
@@ -67,6 +76,7 @@ export function DiscoverDeck({ initialProfiles }: { initialProfiles: DiscoverPro
   const [profiles, setProfiles] = useState(initialProfiles);
   const [matched, setMatched] = useState(false);
   const [isExiting, setIsExiting] = useState(false);
+  const [isConstellationOpen, setIsConstellationOpen] = useState(false);
   const exitX = useMotionValue(0);
   const pendingRef = useRef(false);
 
@@ -111,15 +121,25 @@ export function DiscoverDeck({ initialProfiles }: { initialProfiles: DiscoverPro
     [profiles, isExiting, persistAndAdvance, exitX],
   );
 
+  const closeConstellation = useCallback(() => setIsConstellationOpen(false), []);
+  const likeFromConstellation = useCallback(() => {
+    setIsConstellationOpen(false);
+    handleButtonSwipe("like");
+  }, [handleButtonSwipe]);
+  const passFromConstellation = useCallback(() => {
+    setIsConstellationOpen(false);
+    handleButtonSwipe("pass");
+  }, [handleButtonSwipe]);
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (isExiting || pendingRef.current) return;
+      if (isExiting || pendingRef.current || isConstellationOpen) return;
       if (e.key === "ArrowRight") handleButtonSwipe("like");
       if (e.key === "ArrowLeft") handleButtonSwipe("pass");
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [isExiting, handleButtonSwipe]);
+  }, [isExiting, isConstellationOpen, handleButtonSwipe]);
 
   // Warm the next card's first photo while the user views the current card so
   // promotion after a swipe never waits on a cold image fetch.
@@ -143,7 +163,10 @@ export function DiscoverDeck({ initialProfiles }: { initialProfiles: DiscoverPro
   if (!top) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
-        <p className="text-[11px] tracking-[0.18em] uppercase text-ink-faint">discover</p>
+        <p className="flex items-center gap-2 text-[11px] tracking-[0.18em] uppercase text-ink-faint">
+          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
+          discover
+        </p>
         <p className="mt-3 font-display text-[28px] tracking-[-0.03em] text-ink">that&apos;s everyone for now.</p>
         <p className="mt-2 max-w-[32ch] text-[14px] leading-6 text-ink-soft">check back later — new campus profiles appear here.</p>
         <div className="mt-8 h-px w-12 bg-line-strong" />
@@ -177,7 +200,12 @@ export function DiscoverDeck({ initialProfiles }: { initialProfiles: DiscoverPro
               <ProfileCard profile={top} priority />
             </motion.div>
           ) : (
-            <DraggableCard key={top.userId} profile={top} onSwipe={handleDragSwipe} />
+            <DraggableCard
+              key={top.userId}
+              profile={top}
+              onSwipe={handleDragSwipe}
+              onOpenConstellation={() => setIsConstellationOpen(true)}
+            />
           )}
         </div>
         <div className="mt-6 flex justify-center">
@@ -185,6 +213,16 @@ export function DiscoverDeck({ initialProfiles }: { initialProfiles: DiscoverPro
         </div>
       </div>
       {matched && <MatchOverlay onKeepDiscovering={() => setMatched(false)} />}
+      <AnimatePresence>
+        {isConstellationOpen && (
+          <PhotoConstellation
+            profile={top}
+            onClose={closeConstellation}
+            onLike={likeFromConstellation}
+            onPass={passFromConstellation}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
