@@ -120,10 +120,10 @@ export function SearchClient() {
               <li key={r.username.toLowerCase()} className="border-b border-line last:border-0">
                 <Link
                   href={`/u/${encodeURIComponent(r.username)}`}
-                  className="flex min-h-[44px] items-center justify-between gap-4 py-3 transition-colors hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent rounded-[8px]"
+                  className="group flex min-h-[44px] items-center justify-between gap-4 py-3 transition-colors hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent rounded-[8px]"
                 >
                   <span className="min-w-0">
-                    <span className="block truncate text-[15px] tracking-[0.02em] text-ink">
+                    <span className="block truncate text-[15px] tracking-[0.02em] text-ink transition-colors group-hover:text-accent-deep">
                       @{r.username}
                     </span>
                     <span className="mt-0.5 block text-[12px] tracking-[0.04em] text-ink-faint">
