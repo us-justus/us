@@ -6,6 +6,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { useExistingSession } from "@/lib/auth/use-existing-session";
 import { getAccountState, validateAccountEmail, validateNewPassword } from "@/lib/auth/account";
+import { displayAccountEmail } from "@/lib/auth/internal-email";
 import { FieldError } from "@/components/onboarding/shell";
 import { ChangePasswordForm } from "@/components/settings/change-password-form";
 import { SignOutButton } from "@/components/settings/sign-out-button";
@@ -174,13 +175,16 @@ function AccountFlow() {
   }
 
   // Fully secured already (and not freshly verified): nothing to convert.
+  // Internal sign-in identities are never displayed — displayEmail is null
+  // for them, leaving the secured state without an email line.
   if (account.kind === "permanent-verified" && !justVerified) {
+    const displayEmail = displayAccountEmail(account.email);
     return (
       <div className="mt-8 space-y-8">
         <section className="rounded-[24px] border border-line bg-paper-2 px-5 py-6">
           <p className="text-[11px] tracking-[0.14em] uppercase text-ink-faint">account</p>
           <p className="mt-2 font-display text-[22px] tracking-[-0.02em]">secured.</p>
-          {account.email && <p className="mt-2 text-[14px] text-ink break-all">{account.email}</p>}
+          {displayEmail && <p className="mt-2 text-[14px] text-ink break-all">{displayEmail}</p>}
           <p className="mt-1 text-[12px] text-ink-soft">verified email · password sign-in enabled</p>
         </section>
         <ChangePasswordForm title="set a new password" />
@@ -207,7 +211,7 @@ function AccountFlow() {
         <div className="mt-6">
           <p className="font-display text-[22px] tracking-[-0.02em]">set your password.</p>
           <p className="mt-2 text-[13px] leading-6 text-ink-soft max-w-[38ch]">
-            You&apos;ll use this with {account.email ?? "your email"} to sign in from any device.
+            You&apos;ll use this with {displayAccountEmail(account.email) ?? "your email"} to sign in from any device.
           </p>
           <div className="mt-5 space-y-4">
             <div>
@@ -388,7 +392,10 @@ export default function AccountPage() {
         >
           ← back to settings
         </Link>
-        <p className="mt-6 text-[11px] tracking-[0.18em] uppercase text-ink-faint">account</p>
+        <p className="mt-6 flex items-center gap-2 text-[11px] tracking-[0.18em] uppercase text-ink-faint">
+          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
+          account
+        </p>
         <h1 className="mt-2 font-display text-[30px] sm:text-[34px] tracking-[-0.03em] leading-none">
           secure it.
         </h1>
