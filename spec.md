@@ -82,25 +82,30 @@ The product must NOT feel:
 ### Authentication / verification
 
 - USN — mandatory private campus identity, immutable after verification
-- Email — OPTIONAL account field (never synthesized; no fake emails).
-  Supplied emails are verified and enable cross-device sign-in + recovery.
-- Password — required for permanent authentication when an email is present
-  (Supabase Auth owns passwords; USN is never a password). Supabase Auth
-  cannot hold a password on an anonymous user without a verified
-  email/phone, so no-email accounts stay device-bound campus accounts until
-  an email is added later in Settings.
+- Email — OPTIONAL account field. Supplied emails are verified and enable
+  cross-device sign-in + recovery. Skipped-email accounts receive a
+  server-attached confirmed internal sign-in identity
+  (`u-<uidhex>@us.signin.invalid`, derived from the authenticated UID only,
+  never displayed) so they can also hold a password and sign in.
+- Password — required for permanent authentication. Supabase Auth owns
+  passwords; USN is never a password. Email-supplied accounts verify then
+  set it via `updateUser()`; skipped-email accounts set it via
+  POST /api/onboarding/password, which attaches the internal identity plus
+  the password to the same UID (never `signUp`, no email sent).
 - USN format validation using college-specific regex
 - Internal anonymous user ID (onboarding identity; UID preserved on
   conversion — never `signUp`, never a second user, never profile migration)
 - Onboarding: USN → email (optional, skippable) → password → profile →
   photos → discover. Email verification applies only when an email is
-  supplied; the no-email path passes the password step through without one.
+  supplied; the skipped path sets a password on the internal identity and
+  finishes as a permanent account on the same session.
 - Login: USN + password → server-side USN → auth-email mapping (email never
-  leaves the server), password auth, then server-side USN verification
+  leaves the server; internal identities resolve through the same mapping),
+  password auth, then server-side USN verification
   against the authenticated user; one generic failure message.
-  No-email accounts fail with the same generic message (no cross-device
-  credential exists); recovery for them is email-add-in-Settings only, never
-  SMS/OTP workarounds.
+  Only legacy anonymous accounts with no password fail generically;
+  recovery for them is email-add-in-Settings while signed in on the
+  original device, never SMS/OTP workarounds.
 - Verification data (USN, email, auth IDs, metadata) must never appear on
   public profiles
 
@@ -199,10 +204,11 @@ account is permanent. Implemented in `src/lib/auth/product-state.ts`
   email → password → profile → photos). Minimal header (`us` + progress
   context + back nav). Never product nav, never "account isn't secured yet"
   messaging. Email is optional (recovery + cross-device sign-in when
-  supplied; cleanly skippable otherwise); the password step links a supplied
-  email to the current anonymous user, verifies it, and sets the password —
-  same `auth.uid()`, same data. Skipped-email accounts pass the password
-  step through and finish as campus accounts on the same session.
+   supplied; cleanly skippable otherwise); the password step links a supplied
+   email to the current anonymous user, verifies it, and sets the password —
+   same `auth.uid()`, same data. Skipped-email accounts set a password on a
+   server-attached confirmed internal identity and finish as permanent
+   accounts on the same session (same UID, no email sent, never displayed).
 - CAMPUS PRODUCT SESSION — onboarding complete on a still-anonymous account
   (includes completed no-email accounts). Full product nav
   (discover/matches/chat/profile/settings). The "secure your account" message
@@ -235,8 +241,9 @@ onboarding, login, and account semantics are unchanged.
   USN belongs to the authenticated user (`verification_records.user_id`,
   server-derived — client user IDs never trusted, USN never returned).
   Every credential failure returns one generic message; USN is never a
-  password and never authenticates alone. No-email accounts have no
-  cross-device credential and fail generically; their recovery path is
+  password and never authenticates alone. Skipped-email accounts that set
+  a password sign in normally via their internal identity; only legacy
+  anonymous accounts with no password fail generically, recovered by
   adding an email in Settings while signed in on the original device.
 - `ensureAnonymousSession()` (`src/lib/auth/session.ts`) is the single place
   that may establish a session. Pages use `useAnonymousSession()`; pages that
@@ -295,15 +302,21 @@ Photos dominate bandwidth, decode cost, and layout stability. Rules:
   indicator sets.
 - No client-trust shortcuts: keep server-side MIME/size limits
   (`MAX_PHOTOS = 6`, `MAX_PHOTO_BYTES = 5 MB`, JPG/PNG/WEBP). Client-side
-  downscale/compression before upload is built (`src/lib/photos/compress.ts`:
-  1440px long-edge ceiling, downscale-only, high-quality JPEG/WebP,
-  EXIF-aware, original fallback, never larger than the source, ≤1.5MB
-  passthrough) — server validation stays authoritative regardless.
-- Preview-first uploads (`usePhotoUploadQueue`): the original selection
-  renders instantly from a local object URL (full quality, before
-  compression/upload), then tiles show selected → optimizing → uploading →
-  uploaded/failed (retry/remove). Uploads run sequentially in the background
-  without blocking the page; one failure never stalls the queue.
+  crop → resize → encode before upload is built (`src/lib/photos/process.ts`:
+  3:4 portrait crop matching the `aspect-[3/4]` surfaces, 1440px long-edge
+  ceiling, downscale-only (never upscales small sources), high-quality
+  JPEG/WebP at 0.88 with a controlled 0.88→0.8→0.72 step-down if the result
+  still exceeds the server ceiling, EXIF-orientation-aware, metadata-stripped;
+  `src/lib/photos/compress.ts` remains as the fallback optimizer at the same
+  quality) — server validation stays authoritative regardless.
+- Crop-first uploads (`PhotoCropDialog` + `usePhotoUploadQueue`): each pick
+  opens a native 3:4 crop editor (drag, pinch/wheel zoom, preview of the
+  exact upload bytes, cancel/re-edit — nothing uploads until confirmed), then
+  tiles show selected → optimizing → uploading → uploaded/failed
+  (retry/remove). Preprocessed files upload directly with no second encode
+  pass. Uploads run sequentially in the background without blocking the
+  page; one failure never stalls the queue. Object URLs are revoked on
+  success/remove/unmount.
 - `next.config.ts` declares Supabase Storage remote patterns with
   AVIF/WebP formats so a future `next/image` migration needs no config change.
 - Never sacrifice perceived quality of the current card to save bytes; save
@@ -425,16 +438,20 @@ system may be created.
   insufficient for body text — never links, errors, or paragraph text on
   light backgrounds. Uses: tiny dots/markers, focus rings/borders, icon-fill
   accents.
-- `--accent-deep` (`#A63D2F`): the text-safe coral. Links on hover, readable
-  error text, selected-step text.
+- `--accent-deep` (`#A53A32`): the text-safe deeper coral, with a restrained
+  warm red undertone at the deeper end of the same coral spectrum. Links on
+  hover, readable error text, selected-step text, and muted ambient strokes.
 - `--accent-soft` (`#FFCCCC`) + `--accent-wash` (`#FFF0EE`): borders and
   subtle emphasis backgrounds (selected pills, error/notice boxes, hover
   washes).
 - `--accent-hover` / `--accent-foreground`: the coral-filled interactive
   state (e.g. Like button) + its text.
 
-Usage ratio: ink = primary actions; paper = surfaces; coral = accent only;
-deep = readable coral text; wash = selected/error/subtle emphasis. Never make
+Usage ratio: ink = primary actions; paper = surfaces; coral = primary trademark
+accent; deep = readable coral with a restrained red undertone; wash =
+selected/error/subtle emphasis. Red never becomes a competing primary color.
+Reuse these tokens everywhere; do not add arbitrary accent colors, neon, or
+bright red treatments. Never make
 every interactive element coral — the product should read as editorial
 fashion/relationship, not generic pink dating app.
 
@@ -775,15 +792,24 @@ persistent messages
 - Migration: `supabase/migrations/20261001000003_invites.sql` — CREATED, NOT
   YET APPLIED to hosted Supabase.
 
-## 14.14 Image storage/compression future plan — PLANNED (deferred)
+## 14.14 Image crop/compression pipeline — IMPLEMENTED (MVP-1)
 
-- No compression implemented in STEP 1. `compress.ts`, the photo upload
-  queue, and existing image UI are untouched. Free-plan constraint holds:
-  no Supabase hosted transformations.
-- Future: original → browser resize to display dimensions → high-quality
-  encode → size validation → Supabase Storage. Target is perceptually /
-  visually lossless at `us` display sizes — never claimed as mathematically
-  lossless.
+- SELECT → crop (3:4, `PhotoCropDialog`) → DONE → preview → upload.
+  `src/lib/photos/process.ts` does crop + resize + encode in one Canvas pass
+  (long edge ≤1440, quality 0.88 start, never upscales, JPEG in → JPEG out,
+  PNG/WebP in → WebP out, EXIF-orientation-aware via `createImageBitmap`
+  `from-image` + `<img>` fallback, unsupported formats fail gracefully).
+  Output must fit `MAX_PHOTO_BYTES`; the queue uploads preprocessed files
+  directly (no second encode). Shared by `/onboarding/photos` and
+  `/profile/edit`; multi-picks are framed one at a time (bounded memory).
+- Storage model unchanged: `profile_photos` + `profile-photos` bucket +
+  public URLs; reorder/delete/display untouched; onboarding upload now also
+  cleans up its storage object when the DB insert fails (profile route
+  already did). No migration, no new bucket, no new dependency.
+- Measured (synthetic gradient+noise images via platform JPEG encoder at
+  q88, estimates not device results): 3024×4032 → 1080×1440 in 0.40MB;
+  landscape 3:4 center-crop → 1080×1440 in 0.18MB; 800×600 small source →
+  450×600 no-upscale in 0.15MB. No universal ratio claimed.
 
 ## 14.15 Performance/load principles — unchanged (§4–§12 apply)
 
@@ -906,3 +932,122 @@ compression, post-launch chat UI/realtime.
   copy, share text, capability detection, clipboard fallbacks) live
   UI-agnostic in `share-button.tsx`, so a future Settings "share my
   profile" reuses them; nothing Settings-specific shipped.
+
+### STEP 3D3 status (persistent notifications)
+
+IMPLEMENTED: `notifications` table (migration
+`supabase/migrations/20261002000005_notifications.sql` — CREATED, NOT YET
+APPLIED to hosted Supabase); recipient-only RLS (own select, own
+update-state, no insert/delete policies) + immutability trigger (only
+`read_at`/`deleted_at` may change); idempotent `create_notification()`
+`SECURITY DEFINER` RPC (LIKE/MATCH/MESSAGE check, reference required,
+self-notification rejected, `ON CONFLICT DO NOTHING` + reselect);
+`swipeAction()` wiring (non-mutual → LIKE for recipient; mutual → one MATCH
+per member, no LIKE for that event; retries reuse the existing like id);
+`GET /api/notifications` (bounded, newest-first, soft-deleted excluded,
+actor resolved to public username/nickname — raw actor_id never leaves the
+server), `PATCH`/`DELETE /api/notifications/[id]`,
+`POST /api/notifications` read-all; `/notifications` history page
+(product-guarded + launch-gated like matches/chat) with read-all-on-open
+and per-row soft-delete; header bell with unread badge (count rides the
+existing `/api/account/state` resolution — no second fetch); MATCH CTA
+`continue the conversation →` → `/chat/[matchId]` (minimal guarded
+placeholder, not a chat system — no per-match route existed); LIKE links
+to the existing `/u/[username]` when known. Deleting a notification never
+touches the underlying like/match.
+
+NOT YET IMPLEMENTED: MESSAGE notifications (type reserved, nothing
+generates them); Supabase Realtime subscription (the project has no
+realtime usage, so the spec conditional does not trigger — DB is the
+source of truth, fresh state resolves per navigation); browser/OS push
+(`push_subscriptions` future layer reads this same table).
+
+### STEP 3D3 learnings (notifications)
+
+- Server-boundary beat trigger injection: the match trigger stays
+  untouched because creating the LIKE notice in a likes-trigger would race
+  the match-trigger (LIKE row lands before the MATCH rows are known).
+  Deciding in `swipeAction()` — match lookup first, then exactly one of
+  LIKE-for-recipient vs MATCH-pair — makes mutual-suppression trivial and
+  keeps notification failures from ever failing the swipe (try/catch,
+  best-effort; the like/match is never gated on the notice).
+- RPC-over-policy for creation: with no INSERT policy, direct client
+  forging is denied at the DB (`permission denied` verified), while the
+  `SECURITY DEFINER` function lets the authenticated server action notify
+  the *other* user — the same shape as the invite RPCs, no service role.
+  Column immutability needed a trigger (RLS policies alone cannot freeze
+  `actor_id`/`type`/`reference_id` while allowing `read_at`/`deleted_at`).
+- Badge-on-existing-resolution beat a new fetch: `unreadCount` rides
+  `GET /api/account/state` (one `Promise.all` entry, same `getUser()`),
+  so the header badge costs zero extra round-trips and one resolution
+  per navigation is preserved (§6). The count query degrades to 0 when
+  the migration is not applied yet, like the launch pre-migration
+  fallback.
+- Pre-migration degradation everywhere: every notifications read path
+  (page helper, list API, badge count, swipe wiring) treats a missing
+  table/function as empty/success rather than 500ing or breaking the
+  swipe — verified against scratch postgres (idempotent LIKE retry
+  returns the same id; MATCH pair creates exactly two rows; invalid
+  type/self/null-ref rejected; type/actor rewrites rejected; direct
+  INSERT denied; recipient sees only own rows).
+- CTA needed a route, not a system: no `/chat/[matchId]` existed, so the
+  MATCH action would have 404ed. A guarded placeholder (membership
+  checked server-side under matches RLS, outsiders → `/matches`) fixes
+  navigation without building any chat logic.
+
+### STEP 3D4 status (chat MVP)
+
+IMPLEMENTED: `/chat/[matchId]` conversation (server product + launch
+guards, explicit match membership, other-participant public fields +
+primary photo only, bounded 50-message history); `sendMessageAction()`
+server mutation (product + launch checks, UUID-shape validation, trim /
+reject-empty / reject->1000, sender from auth, generic failure, no new
+API route); `Conversation` client island (optimistic send, single
+`chat:<matchId>` INSERT subscription, echo reconciliation + ID dedupe,
+near-bottom scroll, reduced-motion, visibility refetch, `removeChannel`
+cleanup); `loading.tsx` (static skeleton) / `error.tsx` (generic +
+retry); additive migration `20261004000001_chat_mvp.sql` (Realtime
+publication + composite index) applied LOCAL + STAGING
+(`us-justus-staging`), prod untouched; `pnpm lint` + `pnpm build` clean.
+
+NOT YET RUN: live A↔B realtime, C-outsider, device keyboard/360-430px,
+regression (§29–§30 of spec/3D4.md) — they require the running staging
+app with two matched accounts. KNOWN POST-MVP: no server rate limiting
+(submit-disabled only); block/unmatch revocation; keyset pagination UI.
+
+### STEP 3D4 learnings (chat MVP)
+
+- Publication name verified, not assumed: `pg_publication` shows exactly
+  one publication (`supabase_realtime`) on local Supabase;
+  `pg_publication_tables` confirms `public.messages` membership after the
+  migration — the same check re-run on staging after push.
+- Explicit-ownership + unchanged-RLS: page and action both query matches
+  with `id` + `user_a/user_b = auth.uid()` OR (never RLS alone for page
+  logic); `pg_policies` on both envs shows exactly the two original
+  message policies, table columns and RLS flag untouched.
+- Server page + one client island: `/chat/[matchId]` stays a Server
+  Component (guards, membership, participant, history); realtime,
+  composer, and optimistic state live only in `Conversation`. No
+  whole-page client conversion, no new API route — visibility refetch
+  reuses the RLS-scoped select directly.
+- Echo reconciliation in two layers: the server-action result replaces
+  the temp-ID row; the realtime INSERT dedupes by ID first, then falls
+  back to matching a pending same-body row from self — rapid consecutive
+  sends never duplicate.
+- `react-hooks/immutability` is load-bearing: accumulating a day label
+  with `let` in render fails lint; index-compared day labels
+  (`days[i-1] !== days[i]`) are lint-clean with no extra state.
+- Local-first migration discipline: `migration list` parity before/after,
+  apply + verify locally (publication, index, policies, columns), then
+  `db push` to the verified linked target (`us-justus-staging` /
+  `ietruyukgqwkmsyfvxxi` — never prod). `db query --linked` can
+  transiently fail with an access-token error; retry succeeds — verify,
+  don't assume the first error is real.
+- Validation: `pnpm lint` clean; `pnpm build` clean (`/chat/[matchId]`
+  dynamic); local + staging DB checks pass; two-account live E2E NOT yet
+  run.
+- Validation: `npm run lint` clean; `npm run build` clean (new routes
+  `/notifications`, `/chat/[matchId]`, `/api/notifications`,
+  `/api/notifications/[id]`); two-account E2E (like → LIKE notice,
+  mutual → MATCH pair, retry dedupe, offline persistence) NOT yet run —
+  it requires the hosted migration applied plus two signed-in accounts.
