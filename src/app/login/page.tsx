@@ -1,11 +1,12 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { useExistingSession } from "@/lib/auth/use-existing-session";
 import { validateAccountEmail } from "@/lib/auth/account";
+import { isLaunchGatedPath, safeNextPath } from "@/lib/auth/safe-next";
 import { normalizeUSN, validateUSN } from "@/lib/verification/usn";
 import { FieldError } from "@/components/onboarding/shell";
 
@@ -23,7 +24,9 @@ import { FieldError } from "@/components/onboarding/shell";
  * the submitted USN belongs to the authenticated user. All credential
  * failures return one generic message so login never reveals whether a USN
  * exists. Destination comes from the server onboarding state: complete →
- * /discover, otherwise the onboarding step.
+ * /discover, otherwise the onboarding step. An optional `/login?next=`
+ * return URL is forwarded to the API, which validates it server-side and
+ * honors it only where the existing guards already allow it.
  *
  * Email-skipped accounts that set a password hold a confirmed internal
  * sign-in identity (server-attached, never displayed) and sign in here with
@@ -34,6 +37,7 @@ const GENERIC = "Incorrect USN or password.";
 
 function LoginFlow() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { status, user } = useExistingSession();
 
   const [usn, setUsn] = useState("");
@@ -58,11 +62,13 @@ function LoginFlow() {
     setBusy(true);
     try {
       // Fully server-side: the auth email (if any) never touches the client.
-      // The server route sets the session cookies on success.
+      // The server route sets the session cookies on success. The `next`
+      // query value (if any) is forwarded for server-side validation — the
+      // API honors it only where the existing guards already allow it.
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ usn: normalizedUsn, password }),
+        body: JSON.stringify({ usn: normalizedUsn, password, next: searchParams.get("next") }),
       });
       const j = await res.json().catch(() => null);
       if (!res.ok) throw new Error(typeof j?.error === "string" ? j.error : GENERIC);
@@ -280,6 +286,7 @@ function LoginFlow() {
  */
 function SignedInContinue() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
@@ -289,7 +296,20 @@ function SignedInContinue() {
         const res = await fetch("/api/account/state", { cache: "no-store" });
         const j = await res.json().catch(() => null);
         if (cancelled) return;
-        router.replace(typeof j?.next === "string" ? j.next : "/onboarding");
+        let dest = typeof j?.next === "string" ? j.next : "/onboarding";
+        // Already-signed-in branch honors `/login?next=` with the same rules
+        // as the login API: complete accounts only, launch-gated
+        // destinations only once launched. The destination page re-guards
+        // server-side regardless, so authority stays server-side.
+        const candidate = safeNextPath(searchParams.get("next"));
+        if (
+          candidate &&
+          j?.onboardingStep === "complete" &&
+          (j?.launched === true || !isLaunchGatedPath(candidate))
+        ) {
+          dest = candidate;
+        }
+        router.replace(dest);
       } catch {
         if (!cancelled) setFailed(true);
       }
@@ -297,7 +317,7 @@ function SignedInContinue() {
     return () => {
       cancelled = true;
     };
-  }, [router]);
+  }, [router, searchParams]);
 
   if (failed) {
     return (
