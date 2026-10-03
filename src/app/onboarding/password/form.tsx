@@ -126,6 +126,7 @@ export function PasswordForm() {
   }
 
   async function setFirstPassword() {
+    if (pwBusy) return;
     setPwErr(null);
     const pErr = validateNewPassword(password);
     if (pErr) {
@@ -154,6 +155,7 @@ export function PasswordForm() {
 
   /** Skipped-email path: server attaches the internal identity + password. */
   async function setSkippedPassword() {
+    if (pwBusy) return;
     setPwErr(null);
     const pErr = validateNewPassword(password);
     if (pErr) {
@@ -236,7 +238,13 @@ export function PasswordForm() {
       )}
 
       {phase === "noemail" && (
-        <>
+        <form
+          className="space-y-5"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void setSkippedPassword();
+          }}
+        >
           <p className="text-[13px] leading-6 text-ink-soft max-w-[38ch]">
             You skipped email — set a password to secure this account on the
             same profile, same photos. You&apos;ll sign back in with your USN
@@ -291,16 +299,17 @@ export function PasswordForm() {
             </div>
           </div>
           {pwErr && <FieldError msg={pwErr} />}
-          <Button onClick={setSkippedPassword} disabled={pwBusy} className="w-full rounded-full">
+          <Button type="submit" disabled={pwBusy} className="w-full rounded-full">
             {pwBusy ? "saving…" : "secure my account"}
           </Button>
           <button
+            type="button"
             onClick={() => router.push("/onboarding/email")}
             className="w-full py-2 text-[12px] tracking-[0.12em] uppercase text-ink-soft transition-colors hover:text-accent-deep hover:bg-accent-wash rounded-full min-h-[44px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             add an email instead
           </button>
-        </>
+        </form>
       )}
 
       {phase === "pending" && (
@@ -338,7 +347,13 @@ export function PasswordForm() {
               <p className="text-[13px] leading-5 text-ink">secured — taking you to your profile…</p>
             </div>
           ) : (
-            <>
+            <form
+              className="space-y-5"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void setFirstPassword();
+              }}
+            >
               {notice && (
                 <div className="rounded-2xl border border-accent-soft bg-accent-wash px-4 py-3">
                   <p className="text-[13px] leading-5 text-ink">{notice}</p>
@@ -393,13 +408,13 @@ export function PasswordForm() {
                 </div>
               </div>
               {pwErr && <FieldError msg={pwErr} />}
-              <Button onClick={setFirstPassword} disabled={pwBusy} className="w-full rounded-full">
+              <Button type="submit" disabled={pwBusy} className="w-full rounded-full">
                 {pwBusy ? "saving…" : "secure my account"}
               </Button>
               <p className="text-[11px] leading-4 text-ink-faint">
                 You&apos;ll use this{email ? <> with {email}</> : null} to sign back in from any device.
               </p>
-            </>
+            </form>
           )}
         </>
       )}
