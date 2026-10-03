@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getProductSession, guardProductSession } from "@/lib/auth/product-state";
 import { getLaunchState, guardLaunch } from "@/lib/auth/launch";
 import { getChatHistory } from "@/lib/chat/queries";
+import { markConversationSeen } from "@/lib/chat/read-state";
 import { Conversation } from "@/components/chat/conversation";
 
 export const dynamic = "force-dynamic";
@@ -98,15 +99,29 @@ export default async function Page({ params }: { params: Promise<{ matchId: stri
     photoUrl = supabase.storage.from("profile-photos").getPublicUrl(storagePath).data.publicUrl ?? null;
   }
 
-  const { messages } = await getChatHistory(supabase, matchId);
+  // Opening the conversation with a successful load marks it seen for the
+  // viewer (read cursor -> latest message). Independent of history, so both
+  // resolve together; a mark failure is best-effort and never fails the
+  // render. Merely appearing in the /chat inbox never marks read.
+  const [{ messages }] = await Promise.all([
+    getChatHistory(supabase, matchId),
+    markConversationSeen(supabase, matchId),
+  ]);
 
   const name = displayName(prof.username, prof.nickname);
   const line = identityLine(prof.nickname, prof.age, prof.year, prof.branch);
   const initial = (prof.username ?? prof.nickname ?? "?").replace(/^@/, "").charAt(0).toUpperCase() || "?";
 
   return (
-    <div className="mx-auto flex h-[100dvh] w-full max-w-[560px] flex-col">
-      <header className="flex items-center gap-3 border-b border-line bg-paper px-6 py-3 sm:px-8">
+    // The conversation owns its viewport bound without any shell
+    // cooperation: it is absolutely positioned against `main` (which is
+    // already `relative`), so it exactly fills the space below the global
+    // sticky header — no h-[100dvh] overflow, no viewport arithmetic, no
+    // route-specific shell sizing. Column order is conversation header,
+    // scrollable messages, in-flow composer; the messages region
+    // (flex-1, min-h-0, overflow-y-auto) is the only scroller.
+    <div className="absolute inset-0 mx-auto flex w-full max-w-[560px] flex-col">
+      <header className="flex shrink-0 items-center gap-3 border-b border-line bg-paper px-6 py-3 sm:px-8">
         <Link
           href="/matches"
           aria-label="back to matches"
