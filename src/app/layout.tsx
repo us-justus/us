@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Instrument_Serif } from "next/font/google";
-import { SiteHeader } from "@/components/layout/site-header";
+import { SiteChrome } from "@/components/layout/site-header";
 import { AmbientHeartField } from "@/components/ambient/ambient-heart-field";
 import "./globals.css";
 
@@ -42,8 +42,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="min-h-full flex flex-col bg-paper text-ink">
         <AmbientHeartField />
-        <SiteHeader />
-        <main className="relative z-10 flex flex-1 flex-col">{children}</main>
+        <SiteChrome>
+          <main className="relative z-10 flex flex-1 flex-col">
+            {children}
+          </main>
+        </SiteChrome>
       </body>
     </html>
   );
