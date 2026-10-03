@@ -209,8 +209,8 @@ account is permanent. Implemented in `src/lib/auth/product-state.ts`
    same `auth.uid()`, same data. Skipped-email accounts set a password on a
    server-attached confirmed internal identity and finish as permanent
    accounts on the same session (same UID, no email sent, never displayed).
-- CAMPUS PRODUCT SESSION — onboarding complete on a still-anonymous account
-  (includes completed no-email accounts). Full product nav
+- CAMPUS PRODUCT SESSION — onboarding complete on a still-anonymous account.
+  Full product nav
   (discover/matches/chat/profile/settings). The "secure your account" message
   belongs HERE (Settings), as an account/security action.
 - PERMANENT ACCOUNT — verified email + password, non-anonymous. Full product
@@ -1051,3 +1051,88 @@ app with two matched accounts. KNOWN POST-MVP: no server rate limiting
   `/api/notifications/[id]`); two-account E2E (like → LIKE notice,
   mutual → MATCH pair, retry dedupe, offline persistence) NOT yet run —
   it requires the hosted migration applied plus two signed-in accounts.
+
+### STEP 3D5 status (chat unread activity)
+
+IMPLEMENTED: `chat_read_state` table (migration
+`supabase/migrations/20261005000001_chat_read_state.sql` — applied LOCAL +
+STAGING (`us-justus-staging`), prod untouched); recipient-only RLS (own
+select, own update-state, no insert/delete policies) + identity immutability
+trigger + `updated_at` via the existing `handle_updated_at()`;
+`mark_chat_seen(p_match_id)` `SECURITY DEFINER` RPC (auth + explicit match
+membership inside, latest-message resolution, idempotent upsert) and
+`has_unread_chat()` `SECURITY DEFINER` RPC (single existence check over the
+caller's matches); `src/lib/chat/read-state.ts` server helpers (`getSeenMap`
+batched, `hasUnreadChat`, `getChatMatchIds`, `markConversationSeen`);
+`getConversations()` extended with `unread` (latest id vs cursor, own-only
+and never-messaged never unread, graceful pre-migration degradation — no
+N+1, sorting/limits/photo loading unchanged); `/chat/[matchId]` marks seen
+server-side on successful load (`Promise.all` with history, best-effort);
+`markConversationSeenAction()` for live arrivals while viewing;
+`/api/account/state` additionally returns `chatUnread` (boolean dot, never
+a count) + `chatMatchIds` (listener scoping, match IDs only); header 💬 dot
+(same `h-1.5 w-1.5 rounded-full bg-accent` language as the 🔔 dot) via
+`NavSnapshot.chatUnread`; inbox rows show the same dot + medium preview
+(no counts, no wash, no layout shift — fixed dot slot); `ChatActivityListener`
+in the product shell (one filtered `match_id=eq.<id>` binding per known
+match, payload never read, tripwire re-resolves account state) plus
+`us:chat-activity` window signal from the inbox listener and the open
+conversation island; `pnpm lint` + `pnpm build` clean.
+
+NOT YET RUN: live A↔B↔C staging E2E (dot appear/clear, cross-session
+persistence, outsider isolation, rapid-message dedupe) — it requires the
+running staging app with two matched accounts plus a third outsider.
+
+### STEP 3D5 learnings (chat unread — WHY this architecture)
+
+- Chat and 🔔 notifications are intentionally separate systems that must
+  never be merged: `notifications.type = 'MESSAGE'` is reserved and unused,
+  `create_notification()` is untouched, `sendMessageAction()` creates no
+  notification, and `unreadCount` remains exclusively notification state.
+  Chat unread is per-user/per-match read cursors; a notification row must
+  never represent chat state.
+- Realtime is delivery/activity, never persistent read state. The 💬 dot
+  needs both: Realtime (`chat:<matchId>`, `chat:inbox`, `chat:activity` —
+  all filtered per-match bindings, payload content never consumed by chrome
+  code) makes the UI react immediately; `chat_read_state` remembers what was
+  seen across sessions (close/reopen preserves unread). Neither replaces
+  the other.
+- ID comparison beat timestamps for derivation: unread = latest.id <>
+  cursor, gated on latest.sender <> viewer. No clock skew, no ordering
+  ambiguity, and the sender's own messages can never read as unread.
+- RPC-over-policy beat client writes (same shape as notifications):
+  `mark_chat_seen()` verifies auth + membership inside the function and
+  resolves latest itself, so the write path is server-controlled with no
+  INSERT policy and no service role. The RPC additionally guards
+  `auth.uid() IS NULL`, so even an anonymous EXECUTE attempt fails closed
+  (verified: anon `has_unread_chat()` → `false`, anon `mark_chat_seen()` →
+  `not authenticated`).
+- Badge-on-existing-resolution beat a new fetch again (§6 preserved):
+  `chatUnread` + `chatMatchIds` ride `GET /api/account/state` (one
+  `Promise.all` entry each, same `getUser()`), so the header costs zero
+  extra round-trips and one resolution per navigation is preserved. No
+  polling, no `setInterval`, no new global API route.
+- Read = open-with-successful-load only. Inbox presence never marks read;
+  the global dot clears only when no unread conversation remains. While a
+  conversation is open, live arrivals from the other user re-mark seen
+  (the viewer is reading) — otherwise the dot would stick on a conversation
+  being read.
+- Subtle-by-construction UI: the existing accent-dot language
+  (`bg-accent`, `bg-accent-wash/40`, medium-ink preview from the
+  notifications list) was reused for both the header dot and inbox rows;
+  no counts, no new colors, no geometry changes (fixed dot slot, 44px
+  targets and 360/390/430 shells unchanged).
+
+### DEFERRED / FUTURE AUTH CLEANUP — UPDATE-PASSWORD FORM (do NOT implement in Step 4)
+
+- Current: `src/app/auth/update-password/page.tsx` uses a div + onClick
+  submission pattern rather than a real HTML form. Enter handling is
+  currently only present for the confirm-password field.
+- Future change: convert the update-password password UI to a proper
+  `<form onSubmit>` with the primary action as `type="submit"`, show/hide
+  controls remaining `type="button"`, Enter submission from both password
+  fields, existing validation preserved, existing loading/disabled behavior
+  preserved, explicit duplicate-submit protection, and no UI redesign.
+- Preserved Step 4 decision: the `router.refresh()` in update-password was
+  removed because navigation to `/onboarding` already causes a fresh server
+  render using the current session cookies.
