@@ -43,7 +43,6 @@ export default function UpdatePasswordPage() {
       setTimeout(() => {
         // /onboarding routes complete profiles to /discover automatically.
         router.push("/onboarding");
-        router.refresh();
       }, 900);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Could not set password.");
