@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProductSession, guardProductSession } from "@/lib/auth/product-state";
 import { getLaunchState, guardLaunch } from "@/lib/auth/launch";
+import { markConversationSeen } from "./read-state";
 
 export type SendMessageResult =
   | { ok: true; id: string; created_at: string }
@@ -75,4 +76,35 @@ export async function sendMessageAction(
 
   const row = inserted as { id: string; created_at: string };
   return { ok: true, id: row.id, created_at: row.created_at };
+}
+
+export type MarkSeenResult = { ok: true } | { ok: false };
+
+/**
+ * Mark one conversation seen for the caller (client-callable wrapper).
+ *
+ * Used by the open conversation island when a new message from the other
+ * user arrives while it is being viewed — the viewer is reading, so the
+ * cursor advances without requiring a re-open. The initial mark happens
+ * server-side in the /chat/[matchId] page itself; this only covers live
+ * arrivals. Membership is verified inside mark_chat_seen(); best-effort —
+ * a failure never breaks the conversation UI.
+ */
+export async function markConversationSeenAction(matchId: string): Promise<MarkSeenResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false };
+
+  const session = await getProductSession(user);
+  if (guardProductSession(session)) return { ok: false };
+  if (guardLaunch(await getLaunchState())) return { ok: false };
+
+  if (typeof matchId !== "string" || !UUID_RE.test(matchId)) {
+    return { ok: false };
+  }
+
+  const { ok } = await markConversationSeen(supabase, matchId);
+  return ok ? { ok: true } : { ok: false };
 }
