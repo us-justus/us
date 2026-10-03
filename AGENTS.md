@@ -491,3 +491,5 @@ launch state
 → Chat
 → Safety
 → final load/security audit
+
+"every line of code should justify it's existance"
