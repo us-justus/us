@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { normalizeUSN, validateUSN } from "@/lib/verification/usn";
 import {
   isInsideConfigured,
@@ -52,6 +53,17 @@ export async function POST(req: Request) {
   }
 
   const supabase = await createClient();
+  // Credential resolution runs through the server-only service-role client:
+  // anon EXECUTE on both resolvers was revoked (login abuse protection), so
+  // the anon session client can no longer call them. The key never leaves
+  // the server. Sign-in below stays on the session client (cookies); the
+  // existing admin-key + is_admin() authorization is unchanged.
+  let service: ReturnType<typeof createServiceRoleClient>;
+  try {
+    service = createServiceRoleClient();
+  } catch {
+    return NextResponse.json({ error: "Inside is unavailable right now." }, { status: 503 });
+  }
   let email: string | null = null;
 
   if (idRaw.includes("@")) {
@@ -61,7 +73,7 @@ export async function POST(req: Request) {
     const asUsn = normalizeUSN(idRaw);
     if (validateUSN(asUsn)) {
       // USN path reuses the product's password-gated resolver verbatim.
-      const { data, error: rpcError } = await supabase.rpc("resolve_login_email", {
+      const { data, error: rpcError } = await service.rpc("resolve_login_email", {
         p_usn: asUsn,
         p_password: pw,
       });
@@ -72,7 +84,7 @@ export async function POST(req: Request) {
     } else {
       // Phone path: smallest new password-gated resolver (no phone auth
       // exists anywhere else in the product).
-      const { data, error: rpcError } = await supabase.rpc("resolve_phone_login_email", {
+      const { data, error: rpcError } = await service.rpc("resolve_phone_login_email", {
         p_phone: idRaw,
         p_password: pw,
       });
