@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useReducedMotion } from "motion/react";
 import { createClient } from "@/lib/supabase/client";
-import { sendMessageAction } from "@/lib/chat/actions";
+import { markConversationSeenAction, sendMessageAction } from "@/lib/chat/actions";
 import type { ChatMessage } from "@/lib/chat/queries";
 
 type Props = {
@@ -119,6 +119,15 @@ export function Conversation({ matchId, currentUserId, initialMessages }: Props)
           if (nearBottomRef.current || row.sender_id === currentUserId) {
             requestAnimationFrame(() => scrollToBottom(true));
           }
+          // A new message from the other user arrived while this
+          // conversation is open and viewed: advance the read cursor so the
+          // global dot never sticks on a conversation being read, then tell
+          // the header to re-resolve. Best-effort; own echoes need no mark.
+          if (row.sender_id !== currentUserId) {
+            void markConversationSeenAction(matchId).finally(() => {
+              window.dispatchEvent(new CustomEvent("us:chat-activity"));
+            });
+          }
         },
       )
       .subscribe();
@@ -145,6 +154,11 @@ export function Conversation({ matchId, currentUserId, initialMessages }: Props)
         const ids = new Set(fresh.map((m) => m.id));
         const pending = prev.filter((m) => m.pending && !ids.has(m.id));
         return [...fresh, ...pending];
+      });
+      // Returning to a visible conversation re-marks it seen (same
+      // best-effort cursor advance as the realtime path above).
+      void markConversationSeenAction(matchId).finally(() => {
+        window.dispatchEvent(new CustomEvent("us:chat-activity"));
       });
     };
     document.addEventListener("visibilitychange", onVisible);
@@ -264,8 +278,15 @@ export function Conversation({ matchId, currentUserId, initialMessages }: Props)
         )}
       </div>
 
+      {/* Composer is the last in-flow row of the conversation column
+          (header / scrollable messages / composer) and owns the device
+          safe-area inset (no bottom nav is rendered on this route).
+          Single compact row: input + 52px send — no helper text. Enter
+          sends, Shift+Enter newlines (see onKeyDown). It consumes its own
+          space, so the message list above (flex-1, overflow-y-auto) is the
+          only scroller and the composer never covers messages. */}
       <div
-        className="sticky bottom-0 border-t border-line bg-paper px-6 pt-3 sm:px-8"
+        className="shrink-0 border-t border-line bg-paper px-6 pt-3 sm:px-8"
         style={{ paddingBottom: "calc(1rem + env(safe-area-inset-bottom))" }}
       >
         {sendError && (
@@ -304,18 +325,17 @@ export function Conversation({ matchId, currentUserId, initialMessages }: Props)
             enterKeyHint="send"
             maxLength={1001}
             disabled={sending}
-            className="max-h-[112px] min-h-[44px] flex-1 resize-none overflow-y-auto rounded-2xl border border-line bg-paper px-4 py-3 text-base leading-6 text-ink placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft focus:outline-none"
+            className="max-h-[112px] min-h-[52px] flex-1 resize-none overflow-y-auto rounded-2xl border border-line bg-paper px-4 py-3 text-base leading-6 text-ink placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft focus:outline-none"
           />
           <button
             type="submit"
             disabled={sending || !draft.trim()}
             aria-label="send message"
-            className="inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-ink text-[18px] text-paper transition-colors hover:bg-black focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:pointer-events-none disabled:opacity-40"
+            className="inline-flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-full bg-ink text-[18px] text-paper transition-colors hover:bg-black focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:pointer-events-none disabled:opacity-40"
           >
             <span aria-hidden>↑</span>
           </button>
         </form>
-        <p className="py-2 text-[11px] tracking-wide text-ink-faint">enter to send · shift+enter for a new line</p>
       </div>
     </div>
   );
