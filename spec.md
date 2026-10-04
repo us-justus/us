@@ -1136,3 +1136,125 @@ running staging app with two matched accounts plus a third outsider.
 - Preserved Step 4 decision: the `router.refresh()` in update-password was
   removed because navigation to `/onboarding` already causes a fresh server
   render using the current session cookies.
+
+### EMAIL VERIFICATION status (staging slice — ownership proof only)
+
+IMPLEMENTED: `verification_records.email_verified_at` trust timestamp
+(NULL = untrusted, non-null = inbox ownership cryptographically proven) +
+`email_verification_tokens` hash-only table + `mint/consume` `SECURITY
+DEFINER` RPCs (service-role only) + trust guard trigger (migration
+`supabase/migrations/20261008000001_email_verification_trust.sql` — applied
+LOCAL + STAGING (`us-justus-staging`), prod untouched);
+`src/lib/email-verification/tokens.ts` (256-bit `randomBytes` → base64url,
+SHA-256 hex persisted, plaintext memory-only) + `worker.ts`
+(`requestEmailVerification` intake, `runVerificationTick` delivery);
+`POST /api/verification/request` (bind + enqueue, 401/400/429); `/auth/verify`
+(token-only URL → atomic consume → redirect `/onboarding`,
+`getOnboardingState()` decides next; one generic failure card for every
+failure mode). Brevo queue (`queue.ts`) UNTOUCHED — delivery guarantees
+preserved. Verified: 38/38 local domain checks, 9/9 local HTTP checks,
+17/17 staging checks incl. one real Brevo send (201 + provider id),
+live click → `/onboarding`, replay dead, resend throttled; `tsc` + `eslint`
+clean. Proof users/rows deleted; baselines restored.
+
+NOT YET IMPLEMENTED: persistent worker runner (ticks driven externally, as
+with the queue slice); `auth.users.email` linkage (deliberate — see below);
+cross-account email uniqueness policy; resend UX wiring (backend resend-safe:
+explicit POST + 60s cooldown); login/recovery changes (unverified addresses
+must never be trusted for recovery).
+
+### EMAIL VERIFICATION learnings (ownership slice)
+
+- Just-in-time minting solved queue retry without plaintext storage: the
+  queue stores no tokens and SHA-256 is irreversible, so the worker mints a
+  FRESH token per actual send attempt (after the queue's expiry/cooldown
+  gates, inside the sender wrapper) and holds the URL in closure memory
+  only. Retries never reconstruct — they mint successors that invalidate
+  predecessors. Only the latest delivered link is valid.
+- Accepted-then-lost is inherent and documented: if Brevo accepts but the
+  lease-guarded finalize fails, the retry sends a successor that kills the
+  first link (at-most-once DB finalize vs at-least-once delivery). Proven
+  by corrupting the lease mid-send → `lease_lost` → successor valid,
+  first link dead.
+- `email_verified_at`, not the legacy boolean: the old `email_verified`
+  column is dead/untrusted and left untouched. RLS policies alone cannot
+  freeze one column while allowing row edits, so a trigger rejects
+  anon/authenticated writes to the trust timestamp (service-role server
+  paths allowed) — verified: client self-certify blocked, legit email edit
+  still allowed.
+- `auth.users.email` deliberately untouched in this slice: `updateUser()`
+  would fire Supabase's own email, and `admin.updateUserById(...,
+  email_confirm:true)` would falsely certify ownership. Association is
+  `verification_records.user_id` (same UID, no `signUp`); Auth linkage
+  waits for the full-architecture slice.
+- `redirect()` must never sit in `try/catch`: it throws NEXT_REDIRECT, so
+  the catch swallowed the success redirect and rendered the failure page.
+  Resolve success first, redirect after (caught live by the HTTP proof).
+- Failure-status mapping matters: unauthenticated intake is 401,
+  cooldown 429 (with `Retry-After`), validation 400 — the worker returns a
+  `code` so the route maps without a second `getUser()`.
+- Proof-harness discipline for global-claim queues: ticks claim the OLDEST
+  pending job, so every test request must be followed by its tick (or an
+  explicit sink drain) or later tests silently process earlier tests' jobs
+  — two false failures traced to exactly this before the fix.
+- Query-token URLs surface in Next RSC flight data and dev access logs as
+  part of the request URL (standard for this link class, same as
+  Supabase's own `token_hash` links). Accepted: single-use + 15-min TTL
+  means the address-bar secret gains nothing new; the failure page never
+  echoes it as visible content.
+- Local-first migration discipline held again: `migration list` parity,
+  local apply + full suite, then `db push` to the verified linked staging
+  ref (`ietruyukgqwkmsyfvxxi` — never prod `drhticapxbhpqosrkngy`).
+
+### INSIDE STEP 1 status (admin security hardening)
+
+IMPLEMENTED (hardening only — no UI, no audit log, no new auth system,
+no RLS change, prod untouched): rate-limit on `POST /api/inside/login`
+reusing `check_login_rate_limit` (distinct `admin-ip:*` buckets, hashed
+only, throttle-before-key-check, targeted-bucket reset on success);
+Origin-vs-Host check (`src/lib/inside/origin.ts`) on login/launch/logout
+(foreign/malformed rejected; absent Origin allowed, auth authoritative);
+`inside_admin` cookie verified as-is (HttpOnly, Secure-in-prod, Lax,
+Path=/ — required for `/api/inside/*`; no `__Host-`, incompatible with
+http dev) with construction extracted to `src/lib/inside/cookie.ts`;
+config oracle closed (missing ADMIN_SECRET_KEY / service-role → generic
+401, server-only logs, no secrets); migration
+`supabase/migrations/20261009000001_inside_admin_rpc_least_privilege.sql`
+— CREATED, NOT YET APPLIED (revokes `authenticated` EXECUTE on both
+login resolvers; `is_admin`/admin RPCs keep session-client grants with
+internal fail-closed checks). Verified: `pnpm test:inside` 39/39,
+`tsc` + `eslint` clean, `next build` clean.
+
+NOT YET RUN: live throttle enforcement, de-admined-cookie rejection
+end-to-end, and the migration apply — they require the running staging
+app + DB (local container down at the time; staging push deliberately
+withheld). Student login route untouched (additive-only helper change).
+
+### INSIDE STEP 1 learnings (hardening)
+
+- Reuse-over-rebuild for the limiter: same RPC, same sha256 construction,
+  only the key PREFIXES differ (`admin-ip:` vs `ip:`) so admin/student
+  floods behind campus NAT never share a bucket; thresholds/window/
+  fail-open stay authoritative in the DB function, shared by both callers.
+- No canonical-URL config existed, so the check compares Origin against
+  the request's own Host (x-forwarded-host first) — correct in dev/LAN/
+  staging/prod with nothing hardcoded; absent Origin is allowed (curl/
+  tests/server callers) because a browser attacker cannot strip it, and
+  auth never leans on it.
+- Cookie scope was already minimal-correct: Path=/inside would break
+  `/api/inside/*`, and `__Host-` demands Secure which http dev cannot set.
+  Extracting pure construction into a dependency-free module made flags
+  unit-testable without a request context.
+- Config-oracle fix has one deliberate exception: downstream DB outages
+  keep the product-style 503 availability signal; only the config class
+  (missing secret / missing service-role) collapses to generic 401.
+- Grant narrowing needed a trace first, not a blanket revoke: both
+  resolvers are service-role-only in practice (verified via callers), so
+  `authenticated` was revoked there; `is_admin`/admin RPCs must keep it
+  (session-client gate) with internal re-checks as defense-in-depth.
+- Zero-dep tests via `node --test` on dependency-free modules; explicit
+  `.ts` import extensions (node resolution) required
+  `allowImportingTsExtensions` in tsconfig (noEmit-compatible; build
+  verified). Route-level properties that need a request context are
+  guarded by static source tests (Origin wiring, GENERIC-always-401,
+  no secret interpolation in logs) until a live harness exists.
