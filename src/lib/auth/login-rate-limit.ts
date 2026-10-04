@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { normalizeUSN, validateUSN } from "../verification/usn.ts";
 
 /**
  * Login rate-limit helpers (STEP 3 — login abuse protection).
@@ -55,6 +56,41 @@ export function loginRateLimitKeys(ip: string, normalizedUsn: string) {
     ipKey: `ip:${sha256Hex(ip)}`,
     ipUsnKey: `ip-usn:${sha256Hex(`${ip}\n${normalizedUsn}`)}`,
   };
+}
+
+/**
+ * INSIDE admin-login key dimensions (Step 1 hardening).
+ *
+ * Reuses the SAME `check_login_rate_limit()` / `clear_login_rate_limit()`
+ * RPCs and the SAME hashing construction — this is not a second limiter
+ * implementation. Only the key PREFIXES differ (`admin-ip:` /
+ * `admin-ip-id:` instead of `ip:` / `ip-usn:`) so admin-login attempts and
+ * student-login attempts never share a bucket: a student-login flood behind
+ * campus NAT cannot throttle admin login and admin key-guessing cannot
+ * throttle students. Thresholds/window/fail-open semantics are the
+ * authoritative ones inside the DB function, shared by both callers.
+ */
+export function adminLoginRateLimitKeys(ip: string, normalizedIdentity: string) {
+  return {
+    ipKey: `admin-ip:${sha256Hex(ip)}`,
+    ipIdKey: `admin-ip-id:${sha256Hex(`${ip}\n${normalizedIdentity}`)}`,
+  };
+}
+
+/**
+ * Normalize an `/api/inside/login` identifier for rate-limit bucketing ONLY.
+ * Mirrors the route's email/USN/phone split so one identity maps to one
+ * bucket regardless of trivial re-formatting (case, surrounding spaces).
+ * The output is hashed before storage; raw identifiers never persist.
+ */
+export function normalizeAdminLoginIdentity(idRaw: string): string {
+  const t = idRaw.trim();
+  if (t.includes("@")) return t.toLowerCase();
+  const asUsn = normalizeUSN(t);
+  if (validateUSN(asUsn)) return asUsn;
+  const digits = t.replace(/\D/g, "");
+  if (digits) return digits;
+  return t.toLowerCase();
 }
 
 export type LoginRateLimitDecision =
