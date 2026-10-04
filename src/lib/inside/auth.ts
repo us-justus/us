@@ -1,6 +1,16 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import {
+  INSIDE_COOKIE,
+  INSIDE_SESSION_TTL_MS,
+  clearInsideCookieHeader,
+  cookieAttrs,
+  setInsideCookieHeader,
+} from "./cookie";
+
+// Re-exported so existing import sites (`/api/inside/*`) keep working.
+export { INSIDE_COOKIE, clearInsideCookieHeader, cookieAttrs, setInsideCookieHeader };
 
 /**
  * INSIDE v1 — server-only admin session helpers.
@@ -21,9 +31,6 @@ import { createClient } from "@/lib/supabase/server";
  * for an admin user — and the key alone (no auth session) opens nothing.
  * The secret itself is never stored, logged, returned, or sent to clients.
  */
-
-export const INSIDE_COOKIE = "inside_admin";
-const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 
 function secret(): string | null {
   const s = process.env.ADMIN_SECRET_KEY;
@@ -56,7 +63,7 @@ function sign(userId: string, exp: number): string {
 
 /** Mint the cookie value after all three login factors verified. */
 export function mintInsideSession(userId: string): string {
-  return sign(userId, Date.now() + SESSION_TTL_MS);
+  return sign(userId, Date.now() + INSIDE_SESSION_TTL_MS);
 }
 
 function parseSession(
@@ -68,20 +75,6 @@ function parseSession(
   const exp = Number(expRaw);
   if (!userId || !Number.isFinite(exp) || !sig) return null;
   return { userId, exp, sig };
-}
-
-export function cookieAttrs(maxAge: number): string {
-  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
-  return `${INSIDE_COOKIE}=__V__; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure}`;
-}
-
-export function setInsideCookieHeader(value: string): string {
-  const maxAge = Math.floor(SESSION_TTL_MS / 1000);
-  return cookieAttrs(maxAge).replace("__V__", value);
-}
-
-export function clearInsideCookieHeader(): string {
-  return cookieAttrs(0).replace("__V__", "");
 }
 
 /**
