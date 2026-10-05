@@ -36,7 +36,6 @@ import { FieldError } from "@/components/onboarding/shell";
 const GENERIC = "Incorrect USN or password.";
 
 function LoginFlow() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const { status, user } = useExistingSession();
 
@@ -72,10 +71,13 @@ function LoginFlow() {
       });
       const j = await res.json().catch(() => null);
       if (!res.ok) throw new Error(typeof j?.error === "string" ? j.error : GENERIC);
-      // The destination route re-renders server-side with the fresh session
-      // cookies, and the header re-resolves via its auth subscription — no
-      // router.refresh() needed after the mutation.
-      router.push(typeof j?.next === "string" ? j.next : "/onboarding");
+      // Full document navigation, not router.push: the server route sets the
+      // session cookies, but the singleton browser client still holds the
+      // pre-sign-in (often anonymous) session and server mutations do not
+      // reliably fire onAuthStateChange. Reloading rehydrates the browser
+      // client from the fresh cookies, so SERVER UID === BROWSER UID before
+      // any onboarding mutation is allowed.
+      window.location.assign(typeof j?.next === "string" ? j.next : "/onboarding");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : GENERIC);
     } finally {

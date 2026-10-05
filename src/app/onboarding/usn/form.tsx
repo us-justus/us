@@ -1,7 +1,7 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAnonymousSession } from "@/lib/auth/use-anonymous-session";
+import { useOnboardingSession } from "@/lib/auth/use-onboarding-session";
 import { normalizeUSN, validateUSN } from "@/lib/verification/usn";
 import { FieldError } from "@/components/onboarding/shell";
 import { Button } from "@/components/ui/button";
@@ -11,10 +11,19 @@ export function UsnForm() {
   const [usn, setUsn] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  // Shared bootstrap: restores the existing anonymous session, signs in only
-  // when none exists. `ensureAnonymousSession()` remains the single place
+  // Server-authoritative bootstrap: a new anonymous onboarding session
+  // resumes/mints exactly as before, while a returning authenticated account
+  // that belongs on a different step reports `redirectTo` — the form then
+  // navigates to the server destination and never enables submit on the
+  // stale browser UID. `ensureAnonymousSession()` remains the single place
   // that may establish a session.
-  const { status: sessionStatus, retry: retrySession } = useAnonymousSession();
+  const { status: sessionStatus, redirectTo, retry: retrySession } = useOnboardingSession("usn");
+
+  useEffect(() => {
+    if (sessionStatus === "redirecting" && redirectTo) {
+      router.replace(redirectTo);
+    }
+  }, [sessionStatus, redirectTo, router]);
 
   async function submit() {
     if (sessionStatus !== "ready") return;
@@ -47,6 +56,12 @@ export function UsnForm() {
     } finally {
       setLoading(false);
     }
+  }
+
+  // Returning account that belongs elsewhere: follow the server destination.
+  // No form is rendered, so no mutation can be issued as the wrong UID.
+  if (sessionStatus === "redirecting") {
+    return <p className="text-[13px] text-ink-soft">taking you to the right step…</p>;
   }
 
   const isContinueDisabled = loading || sessionStatus !== "ready";
