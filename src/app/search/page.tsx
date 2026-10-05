@@ -5,11 +5,9 @@ import { SearchClient } from "@/components/search/search-client";
 export const dynamic = "force-dynamic";
 
 /**
- * Pre-launch campus search (STEP 3B).
+ * Campus search.
  *
- * Product-guarded (public → /login, incomplete → step path) but NOT
- * launch-gated: search is a pre-launch feature that remains available once
- * launched. Discover/Matches/Chat stay server-locked separately.
+ * Product-guarded (public → /login, incomplete → step path).
  */
 export default async function SearchPage() {
   const session = await getProductSession();
