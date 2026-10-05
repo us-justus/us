@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { MAX_PHOTOS, validatePhotoFile } from "@/lib/validation/profile";
 import { usePhotoUploadQueue } from "@/lib/photos/use-photo-upload-queue";
 import { PhotoCropDialog } from "@/components/photos/photo-crop-dialog";
+import { framingKeyForFile, type PhotoFraming } from "@/lib/photos/framing";
 
 type Photo = { id: string; storage_path: string; url: string };
 
@@ -22,6 +23,10 @@ export function PhotosForm() {
   // DONE → preview → upload). One at a time keeps mobile memory bounded.
   const [cropQueue, setCropQueue] = useState<File[]>([]);
   const activeCrop = cropQueue[0] ?? null;
+  const activeCropKey = activeCrop ? framingKeyForFile(activeCrop) : null;
+  // Per-photo framing, keyed by file identity — same contract as profile
+  // edit: fresh centered cover per new photo, restore on switch.
+  const [framingByKey, setFramingByKey] = useState<Record<string, PhotoFraming>>({});
   const occupied = photos.length + pending.length + cropQueue.length;
   const full = occupied >= MAX_PHOTOS;
 
@@ -95,12 +100,20 @@ export function PhotosForm() {
         <div className="mt-4"><FieldError msg={pending.find(q => q.status === "failed")?.error ?? "Upload failed."} /></div>
       )}
       <p className="mt-4 text-[11px] text-ink-faint">{photos.length}/{MAX_PHOTOS} · JPG, PNG or WEBP · max 5 MB</p>
-      <Button disabled={photos.length < 1} onClick={()=>router.push("/discover")} className="mt-6 w-full rounded-full">enter us →</Button>
-      {activeCrop && (
+      <Button disabled={photos.length < 1} onClick={() => router.push("/home")} className="mt-6 w-full rounded-full">enter us →</Button>
+      {activeCrop && activeCropKey && (
         <PhotoCropDialog
-          key={`${activeCrop.name}-${activeCrop.size}-${activeCrop.lastModified}`}
+          key={activeCropKey}
           file={activeCrop}
           queueLabel={cropQueue.length > 1 ? `${cropQueue.length} to frame` : undefined}
+          initialFraming={framingByKey[activeCropKey]}
+          onFramingChange={(f) =>
+            setFramingByKey((prev) => {
+              const cur = prev[activeCropKey];
+              if (cur && cur.scale === f.scale && cur.x === f.x && cur.y === f.y) return prev;
+              return { ...prev, [activeCropKey]: f };
+            })
+          }
           onCancel={dropActiveCrop}
           onConfirm={(processed) => {
             enqueueReady(processed);
