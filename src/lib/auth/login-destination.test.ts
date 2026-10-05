@@ -10,9 +10,9 @@ describe("resolveLoginNext", () => {
   it("sends every incomplete account to its onboarding step, ignoring ?next=", () => {
     for (const step of INCOMPLETE) {
       const fallback = `/onboarding/${step}`;
-      for (const requestedNext of ["/discover", "/settings", null, undefined, "//evil"]) {
+      for (const requestedNext of ["/home", "/settings", null, undefined, "//evil"]) {
         assert.equal(
-          resolveLoginNext({ step, launched: true, requestedNext, fallback }),
+          resolveLoginNext({ step, requestedNext, fallback }),
           fallback,
           `step ${step}, next ${String(requestedNext)}`,
         );
@@ -22,43 +22,38 @@ describe("resolveLoginNext", () => {
 
   it("never renders /onboarding/usn for an account already past USN", () => {
     for (const step of ["email", "password", "profile", "photos", "complete"] as OnboardingStep[]) {
-      const fallback = step === "complete" ? "/discover" : `/onboarding/${step}`;
-      const dest = resolveLoginNext({ step, launched: true, requestedNext: "/discover", fallback });
+      const fallback = step === "complete" ? "/home" : `/onboarding/${step}`;
+      const dest = resolveLoginNext({ step, requestedNext: "/home", fallback });
       assert.notEqual(dest, "/onboarding/usn", `step ${step}`);
     }
   });
 
   it("honors a valid return URL only for complete accounts", () => {
     assert.equal(
-      resolveLoginNext({ step: "complete", launched: true, requestedNext: "/settings", fallback: "/discover" }),
+      resolveLoginNext({ step: "complete", requestedNext: "/settings", fallback: "/home" }),
       "/settings",
     );
     assert.equal(
-      resolveLoginNext({ step: "complete", launched: false, requestedNext: "/settings", fallback: "/discover" }),
-      "/settings",
+      resolveLoginNext({ step: "complete", requestedNext: "/search", fallback: "/home" }),
+      "/search",
     );
   });
 
-  it("keeps launch-gated destinations locked while pre-launch", () => {
-    for (const gated of ["/discover", "/matches", "/notifications", "/chat", "/chat/abc"]) {
+  it("honors any allowlisted destination for complete accounts (no launch gating)", () => {
+    for (const dest of ["/", "/home", "/search", "/profile", "/settings", "/settings/account", "/u/some_name"]) {
       assert.equal(
-        resolveLoginNext({ step: "complete", launched: false, requestedNext: gated, fallback: "/discover" }),
-        "/discover",
-        gated,
-      );
-      assert.equal(
-        resolveLoginNext({ step: "complete", launched: true, requestedNext: gated, fallback: "/discover" }),
-        gated,
-        gated,
+        resolveLoginNext({ step: "complete", requestedNext: dest, fallback: "/home" }),
+        dest,
+        dest,
       );
     }
   });
 
   it("treats invalid ?next= as absent, never an error or signal", () => {
-    for (const bad of ["", "//evil", "https://evil", "javascript:alert(1)", "/login", "/onboarding/usn", "/inside", "/invite/x", 42, {}, null]) {
+    for (const bad of ["", "//evil", "https://evil", "javascript:alert(1)", "/login", "/onboarding/usn", "/inside", "/invite/x", "/discover", "/matches", "/chat", 42, {}, null]) {
       assert.equal(
-        resolveLoginNext({ step: "complete", launched: true, requestedNext: bad, fallback: "/discover" }),
-        "/discover",
+        resolveLoginNext({ step: "complete", requestedNext: bad, fallback: "/home" }),
+        "/home",
         String(bad),
       );
     }
@@ -67,13 +62,13 @@ describe("resolveLoginNext", () => {
 
 describe("safeNextPath", () => {
   it("accepts allowlisted product paths", () => {
-    for (const ok of ["/", "/discover", "/matches", "/search", "/notifications", "/profile", "/settings/account", "/u/some_name", "/chat/abc-123"]) {
+    for (const ok of ["/", "/home", "/search", "/profile", "/settings/account", "/u/some_name"]) {
       assert.equal(safeNextPath(ok), ok, ok);
     }
   });
 
-  it("rejects onboarding, auth, invite, and admin paths without distinction", () => {
-    for (const bad of ["/login", "/onboarding", "/onboarding/usn", "/auth/confirm", "/invite/x", "/inside", "/inside/health"]) {
+  it("rejects onboarding, auth, invite, admin, and removed post-launch paths without distinction", () => {
+    for (const bad of ["/login", "/onboarding", "/onboarding/usn", "/auth/confirm", "/invite/x", "/inside", "/inside/health", "/discover", "/matches", "/notifications", "/chat", "/chat/abc-123"]) {
       assert.equal(safeNextPath(bad), null, bad);
     }
   });
