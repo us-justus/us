@@ -39,11 +39,11 @@ export function absolutizeUrl(pathOrUrl: string): string {
 }
 
 export function inviteShareTitle(): string {
-  return "join us.";
+  return "just us.";
 }
 
 export function inviteShareText(spot: number | null): string {
-  return `i'm #${spot ?? "—"}. secure your spot.`;
+  return `i'm #${spot ?? "—"}.`;
 }
 
 export type NativeShareSupport = {
