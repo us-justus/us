@@ -1,5 +1,4 @@
 import { createClient } from "@/lib/supabase/server";
-import { getLaunchState } from "@/lib/auth/launch";
 import { requireInsideAdmin } from "@/lib/inside/auth";
 import { InsideClient } from "./inside-client";
 
@@ -25,13 +24,16 @@ export default async function InsidePage() {
     );
   }
 
-  // Verified admin session — independent reads resolve together.
+  // Verified admin session — overview aggregates resolve here.
+  // Shape (see 20261013000001_inside_dashboard_refinement.sql): waiting =
+  // active photo-complete profiles (the waitlist); suspended = profiles
+  // with is_active = false. No total_users: a bare verification_records
+  // count is broader than the waitlist and misleads the admin.
   const supabase = await createClient();
-  const [countsRes, launch] = await Promise.all([
-    supabase.rpc("admin_overview_counts"),
-    getLaunchState(),
-  ]);
-  const counts = countsRes.data as { total_users: number; waiting: number } | null;
+  const countsRes = await supabase.rpc("admin_overview_counts");
+  const counts = countsRes.data as { waiting: number; suspended: number } | null;
+  const waiting = typeof counts?.waiting === "number" ? counts.waiting : null;
+  const suspended = typeof counts?.suspended === "number" ? counts.suspended : null;
 
   return (
     <div className="flex flex-1 flex-col pb-[env(safe-area-inset-bottom)]">
@@ -39,12 +41,9 @@ export default async function InsidePage() {
         <InsideClient
           mode="dashboard"
           initial={{
-            launched: launch.launched,
-            launchedAt: launch.launchAt,
-            version: launch.prelaunchVersion,
-            totalUsers: counts?.total_users ?? 0,
-            waiting: counts?.waiting ?? 0,
-            countsLive: !countsRes.error && counts !== null,
+            waiting: waiting ?? 0,
+            suspended: suspended ?? 0,
+            countsLive: !countsRes.error && waiting !== null && suspended !== null,
           }}
         />
       </div>
