@@ -59,6 +59,28 @@ export function loginRateLimitKeys(ip: string, normalizedUsn: string) {
 }
 
 /**
+ * SLICE 3 — email-identifier bucket for product student login.
+ *
+ * Same construction, same `check_login_rate_limit` / `clear_login_rate_limit`
+ * RPCs, same thresholds/window/fail-open semantics as the USN buckets — only
+ * the key PREFIX differs (`ip-email:` instead of `ip-usn:`). The DB function
+ * treats both as opaque text bucket keys, so no migration is needed. The
+ * caller MUST pass a normalized email (trimmed + lowercased); the output is
+ * a hex digest, so the raw email never persists.
+ */
+export function loginRateLimitKeysForEmail(ip: string, normalizedEmail: string) {
+  return {
+    ipKey: `ip:${sha256Hex(ip)}`,
+    ipEmailKey: `ip-email:${sha256Hex(`${ip}\n${normalizedEmail}`)}`,
+  };
+}
+
+/** Normalize an email identifier for rate-limit bucketing ONLY (trim + lowercase). */
+export function normalizeLoginEmail(raw: string): string {
+  return raw.trim().toLowerCase();
+}
+
+/**
  * INSIDE admin-login key dimensions (Step 1 hardening).
  *
  * Reuses the SAME `check_login_rate_limit()` / `clear_login_rate_limit()`
