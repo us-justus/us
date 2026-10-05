@@ -4,22 +4,24 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { requireInsideAdmin } from "./auth";
 
 /**
- * INSIDE Step 2 — the single server-only admin audit implementation.
+ * INSIDE Step 2 — centralized admin audit actions and server-side writers.
  *
  * NEVER import this module from client components. It is server-only by
  * construction: it reads SUPABASE_SERVICE_ROLE_KEY (via
  * createServiceRoleClient) and derives actors from the authenticated admin
  * context. No function here accepts an actor supplied by the browser.
  *
- * WRITE PATH: direct insert into public.inside_audit_events through the
- * server-only service-role client. The table has RLS enabled with NO
- * policies and NO grants to anon/authenticated, so the browser cannot
- * INSERT / UPDATE / DELETE (or even SELECT); service_role bypasses RLS and
- * is the sole writer. Immutability comes from the absence of any
+ * WRITE PATH: ordinary audit events use direct inserts through the
+ * server-only service-role client. The waitlist queue preparation RPC is
+ * the atomic exception: its SECURITY DEFINER function re-checks is_admin(),
+ * derives actor_user_id from auth.uid(), and inserts only aggregate counts
+ * in the same transaction as queue population. The table has RLS enabled
+ * with NO policies and NO grants to anon/authenticated, so there is no
+ * direct client table access. Immutability comes from the absence of any
  * UPDATE/DELETE path, not from application discipline.
  *
  * ACTOR RULES:
- *   - Authenticated paths (logout, launch) derive the actor from
+ *   - Authenticated paths (logout) derive the actor from
  *     requireInsideAdmin() — the Step 1 gate (signed cookie + live session
  *     for the same user + current admin_users membership). A caller that
  *     fails the gate cannot write an attributed event.
@@ -34,15 +36,9 @@ import { requireInsideAdmin } from "./auth";
  *     identifiers, passwords, keys, and tokens are never stored.
  *
  * AUDIT FAILURE BEHAVIOR (deliberate, per call site):
- *   - Launch mutations (privileged state change): FAIL CLOSED. The route
- *     snapshots state before mutating; if the mutation succeeds but the
- *     audit insert fails, the route restores the snapshot (best-effort
- *     compensation) and returns 500 instead of success, so we never end up
- *     with "launch changed + no audit record" reported as success. Audit
- *     errors are logged server-side with no secrets or identifiers.
- *   - Student moderation and report resolution (Step 3 privileged state
+ *   - Student moderation and report resolution (privileged state
  *     changes: STUDENT_SUSPENDED / STUDENT_RESTORED / REPORT_RESOLVED):
- *     FAIL CLOSED with the same snapshot-and-restore compensation via the
+ *     FAIL CLOSED with snapshot-and-restore compensation via the
  *     same sanctioned writers. No-op calls (already suspended / already
  *     resolved) record nothing; failed or unauthorized mutations record
  *     nothing.
@@ -54,18 +50,25 @@ import { requireInsideAdmin } from "./auth";
  *     carelessly — risk an auth bypass or credential exposure. The gap is
  *     covered by server-side error logs plus the independent login
  *     rate-limit buckets, which keep working regardless.
+ *   - Feedback replies (FEEDBACK_REPLIED): BEST-EFFORT. The email is
+ *     already delivered when the audit runs, and an email cannot be
+ *     unsent — failing the operation on an audit outage would invite a
+ *     resend of a delivered message. The reply row itself (admin_reply,
+ *     replied_at, replied_by, brevo_message_id) is the source of truth.
+ *     Feedback resolution (FEEDBACK_RESOLVED) stays FAIL CLOSED with
+ *     compensation like the other privileged writers.
  */
 
 export const INSIDE_AUDIT_ACTIONS = [
   "ADMIN_LOGIN_SUCCESS",
   "ADMIN_LOGIN_FAILURE",
   "ADMIN_LOGOUT",
-  "LAUNCH_ENABLED",
-  "LAUNCH_DISABLED",
-  "LAUNCH_VERSION_CHANGED",
   "STUDENT_SUSPENDED",
   "STUDENT_RESTORED",
   "REPORT_RESOLVED",
+  "FEEDBACK_REPLIED",
+  "FEEDBACK_RESOLVED",
+  "WAITLIST_EMAIL_QUEUE_PREPARED",
 ] as const;
 
 export type InsideAuditAction = (typeof INSIDE_AUDIT_ACTIONS)[number];
@@ -125,7 +128,7 @@ async function insertAuditEvent(row: {
 
 /**
  * Attributed event for callers holding a verified /inside session
- * (logout, launch). The actor comes from requireInsideAdmin(), never from
+ * (logout). The actor comes from requireInsideAdmin(), never from
  * arguments — there is no parameter through which a client could supply
  * or override it.
  */
