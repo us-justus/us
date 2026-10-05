@@ -9,6 +9,7 @@ import { FieldError } from "@/components/onboarding/shell";
 import { useExistingSession } from "@/lib/auth/use-existing-session";
 import { usePhotoUploadQueue } from "@/lib/photos/use-photo-upload-queue";
 import { PhotoCropDialog } from "@/components/photos/photo-crop-dialog";
+import { framingKeyForFile, type PhotoFraming } from "@/lib/photos/framing";
 import {
   BRANCHES,
   YEARS,
@@ -55,6 +56,11 @@ export default function EditProfileClient() {
   });
   const [cropQueue, setCropQueue] = useState<File[]>([]);
   const activeCrop = cropQueue[0] ?? null;
+  const activeCropKey = activeCrop ? framingKeyForFile(activeCrop) : null;
+  // Per-photo framing, keyed by file identity. Each queued photo owns its
+  // own scale/x/y; a new photo starts from a fresh centered cover and
+  // switching photos restores the selected photo's saved framing.
+  const [framingByKey, setFramingByKey] = useState<Record<string, PhotoFraming>>({});
   const [reordering, setReordering] = useState(false);
 
   const [initial, setInitial] = useState<Record<string, string> | null>(null);
@@ -78,24 +84,15 @@ export default function EditProfileClient() {
       router.replace("/login");
       return;
     }
-    try {
-      const st = await fetch("/api/account/state", { cache: "no-store" });
-      const sj = await st.json().catch(() => null);
-      if (!sj?.signedIn) {
-        router.replace("/login");
-        return;
-      }
-      if (sj.onboardingStep !== "complete" && typeof sj.next === "string") {
-        router.replace(sj.next);
-        return;
-      }
-    } catch {
-      // If the state check itself fails, fall through to the profile fetch —
-      // the API 401s safely and the error state below handles it.
-    }
     setLoading(true);
     setError(null);
     try {
+      // Single payload fetch — no /api/account/state guard read. The server
+      // page guard already enforced public → /login and incomplete →
+      // step path (it re-runs on client-side navigation too), and SiteChrome
+      // owns the ambient account-state snapshot. Auth failure surfaces from
+      // the payload itself: 401 keeps the retryable error below, and the
+      // signed-out effect above routes to /login.
       const res = await fetch("/api/profile", { cache: "no-store" });
       const j = await res.json().catch(() => ({}));
       if (res.status === 401) throw new Error("We couldn't start your session. Please try again.");
@@ -609,11 +606,19 @@ export default function EditProfileClient() {
           </p>
         </div>
       </div>
-      {activeCrop && (
+      {activeCrop && activeCropKey && (
         <PhotoCropDialog
-          key={`${activeCrop.name}-${activeCrop.size}-${activeCrop.lastModified}`}
+          key={activeCropKey}
           file={activeCrop}
           queueLabel={cropQueue.length > 1 ? `${cropQueue.length} to frame` : undefined}
+          initialFraming={framingByKey[activeCropKey]}
+          onFramingChange={(f) =>
+            setFramingByKey((prev) => {
+              const cur = prev[activeCropKey];
+              if (cur && cur.scale === f.scale && cur.x === f.x && cur.y === f.y) return prev;
+              return { ...prev, [activeCropKey]: f };
+            })
+          }
           onCancel={dropActiveCrop}
           onConfirm={(processed) => {
             enqueueReady(processed);
