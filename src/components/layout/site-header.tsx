@@ -6,90 +6,40 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Wordmark } from "@/components/brand/wordmark";
 import { cn } from "@/lib/utils/cn";
 import { createClient } from "@/lib/supabase/client";
+import { AccountDrawer } from "./account-drawer";
 import { BottomNav } from "./bottom-nav";
+import { PrelaunchHomeProvider } from "./prelaunch-home-context";
 import type { NavSnapshot } from "./nav-state";
-import { initialNavSnapshot, isActiveLink } from "./nav-state";
-
-function ChatIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-    </svg>
-  );
-}
-
-function BellIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
-      <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
-    </svg>
-  );
-}
+import { initialNavSnapshot } from "./nav-state";
 
 /**
  * Minimal shared top header. It contains ONLY:
  *
- *   us                                      chat   notifications
+ *   us
  *
  * Discover/search/matches/profile/settings live in the bottom navigation;
  * the old desktop pill nav and hamburger menu are gone on every viewport.
- * Chat + notifications appear only for completed product sessions once
- * launched (both stay server-locked pre-launch — no dead links offered).
  */
-function TopHeader({ snapshot, pathname }: { snapshot: NavSnapshot; pathname: string }) {
-  const showActivity = snapshot.status === "product" && snapshot.launched;
-  const unread = snapshot.unread;
-  const chatUnread = snapshot.chatUnread === true;
-
+function TopHeader({ snapshot, pathname, prelaunchHome }: { snapshot: NavSnapshot; pathname: string; prelaunchHome: boolean }) {
   return (
-    <header className="sticky top-0 z-40 border-b border-line bg-paper/80 backdrop-blur-[8px]">
-      {/* Compact mobile app header (52px): wordmark left, chat +
-          notifications right. 44px touch targets preserved; no pill, no
-          extra vertical padding. */}
-      <div className="mx-auto flex h-[52px] max-w-[1080px] items-center justify-between px-4 sm:h-[56px] sm:px-8">
-        <Link href="/" className="flex min-h-[44px] items-center" aria-label="us home">
+    <header className={cn("sticky top-0 z-40 border-b border-line backdrop-blur-[8px]", prelaunchHome ? "bg-paper-2/90" : "bg-paper/80")}>
+      {/* Compact mobile app header (52px): wordmark centered. 44px touch
+          targets preserved; no pill, no extra vertical padding. */}
+      <div className="relative mx-auto flex h-[52px] max-w-[1080px] items-center justify-end px-4 sm:h-[56px] sm:px-8">
+        <Link href={snapshot.status === "product" ? "/home" : "/"} className="absolute left-1/2 flex min-h-[44px] -translate-x-1/2 items-center" aria-label="us home">
           <Wordmark size="sm" />
         </Link>
 
-        {showActivity ? (
-          <nav className="flex items-center gap-1" aria-label="activity">
-            <Link
-              href="/chat"
-              aria-label={chatUnread ? "chat, unread messages" : "chat"}
-              className={cn(
-                "inline-flex h-11 w-11 items-center justify-center rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-                isActiveLink(pathname, "/chat")
-                  ? "text-accent-deep bg-accent-wash"
-                  : "text-ink-soft hover:text-accent-deep hover:bg-accent-wash",
-              )}
-            >
-              <span className="relative inline-flex items-center justify-center">
-                <ChatIcon />
-                {chatUnread && (
-                  <span aria-hidden className="absolute -right-[5px] -top-[2px] h-1.5 w-1.5 rounded-full bg-accent" />
-                )}
-              </span>
-            </Link>
-            <Link
-              href="/notifications"
-              aria-label={unread > 0 ? `notifications, ${unread} unread` : "notifications"}
-              className={cn(
-                "inline-flex h-11 w-11 items-center justify-center rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-                isActiveLink(pathname, "/notifications")
-                  ? "text-accent-deep bg-accent-wash"
-                  : "text-ink-soft hover:text-accent-deep hover:bg-accent-wash",
-              )}
-            >
-              <span className="relative inline-flex items-center justify-center">
-                <BellIcon />
-                {unread > 0 && (
-                  <span aria-hidden className="absolute -right-[5px] -top-[2px] h-1.5 w-1.5 rounded-full bg-accent" />
-                )}
-              </span>
-            </Link>
-          </nav>
-        ) : snapshot.status === "onboarding" ? (
+        {snapshot.status === "product" ? <div className="flex items-center">
+          {pathname === "/profile"
+            // Settings gear lives IN the sticky header row (in-flow), never
+            // as a viewport-fixed overlay: one sticky unit (wordmark + gear
+            // + background + border) stays stationary on iPhone Safari while
+            // only the page content below scrolls. Exclusive to /profile —
+            // /home and every other route render nothing here.
+            ? <AccountDrawer avatarUrl={snapshot.primaryAvatarUrl} />
+            : null}
+        </div> : snapshot.status === "onboarding" ? (
           <p className="px-1 text-[11px] tracking-[0.18em] uppercase text-ink-faint">joining campus</p>
         ) : snapshot.status === "public" ? (
           <nav className="flex items-center gap-2" aria-label="public">
@@ -133,117 +83,89 @@ function TopHeader({ snapshot, pathname }: { snapshot: NavSnapshot; pathname: st
  * the inset is never padded twice on any route.
  *
  * - PUBLIC (no session): `us` + log in + enter. Never product nav.
+ * - LOGIN / AUTH (`/login`, `/auth/*`): minimal centered `us` only. The page
+ *   IS the auth experience, so public landing CTAs (log in + enter) are never
+ *   shown here — and product chrome (bottom nav, settings) never leaks into
+ *   credential/recovery flows either.
  * - ONBOARDING (session, step != complete, or any /onboarding route):
  *   minimal `us` only. Never product nav, never account-security messaging.
  * - PRODUCT (campus anonymous-complete OR permanent): minimal top header
- *   (activity icons once launched) + bottom primary nav (all four items once
- *   launched; search + profile only while PRE_LAUNCH, since Discover/Matches/
- *   Chat stay server-locked — no links offered).
+ *   + bottom primary nav (home, search, profile).
  *
- * Exactly one /api/account/state resolution per navigation, shared by the
- * top header and the bottom nav. Supabase `is_anonymous` is never consulted
- * directly — the server decides. Defaults to public/minimal while resolving
- * so a logged-out visitor never sees a flash of authenticated navigation.
- */
-/**
- * Live chat-activity listener — header-level tripwire only.
+ * Exactly one /api/account/state resolution per navigation, owned by this
+ * chrome and shared by the top header and the bottom nav. Supabase
+ * `is_anonymous` is never consulted directly — the server decides.
+ * Defaults to public/minimal while resolving so a logged-out visitor never
+ * sees a flash of authenticated navigation.
  *
- * Subscribes with one filtered `match_id=eq.<id>` binding per known match
- * (the same filtered pattern as the conversation/inbox subscriptions — never
- * a global unfiltered subscription, never polling, never setInterval).
- * Payload content is never read or rendered; an INSERT is only a signal to
- * re-resolve /api/account/state, where the server re-derives the dot from
- * match membership + latest messages + read cursors. Cleans up on unmount /
- * match-set change, mirroring the inbox listener.
+ * Ownership rule (perf slice 2): this chrome is the ONLY ambient resolver.
+ * Product pages never re-resolve account state for guard purposes — the
+ * server page guard (`getProductSession()`/`guardProductSession()`) already
+ * ran, and page-specific payloads (e.g. /api/profile 401) surface auth
+ * failures themselves. Post-mutation fresh reads (password set,
+ * verify-continue) stay with the mutating page — they are intentional,
+ * not duplicates.
  */
-function ChatActivityListener({
-  matchIds,
-  enabled,
-  onActivity,
-}: {
-  matchIds: string[];
-  enabled: boolean;
-  onActivity: () => void;
-}) {
-  const key = matchIds.join(",");
-
-  useEffect(() => {
-    if (!enabled) return;
-    const ids = key.split(",").filter(Boolean);
-    if (!ids.length) return;
-    const allowed = new Set(ids);
-    const supabase = createClient();
-    const channel = supabase.channel("chat:activity");
-    for (const id of ids) {
-      channel.on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "messages", filter: `match_id=eq.${id}` },
-        (payload) => {
-          const matchId = (payload.new as { match_id?: string } | null)?.match_id;
-          if (typeof matchId === "string" && allowed.has(matchId)) {
-            onActivity();
-          }
-        },
-      );
-    }
-    channel.subscribe();
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [enabled, key, onActivity]);
-
-  return null;
-}
-
 export function SiteChrome({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [snapshot, setSnapshot] = useState<NavSnapshot>(initialNavSnapshot);
-  // Match IDs the header activity listener scopes itself to. Resolved with
-  // the same /api/account/state fetch (no extra request); match IDs only,
-  // never user IDs or message content.
-  const [chatMatchIds, setChatMatchIds] = useState<string[]>([]);
 
   const isOnboardingRoute = pathname.startsWith("/onboarding");
+  // Login + auth-callback/recovery flows own their auth UI. They always get
+  // the minimal centered-`us` header: never the public landing CTAs (a second
+  // LOG IN + ENTER on the login page itself), never product chrome (bottom
+  // nav / settings) even when a session already exists.
+  const isAuthRoute = pathname === "/login" || pathname.startsWith("/auth/");
   const isLanding = pathname === "/";
+
+  // Onboarding/auth routes force the effective snapshot (see below), so the
+  // ambient resolution is skipped there — its result would be discarded.
+  // The resolve refires on leaving (pathname change), and the auth + chat
+  // subscriptions below stay active, so no transition is missed.
+  const skipAmbientResolve = isOnboardingRoute || isAuthRoute;
 
   // Server (/api/account/state) remains the single decider — this only
   // re-resolves it. The chrome instance outlives client-side navigations
   // (root layout persists), and server-side auth mutations (e.g. POST
   // /api/auth/login sets cookies without touching browser localStorage) do
   // not reliably fire onAuthStateChange — so a mount-only fetch stays stuck
-  // on the pre-sign-in state after ENTER/LOG IN route to /discover.
+  // on the pre-sign-in state after ENTER/LOG IN route to /home.
   // Re-resolving on every pathname change keeps the chrome in sync.
   const resolve = useCallback(async () => {
     try {
       const res = await fetch("/api/account/state", { cache: "no-store" });
       const j = await res.json().catch(() => null);
       if (!j?.signedIn) {
-        setSnapshot({ status: "public", launched: false, unread: 0, primaryAvatarUrl: null, chatUnread: false });
-        setChatMatchIds([]);
+        setSnapshot({ status: "public", unread: 0, primaryAvatarUrl: null, chatUnread: false });
         return;
       }
       setSnapshot({
         status: j.onboardingStep === "complete" ? "product" : "onboarding",
-        launched: j.launched === true,
         unread: typeof j.unreadCount === "number" && j.unreadCount > 0 ? j.unreadCount : 0,
         primaryAvatarUrl: typeof j.primaryAvatarUrl === "string" ? j.primaryAvatarUrl : null,
         chatUnread: j.chatUnread === true,
       });
-      setChatMatchIds(Array.isArray(j.chatMatchIds) ? j.chatMatchIds.filter((id: unknown) => typeof id === "string") : []);
     } catch {
-      setSnapshot({ status: "public", launched: false, unread: 0, primaryAvatarUrl: null, chatUnread: false });
-      setChatMatchIds([]);
+      setSnapshot({ status: "public", unread: 0, primaryAvatarUrl: null, chatUnread: false });
     }
   }, []);
 
   useEffect(() => {
+    // The public landing page is effectively static from the chrome's
+    // perspective: it renders no chrome, so it performs no account-state
+    // resolution either. Onboarding/auth routes likewise discard the
+    // snapshot (forced minimal status below) — skip the fetch; leaving the
+    // route re-resolves.
+    if (isLanding || skipAmbientResolve) return;
     // Chrome state is external server truth (/api/account/state), not derived
     // render state — re-sync it on every navigation.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void resolve();
-  }, [resolve, pathname]);
+  }, [resolve, pathname, isLanding, skipAmbientResolve]);
 
   useEffect(() => {
+    // No auth-driven chrome behavior on the public landing page.
+    if (isLanding) return;
     const supabase = createClient();
     const { data: sub } = supabase.auth.onAuthStateChange(() => {
       void resolve();
@@ -251,27 +173,38 @@ export function SiteChrome({ children }: { children: ReactNode }) {
     return () => {
       sub.subscription.unsubscribe();
     };
-  }, [resolve]);
+  }, [resolve, isLanding]);
 
   // Chat activity elsewhere (the /chat inbox listener, the open
   // conversation island) re-resolves the same server truth so the 💬 dot
   // appears/clears live. No payload crosses this boundary — it is only a
   // "re-check" signal, never message content.
   useEffect(() => {
+    // No account-state-driven subscriptions on the public landing page.
+    if (isLanding) return;
     const onChatActivity = () => {
       void resolve();
     };
     window.addEventListener("us:chat-activity", onChatActivity);
     return () => window.removeEventListener("us:chat-activity", onChatActivity);
-  }, [resolve]);
+  }, [resolve, isLanding]);
 
   // Onboarding routes are always minimal, even before the session resolves —
-  // the USN page must never show product navigation.
-  const effective: NavSnapshot = isOnboardingRoute ? { ...snapshot, status: "onboarding" } : snapshot;
+  // the USN page must never show product navigation. Login/auth routes are
+  // likewise always minimal (`loading` renders the centered wordmark with no
+  // right-side content): /login must never show the public LOG IN + ENTER it
+  // duplicates, and /auth/* recovery/verify flows must never inherit product
+  // chrome from an existing session.
+  const effective: NavSnapshot = isOnboardingRoute
+    ? { ...snapshot, status: "onboarding" }
+    : isAuthRoute
+      ? { ...snapshot, status: "loading" }
+      : snapshot;
+  const prelaunchHome = pathname === "/home" && effective.status === "product";
 
   // The public landing hero owns its wordmark and its two actions. Keep the
   // page content unchromed for non-product sessions on landing.
-  if (isLanding && effective.status !== "product") return <>{children}</>;
+  if (isLanding) return <>{children}</>;
 
   // A conversation is exactly /chat/<matchId> (the /chat inbox itself keeps
   // normal document scroll). Scoped narrowly so no other route is affected.
@@ -286,17 +219,14 @@ export function SiteChrome({ children }: { children: ReactNode }) {
   // The conversation keeps its own back navigation + the top header.
   const showBottomNav = effective.status === "product" && !isChatConversation;
 
-  const showChatActivity = effective.status === "product" && effective.launched;
-
   return (
-    <div className="flex min-h-dvh flex-col">
-      <TopHeader snapshot={effective} pathname={pathname} />
-      {showChatActivity && (
-        <ChatActivityListener matchIds={chatMatchIds} enabled={showChatActivity} onActivity={resolve} />
-      )}
-      {children}
-      {showBottomNav && <BottomNav snapshot={effective} pathname={pathname} />}
-    </div>
+    <PrelaunchHomeProvider active={prelaunchHome}>
+      <div className="flex min-h-dvh flex-col">
+        <TopHeader snapshot={effective} pathname={pathname} prelaunchHome={prelaunchHome} />
+        {children}
+        {showBottomNav && <BottomNav snapshot={effective} pathname={pathname} prelaunchHome={prelaunchHome} />}
+      </div>
+    </PrelaunchHomeProvider>
   );
 }
 
