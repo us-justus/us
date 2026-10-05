@@ -82,27 +82,53 @@ The product must NOT feel:
 ### Authentication / verification
 
 - USN — mandatory private campus identity, immutable after verification
-- Email — OPTIONAL account field. Supplied emails are verified and enable
-  cross-device sign-in + recovery. Skipped-email accounts receive a
-  server-attached confirmed internal sign-in identity
-  (`u-<uidhex>@us.signin.invalid`, derived from the authenticated UID only,
-  never displayed) so they can also hold a password and sign in.
+- Email — REQUIRED for every account and must be VERIFIED. Every user
+  supplies a real email address and completes verification before
+  registration can finish. There is NO skip-email path. Verified emails
+  enable cross-device sign-in + recovery + launch notification. Legacy
+  skipped-email rows may still exist in staging history (a server-attached
+  confirmed internal sign-in identity `u-<uidhex>@us.signin.invalid`,
+  derived from the authenticated UID only, never displayed); no NEW
+  skipped-email accounts are ever created.
 - Password — required for permanent authentication. Supabase Auth owns
-  passwords; USN is never a password. Email-supplied accounts verify then
-  set it via `updateUser()`; skipped-email accounts set it via
-  POST /api/onboarding/password, which attaches the internal identity plus
-  the password to the same UID (never `signUp`, no email sent).
+  passwords; USN is never a password. Verified-email accounts verify then
+  set it via `updateUser()` on the same UID (never `signUp`). The legacy
+  skipped-email password endpoint (POST /api/onboarding/password attaching
+  an internal identity) is DISABLED (410) — it creates nothing.
 - USN format validation using college-specific regex
 - Internal anonymous user ID (onboarding identity; UID preserved on
   conversion — never `signUp`, never a second user, never profile migration)
-- Onboarding: USN → email (optional, skippable) → password → profile →
-  photos → discover. Email verification applies only when an email is
-  supplied; the skipped path sets a password on the internal identity and
-  finishes as a permanent account on the same session.
-- Login: USN + password → server-side USN → auth-email mapping (email never
-  leaves the server; internal identities resolve through the same mapping),
-  password auth, then server-side USN verification
-  against the authenticated user; one generic failure message.
+- Onboarding (normal student): USN → email (REQUIRED) → email
+  verification (REQUIRED) → password → profile → photos → complete. Email
+  verification is canonical Supabase Auth state
+  (`auth.users.email_confirmed_at IS NOT NULL`, via `/auth/confirm`) — not a
+  custom flag, not a client param. Completion additionally requires a real
+  non-internal verified Auth email plus profile + photos. Launch-email
+  eligibility is therefore: completed onboarding AND real verified email AND
+  active account AND not already sent (launch mailer itself not built here).
+- First-year / email-first onboarding (Slice 2 — IMPLEMENTED, email now
+  required on BOTH tracks): students without a USN yet enter via a quiet
+  "don't have a USN yet? continue with email" affordance on
+  `/onboarding/usn`. Email is REQUIRED and verified, then the password step
+  converts the CURRENT anonymous user via `updateUser()` — same
+  `auth.users.id`, never `signUp`, no second user, no profile migration.
+  USN stays absent (NULL); verification → password → profile → photos →
+  complete is the shared tail. There is no skip-email path on either track.
+- Login: USN-or-email + password (Slice 3 — IMPLEMENTED). The single
+  `/login` identifier accepts either a USN (the normal student path,
+  unchanged: server-side USN → auth-email mapping via the password-gated
+  `resolve_login_email()` RPC, email never leaves the server, then
+  server-side USN verification against the authenticated user) or a
+  verified account email (first-year / no-USN accounts, or normal accounts
+  preferring email: direct Supabase Auth sign-in, no USN required, no
+  fake/internal USN synthesized). Classification is server-side; both
+  authenticate through Supabase Auth on the same UID architecture (never
+  `signUp`, no second user, no migration); one generic failure message, so
+  login never reveals whether a USN or an email exists. The existing
+  DB-backed rate limiter gates both identifier types (`ip-usn:` /
+  `ip-email:` hashed buckets, same RPC, raw identifiers never stored).
+  Password recovery uses the verified account email (Supabase-owned) and is
+  unchanged.
   Only legacy anonymous accounts with no password fail generically;
   recovery for them is email-add-in-Settings while signed in on the
   original device, never SMS/OTP workarounds.
@@ -119,6 +145,33 @@ A profile contains:
 - Branch
 - Profile photos
 - Optional short bio/interests
+
+#### Authenticated profile behavior
+
+- `/profile` keeps the identity hierarchy quiet: `YOUR PROFILE`, nickname +
+  age, `@username · spot #n`, then branch + year. It has no decorative
+  eyebrow dot, gear link, or duplicate edit-profile block.
+- The photo carousel retains the existing `profile_photos` model and swipe /
+  tap zones. Photos render in a stable 4:5 rounded portrait crop with
+  `object-fit: cover` and a face-forward object position; tapping the active
+  photo opens a full-screen contained image viewer. The viewer is modal,
+  closes by its 44px close control, backdrop, or Escape, honors safe areas,
+  and returns focus to the photo control.
+- The authenticated header keeps the `us` wordmark centered independently of
+  its side controls. Only `/profile` renders the top-right settings gear and
+  account drawer; `/home` and other routes do not. The bottom-navigation
+  avatar is a separate Profile link to `/profile`.
+- The settings/account drawer enters from the right side of the viewport. It
+  uses a subtle backdrop, native dialog
+  focus containment and background inertness, Escape/backdrop/touch-swipe
+  dismissal, safe-area padding, and reduced-motion handling. It offers
+  Profile, Edit profile, Settings & privacy, and the existing sign-out
+  action; profile data is fetched from the existing authenticated
+  `/api/profile` route only when opened. The drawer is restrained to 360px on
+  desktop and 88vw on smaller screens. The same header alignment applies at
+  mobile and desktop widths.
+- Profile editing, settings, and sign-out continue to use their existing
+  routes and action. The drawer does not add account or profile persistence.
 
 ### Discovery
 
@@ -199,18 +252,34 @@ account is permanent. Implemented in `src/lib/auth/product-state.ts`
   `log in` + `enter`. Never discover/matches/chat/profile/settings.
   `ENTER` → `/onboarding` (the sign-up flow; anonymous auth is established
   internally, never presented as "anonymous login").   `LOG IN` → `/login`
-  (USN + password; verified server-side).
+  (USN-or-email + password; verified server-side).
 - ONBOARDING — session exists, step != complete (`/onboarding/*`: usn →
   email → password → profile → photos). Minimal header (`us` + progress
   context + back nav). Never product nav, never "account isn't secured yet"
-  messaging. Email is optional (recovery + cross-device sign-in when
-   supplied; cleanly skippable otherwise); the password step links a supplied
-   email to the current anonymous user, verifies it, and sets the password —
-   same `auth.uid()`, same data. Skipped-email accounts set a password on a
-   server-attached confirmed internal identity and finish as permanent
-   accounts on the same session (same UID, no email sent, never displayed).
-- CAMPUS PRODUCT SESSION — onboarding complete on a still-anonymous account.
-  Full product nav
+  messaging. EMAIL IS REQUIRED AND MUST BE VERIFIED FOR EVERY USER on both
+  tracks — normal: USN → email → verification → password → profile → photos
+  → complete; first-year (no USN yet — Slice 2, IMPLEMENTED): email-first
+  entry (POST `/api/onboarding/email` `{ emailFirst: true }` ensures a
+  verification row without a USN) → REQUIRED email → verification → password
+  on the same UID → the same profile/photos tail. The password step links the
+  supplied email to the current anonymous user, verifies it (canonical
+  `auth.users.email_confirmed_at`, via `/auth/confirm`), and sets the
+  password — same `auth.uid()`, same data. A missing email (including any
+  legacy `email_skipped` row) resolves to the `email` step; a recorded-but-
+  unverified email resolves to `password` (verify there); only a REAL
+  verified Auth email (non-internal, confirmed) reaches profile/photos/
+  complete. The legacy skip path is removed: POST `/api/onboarding/email`
+  `{ skip: true }` → 410, POST `/api/onboarding/password` (internal
+  identity) → 410, `isEmailSkipAllowed()` → false, no new internal
+  identities are minted. `getOnboardingState()` reads row-exists-without-USN
+  as the email-first track via the pure `decideOnboardingTrack()` helper —
+  first-year users are never bounced to `usn`, no migration, no client-only
+  flags. Email-based login is implemented (Slice 3): `/login` accepts
+  USN-or-email, so first-year accounts (no USN) sign back in through it with
+  their verified email + password.
+- CAMPUS PRODUCT SESSION — legacy state only (onboarding complete on a
+  still-anonymous account; no new accounts may enter this state since email
+  verification is required for completion). Full product nav
   (discover/matches/chat/profile/settings). The "secure your account" message
   belongs HERE (Settings), as an account/security action.
 - PERMANENT ACCOUNT — verified email + password, non-anonymous. Full product
@@ -234,17 +303,23 @@ onboarding, login, and account semantics are unchanged.
 - Anonymous Supabase Auth is the V1 session foundation; the email/password
   upgrade converts the CURRENT user via `updateUser()` (UID preserved) and
   must never mint a second identity (`signUp` is forbidden for conversion).
-- Login requires USN + password only: `POST /api/auth/login` resolves the
-  private USN → auth-email mapping server-side via the password-gated
-  `resolve_login_email()` RPC (email returned solely on valid password, never
-  to the client), signs in with Supabase Auth, then confirms the submitted
-  USN belongs to the authenticated user (`verification_records.user_id`,
+- Login accepts USN-or-email + password (Slice 3): `POST /api/auth/login`
+  classifies the identifier server-side. Valid USNs take the existing
+  password-gated `resolve_login_email()` RPC (email returned solely on valid
+  password, never to the client), signs in with Supabase Auth, then confirms
+  the submitted USN belongs to the authenticated user (`verification_records.user_id`,
   server-derived — client user IDs never trusted, USN never returned).
-  Every credential failure returns one generic message; USN is never a
-  password and never authenticates alone. Skipped-email accounts that set
-  a password sign in normally via their internal identity; only legacy
-  anonymous accounts with no password fail generically, recovered by
-  adding an email in Settings while signed in on the original device.
+  Valid non-internal emails sign in directly with Supabase Auth (Supabase
+  verifies the password; no USN resolver, no USN required), then the route
+  confirms the authenticated email matches the submitted one. Every
+  credential failure returns one generic message; USN is never a
+  password and never authenticates alone. Legacy skipped-email accounts
+  that previously set a password still sign in via their internal identity
+  on the USN path (login resolver unchanged), but they are NOT completed
+  onboarding users — the state machine routes them to `email` until they
+  supply + verify a real email. Only legacy anonymous accounts with no
+  password fail generically, recovered by adding an email in Settings while
+  signed in on the original device.
 - `ensureAnonymousSession()` (`src/lib/auth/session.ts`) is the single place
   that may establish a session. Pages use `useAnonymousSession()`; pages that
   must never create a session (`/login`, `/settings`, `/auth/*`) use
@@ -274,6 +349,17 @@ Browser → Next.js → Supabase, so every redundant hop adds a full RTT.
   `profiles` lookup when email was skipped).
 - Never call `auth.getUser()` twice on one request. `GET /api/account/state`
   passes its already-authenticated user into `getOnboardingState(user)`.
+- `GET /api/account/state` has one ambient owner: SiteChrome resolves it once
+  per authenticated navigation for the header/nav snapshot (`status`, `unread`,
+  `primaryAvatarUrl`, `chatUnread`). Product pages never re-resolve it for
+  guard purposes — the server page guard is authoritative and page payloads
+  (e.g. `/api/profile` 401) surface auth failures themselves. Skipped where
+  the snapshot is discarded (`/`, `/login`, `/auth/*`, `/onboarding/*`).
+  Fresh reads after a mutation (password set, verify-continue) are intentional
+  and stay with the mutating page; onboarding flows keep their own
+  step-routing reads (`useOnboardingSession`, password `resolveState`) and
+  `/login` keeps its destination read (it needs `next`, which the snapshot
+  does not carry).
 - Prefer `Promise.all` for independent queries (discover exclusions already
   do this). Sequential `await` is only for genuinely dependent steps.
 - Photo `display_order` compaction must batch each phase with `Promise.all`
@@ -616,9 +702,13 @@ conventions decided, UI/APIs deferred; PLANNED = documented intent only.
 
 ## 14.3 Product-state integration — IMPLEMENTED
 
-- `getProductSession()` / `guardProductSession()` / `getOnboardingState()` /
-  `destinationForStep()` / `stepPath()` are preserved exactly; onboarding
-  and login semantics unchanged.
+- `getProductSession()` / `guardProductSession()` /
+  `destinationForStep()` / `stepPath()` are preserved exactly; login semantics
+  unchanged. `getOnboardingState()` is extended (Slice 2) with the email-first
+  track — row-exists-without-USN resolves past `usn` via the pure
+  `decideOnboardingTrack()` helper; email is REQUIRED on both tracks
+  (no row → `usn`; missing email including legacy skip → `email`;
+  recorded email → shared tail after the real-verified Auth gate).
 - Additive-only `productPhaseFor(session, launch)` maps to
   `public | onboarding | pre-launch | launched`.
 - `/api/account/state` additionally returns `launched` + `launchAt`
@@ -709,7 +799,9 @@ persistent messages
   most a harmless gap number (spots are unique, never reassigned, never
   renumbered).
 - Surfaced minimally: pre-launch panel on `/` (`@username` + `#spot`,
-  locked-feature messaging) and one identity line on `/profile`. `/`
+  current eligible waiting-student count, locked-feature messaging) and one
+  identity line on `/profile`. The count is the live aggregate of active
+  profiles with at least one photo; it does not affect the permanent spot. `/`
   renders the panel for campus/permanent sessions while PRE_LAUNCH
   (redirecting to /discover would loop back via the launch guard);
   once launched it redirects to /discover as before.
@@ -862,15 +954,17 @@ IMPLEMENTED: real PRE_LAUNCH product home on `/` (server-rendered identity
 never USN/email/auth ID); route behavior public → existing landing,
 onboarding-incomplete → existing `stepPath()` step, completed + PRE_LAUNCH
 → pre-launch home, completed + LAUNCHED → existing `/discover` redirect;
-minimal pre-launch header (home/profile/settings only — Discover/Matches/
-Chat links withheld while `launched = false`, full nav restored once the
-server reports launched); locked-feature rows (Discover/Matches/Chat) and
-clearly-marked not-yet-active search/invite placeholders rendered as
-non-interactive text (never links/buttons); profile/settings remain
-accessible during PRE_LAUNCH (no launch gate on identity/account pages;
-profile back link returns home pre-launch, `/discover` post-launch).
-Launch state stays server-authoritative (`getLaunchState()`; no countdown,
-no polling, no client-clock logic).
+minimal “you’re in” confirmation with username and real campus `#spot`, a
+concise launch-email message, and a subtle share action using the existing
+invite share sheet. Search and Profile are the only PRE_LAUNCH bottom-nav
+destinations, in that order; Settings remains inside Profile. No
+post-launch feature-status rows or unsupported waiting count appear on the
+home. A dedicated, subtle pre-launch heart atmosphere sits behind the
+wordmark and disappears after launch; it is separate from the public landing
+animation. Profile/settings remain accessible during PRE_LAUNCH (no launch gate
+on identity/account pages; profile back link returns home pre-launch,
+`/discover` post-launch). Launch state stays server-authoritative
+(`getLaunchState()`; no countdown, no polling, no client-clock logic).
 
 NOT YET IMPLEMENTED: search, invites, countdown, Three.js, post-launch
 chat UI/realtime, image compression.
@@ -1258,3 +1352,163 @@ withheld). Student login route untouched (additive-only helper change).
   verified). Route-level properties that need a request context are
   guarded by static source tests (Origin wiring, GENERIC-always-401,
   no secret interpolation in logs) until a live harness exists.
+
+### SLICE 2 status (first-year / email-first onboarding) — IMPLEMENTED
+
+IMPLEMENTED: email-first track reachable from a quiet secondary affordance
+on `/onboarding/usn` ("don't have a USN yet? continue with email" —
+subordinate text action, never a competing CTA, USN validation/privacy
+unchanged). Entry is `POST /api/onboarding/email` `{ emailFirst: true }`
+(insert-if-missing verification row, never clobbers usn/email, same UID —
+no `signUp`, no second user, no migration). State machine
+(`getOnboardingState()` + pure `decideOnboardingTrack()`,
+`src/lib/onboarding/track-decision.ts`): no row → `usn` (fresh); USN present
+→ normal track (email REQUIRED — missing/legacy-skipped email resolves to
+`email`, recorded email → shared tail); row without USN → email-first track
+(email REQUIRED, skip rejected 410 and resolves to `email` — never `usn`).
+Shared tail for both tracks: verified email → password via the existing
+`updateUser()` conversion (same `auth.users.id`) → profile → photos →
+complete (profile/photos POSTs additionally enforce
+`requireVerifiedEmailForWrite()` so direct-API bypasses fail). Existing
+`verified=1` / `link-expired` handling reused untouched. Email form renders
+no skip affordance and required copy for every account (`emailRequired`
+always true; own-row booleans only — the USN value never leaves the
+server). UPDATE (email-required correction): the legacy skip path is
+removed on BOTH tracks — POST `/api/onboarding/email` `{ skip: true }` →
+410, POST `/api/onboarding/password` (internal identity) → 410,
+`isEmailSkipAllowed()` → false, `getOnboardingState()` requires a REAL
+verified Auth email (`email_confirmed_at IS NOT NULL`, non-internal) with
+no profile grandfathering. Guards strengthened: `/onboarding/usn` forwards
+non-`usn` steps to `stepPath()`; email/profile/photos pages keep the
+complete-only guard; server state stays authoritative (no localStorage, no
+client-only flags). Tests: `src/lib/onboarding/track-decision.test.ts`
+(updated: skip never honored), `src/lib/onboarding/email-required.test.ts`
+(8 product cases) wired into `pnpm test:inside`; `tsc` + `eslint` +
+production build clean.
+
+Email replacement after a rejected/duplicate address (QUICK FIX): a duplicate
+email stays rejected at the Auth-link step with the clear "This email can't be
+used right now. Try another." message, but the password step now offers a quiet
+"use a different email" action (`/onboarding/email?edit=1`) in the unverified
+link/pending phases only. The email entry stays editable and a resubmit
+replaces the address on the SAME UID via the existing upsert (never `signUp`,
+never a second row); verification + password remain required. Guards unchanged
+(email page keeps the complete-only guard; no localStorage bypass). Tests:
+`src/lib/onboarding/email-edit.test.ts` (7 cases) wired into `pnpm test:inside`.
+
+NOT YET IMPLEMENTED at Slice 2 time (reported gap, not worked around):
+email-based login — since closed by SLICE 3 below (the account itself was
+already fully represented by the existing account/session model,
+`permanent-verified`, same UID).
+
+### SLICE 2 learnings (email-first without a migration)
+
+- Row-existence beat a new column: the marker "email-first entered" is a
+  verification row without a USN (insert-if-missing on entry), so no
+  migration, no RLS change, no config change was needed — the pre-launch
+  "no DB change" boundary held. The pure `decideOnboardingTrack()` helper
+  keeps the rule unit-testable like `decideUsnMutation()`.
+- Skip-rejection beat skip-tolerance: allowing `email_skipped` without a USN
+  would strand first-year users in the `noemail`/internal-identity path with
+  no USN to sign in with. The API rejects it (400) AND the state machine
+  resolves such rows to `email`, so refresh/re-entry converges even if one
+  ever exists.
+- Page-guard asymmetry was load-bearing: `/onboarding/usn` strictly requires
+  step `usn` (forwards everyone else), while email/profile/photos only guard
+  `complete` — so the email-first user can sit on the email step with server
+  step `email`, and refresh/re-entry/verification-return all converge via
+  the same server truth. No guard was weakened; none needed strengthening.
+- Shared password phase held up: the existing link → pending → password
+  `updateUser()` conversion needed zero changes for first-year — the track
+  difference is entirely "is an email required and is a USN present",
+  resolved before the password gate, which is identical for both tracks.
+
+### SLICE 3 status (email login for first-year accounts) — IMPLEMENTED
+
+IMPLEMENTED: the existing `/login` experience now accepts USN **or** email
+in one identifier field (`USN or email` label, `1AY22CS001 or
+you@campus.edu` placeholder — no second field, no mode toggle).
+Classification is server-side (`classifyLoginIdentifier()`,
+`src/lib/auth/login-identifier.ts`): valid USNs take the existing USN path
+exactly (`resolve_login_email()` → Supabase sign-in → `verification_records`
+USN ownership check); valid non-internal emails sign in directly with
+Supabase Auth (password verified by Supabase, no USN resolver, no USN
+required, no fake/internal USN). Internal sign-in identities are never valid
+login input. A completed first-year account (verified email + password, no
+USN) signs in and resolves through the existing onboarding/launch machinery
+to `/` while PRE_LAUNCH; incomplete accounts land on their existing
+onboarding step; `/discover` was not reintroduced. The existing rate limiter
+gates both identifier types before credential work (`ip-usn:` / `ip-email:`
+hashed buckets via the same `check_login_rate_limit` /
+`clear_login_rate_limit` RPCs — raw IP/email/password never stored, same
+limits, fail-open preserved); safe-`next` handling is untouched; every
+credential failure returns the unchanged generic message (no enumeration of
+USN or email existence). No migration, no RLS change, no new auth system,
+no `signUp` (verified by source scan). Recovery is unchanged:
+`resetPasswordForEmail` on the verified account email (Supabase-owned) works
+for first-year accounts as-is. Tests:
+`src/lib/auth/login-email.test.ts` (classifier, both paths, no-USN auth,
+no-`signUp()` scan, generic-failure/enumeration tripwires, both-bucket rate
+limiting, safe-`next`, PRE_LAUNCH → `/`, UI shape) wired into
+`pnpm test:inside`; `tsc` + `eslint` + production build clean.
+
+### SLICE 3 learnings (email login without a migration)
+
+- Classify-server-side beat two-fields-or-toggle: one input keeps the UI
+  quiet and pushes the USN/email split to the pure `classifyLoginIdentifier()`
+  helper, which is unit-testable like `decideOnboardingTrack()`. The client
+  drops its USN-format gate (it only requires non-empty input) so emails are
+  never blocked client-side; uppercase display styling was removed for the
+  same reason (server normalizes either way).
+- Prefix-not-migration for the limiter: the DB function treats bucket keys
+  as opaque text, so `ip-email:` buckets reuse the same RPC, limits, window,
+  and fail-open semantics with zero DB change — the "no DB change" boundary
+  held again.
+- Shared-tail beat duplicated destinations: both paths converge on one
+  `respondWithDestination()` (existing `getOnboardingState()` +
+  `getLaunchState()` + `resolveLoginNext()`), so first-year completion
+  cannot drift from normal-account routing.
+
+### Settings IA (account/settings refinement) — IMPLEMENTED
+
+`/settings` is account/settings only — it answers "what can I configure
+about my account", never "where else can I go". Final structure:
+
+```text
+SETTINGS → your account.
+├── ACCOUNT card (secured / almost secured / isn't secured yet,
+│   verified email + password sign-in state, secure-account CTA for
+│   anonymous/unverified via /settings/account)
+├── change password → (/settings/password, permanent verified only)
+├── feedback → (canonical /feedback page, all complete sessions)
+└── sign out
+```
+
+- REMOVED from Settings: `view profile →`, `edit profile →`,
+  `manage account →`. Profile/Edit profile live in the account drawer
+  + profile routes; Settings no longer duplicates them.
+- REMOVED the inline `ChangePasswordForm` from the main page. Change
+  password is a dedicated destination: `/settings/password`
+  (server-guarded via `getProductSession()`/`guardProductSession()`,
+  campus/anonymous → `/settings/account`; reuses `ChangePasswordForm`
+  unchanged — same validation, loading/error/success, Supabase
+  `updateUser()` behavior; no second implementation).
+- Feedback is a link to the EXISTING canonical implementation —
+  `src/app/feedback/page.tsx` + `FeedbackClient`
+  (`src/app/feedback/client.tsx`) over `POST`/`GET /api/feedback`
+  (`{ category: BUG|FEATURE|ACCOUNT|SAFETY|OTHER, message ≤2000 }`,
+  session-derived identity, 5/hour throttle). No duplicate form, no
+  duplicate API, no second table, no submission-logic copy. The Settings
+  entry was renamed `send feedback →` to `feedback →` to read as a
+  first-class destination.
+- `/settings/account` is UNCHANGED: it remains the anonymous →
+  permanent secure-account conversion flow (email → verify → password),
+  still the `?next=` target of `/auth/confirm` and the secure/finish
+  CTA destination. Only its redundant listing as `manage account →`
+  on secured accounts was removed.
+- Drawer unchanged: Profile / Edit profile / Settings & privacy /
+  sign out. Bottom-nav, `useExistingSession()` discipline, and the
+  single `/api/account/state` snapshot are untouched; the new password
+  page adds zero client fetches (server guard + form island only).
+- `safeNextPath()` allowlists `/settings/password` alongside the rest
+  of the settings section (login `?next=` returns there correctly).
