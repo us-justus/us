@@ -73,10 +73,36 @@ describe("inside step 3 — migration exists and reuses existing schema", () => 
     for (const a of ["STUDENT_SUSPENDED", "STUDENT_RESTORED", "REPORT_RESOLVED"]) {
       assert.ok(block.includes(`'${a}'`), `CHECK must allow ${a}`);
     }
-    // The six Step 2 actions are kept.
-    for (const a of ["ADMIN_LOGIN_SUCCESS", "LAUNCH_ENABLED", "LAUNCH_VERSION_CHANGED"]) {
+    // The non-launch Step 2 actions are kept; launch actions were removed
+    // by the launch-removal cleanup migration (20261012000001).
+    for (const a of ["ADMIN_LOGIN_SUCCESS", "ADMIN_LOGOUT"]) {
       assert.ok(block.includes(`'${a}'`), `CHECK must keep ${a}`);
     }
+  });
+
+  it("cleanup migration drops the launch actions from the active audit CHECK (archiving history)", () => {
+    const body = code(src("supabase/migrations/20261012000001_remove_launch_system.sql"));
+    // Scope to the ACTIVE table CHECK rewrite: the same file legitimately
+    // names the launch actions in its archive-table CHECK + backfill.
+    const i = body.indexOf("add constraint inside_audit_events_action_check");
+    assert.ok(
+      i >= 0,
+      "cleanup must rewrite the active CHECK constraint",
+    );
+    const block = body.slice(i, i + 600);
+    for (const a of ["LAUNCH_ENABLED", "LAUNCH_DISABLED", "LAUNCH_VERSION_CHANGED"]) {
+      assert.ok(!block.includes(`'${a}'`), `active CHECK must drop ${a}`);
+    }
+    // History is archived, not deleted: the archive table + backfill must
+    // preserve the launch rows with their original action names.
+    assert.ok(
+      body.includes("inside_audit_events_history"),
+      "cleanup must archive launch rows into a history table",
+    );
+    assert.ok(
+      body.includes("delete from public.inside_audit_events"),
+      "cleanup must clear launch rows from the active table before tightening the CHECK",
+    );
   });
 
   it("creates the four admin RPCs, all guarded by is_admin()", () => {
@@ -284,13 +310,20 @@ describe("inside step 3 — audit coverage (actor/target/no-op/fail-closed)", ()
     }
   });
 
-  it("moderation reason is short, optional, and audit-metadata-only", () => {
-    for (const rel of [MODERATE_ROUTE, RESOLVE_ROUTE]) {
-      const body = code(src(rel));
-      assert.ok(body.includes("MAX_REASON") || body.includes("280"), `${rel} must bound the reason`);
-      // The reason never reaches a table write — only the audit metadata.
-      assert.ok(!/\.insert\(\s*\{[^}]*reason/i.test(body), `${rel}: reason must not be inserted`);
-    }
+  it("suspension reason is required, short, and validated server-side", () => {
+    const body = code(src(MODERATE_ROUTE));
+    // Suspend requires a non-blank reason (the amendment: no silent
+    // is_active flips). The bound lives in src/lib/auth/suspension.ts
+    // (SUSPENSION_REASON_MAX = 280, mirrored by the DB CHECK).
+    assert.ok(body.includes("validateSuspensionReason"), `${MODERATE_ROUTE} must validate the reason`);
+    assert.ok(body.includes("SUSPENSION_REASON_MAX"), "must reuse the shared reason bound");
+    assert.ok(body.includes("status: 400"), "blank/oversize reasons must be rejected");
+    assert.ok(body.includes("p_reason"), "the reason must reach the sanctioned writer");
+    const lib = code(src("src/lib/auth/suspension.ts"));
+    assert.ok(lib.includes("280"), "the shared bound must be 280");
+    // The reason is stored as CURRENT suspension state (profiles) AND
+    // mirrored into audit metadata — never inserted as a freestanding row.
+    assert.ok(!/\.insert\(\s*\{[^}]*reason/i.test(body), `${MODERATE_ROUTE}: reason must not be inserted`);
   });
 });
 
