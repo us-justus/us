@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
 
 /**
  * Static regression guards for `/inside` Step 2 (immutable admin audit log).
@@ -10,7 +11,7 @@ import { readFileSync, existsSync } from "node:fs";
  * against staging/localhost in the manual checklist. These tests guard the
  * properties that MUST hold in source: the migration's RLS/grant model,
  * the controlled action set, actor derivation, secret hygiene, event
- * wiring order, fail-closed launch compensation, and Step 1 regressions.
+ * wiring order, fail-closed moderation compensation, and Step 1 regressions.
  */
 
 const ROOT = new URL("../../../", import.meta.url);
@@ -40,9 +41,6 @@ const EXPECTED_ACTIONS = [
   "ADMIN_LOGIN_SUCCESS",
   "ADMIN_LOGIN_FAILURE",
   "ADMIN_LOGOUT",
-  "LAUNCH_ENABLED",
-  "LAUNCH_DISABLED",
-  "LAUNCH_VERSION_CHANGED",
 ];
 // NOTE (Step 3): the three moderation actions (STUDENT_SUSPENDED,
 // STUDENT_RESTORED, REPORT_RESOLVED) extend the CHECK in migration
@@ -169,7 +167,7 @@ describe("inside audit — helper (src/lib/inside/audit.ts)", () => {
 
   it("documents the audit failure behavior", () => {
     const body = src("src/lib/inside/audit.ts");
-    assert.ok(body.includes("FAIL CLOSED"), "launch fail-closed must be documented");
+    assert.ok(body.includes("FAIL CLOSED"), "moderation fail-closed must be documented");
     assert.ok(body.includes("BEST-EFFORT"), "login/logout best-effort must be documented");
   });
 });
@@ -228,43 +226,138 @@ describe("inside audit — logout wiring", () => {
   });
 });
 
-describe("inside audit — launch wiring", () => {
-  const launch = () => code(src("src/app/api/inside/launch/route.ts"));
-
-  it("records LAUNCH_ENABLED / LAUNCH_DISABLED on real flips", () => {
-    const body = launch();
-    assert.ok(body.includes('"LAUNCH_ENABLED"'));
-    assert.ok(body.includes('"LAUNCH_DISABLED"'));
-    assert.ok(body.includes("previous_launched"), "must record previous state");
-    assert.ok(body.includes("new_launched"), "must record new state");
+describe("inside audit — launch removal (no launch actions, no launch route)", () => {
+  it("helper carries no launch actions", () => {
+    const body = code(src("src/lib/inside/audit.ts"));
+    for (const a of ["LAUNCH_ENABLED", "LAUNCH_DISABLED", "LAUNCH_VERSION_CHANGED"]) {
+      assert.ok(!body.includes(`"${a}"`), `action set must drop ${a}`);
+      assert.ok(!body.includes(`'${a}'`), `action set must drop ${a}`);
+    }
   });
 
-  it("records LAUNCH_VERSION_CHANGED with previous/new version", () => {
-    const body = launch();
-    assert.ok(body.includes('"LAUNCH_VERSION_CHANGED"'));
-    assert.ok(body.includes("previous_version"));
-    assert.ok(body.includes("new_version"));
+  it("launch route is removed", () => {
+    assert.ok(
+      !existsSync(new URL("src/app/api/inside/launch/route.ts", ROOT)),
+      "the launch route must be removed",
+    );
   });
 
-  it("never records a success event for a failed mutation", () => {
-    const body = launch();
-    const errReturn = body.indexOf("Could not update launch state.");
-    const firstAudit = body.indexOf("await recordInsideAuditEvent");
-    assert.ok(errReturn >= 0 && firstAudit > errReturn, "mutation error returns before any audit");
+  it("no application runtime code references launch state", () => {
+    // Source-level guard: no runtime module may reference the removed
+    // launch table, writer, or helpers. Test files asserting the removal
+    // and historical migration comments are excluded.
+    const banned = [
+      "launch_config",
+      "admin_set_launch",
+      "getLaunchState",
+      "guardLaunch",
+      "productPhaseFor",
+      "isLaunchGatedPath",
+      "prelaunch_version",
+    ];
+    const offenders: string[] = [];
+    const walk = (dir: URL) => {
+      for (const entry of readdirSync(dir)) {
+        const full = join(dir.pathname, entry);
+        const st = statSync(full);
+        if (st.isDirectory()) {
+          walk(new URL(`file://${full}/`));
+        } else if (/\.(ts|tsx)$/.test(entry) && !entry.endsWith(".test.ts")) {
+          const body = readFileSync(full, "utf8");
+          for (const b of banned) {
+            if (body.includes(b)) {
+              offenders.push(`${full.split("/us/")[1]}: ${b}`);
+              break;
+            }
+          }
+        }
+      }
+    };
+    walk(new URL("../../../src/", import.meta.url));
+    assert.deepEqual(offenders, [], "runtime code must not reference launch state");
   });
 
-  it("records nothing for no-op calls", () => {
-    const body = launch();
-    assert.ok(body.includes("!launchedChanged && !versionChanged"), "no-op guard must exist");
+  it("no application runtime code references the launch writer or launch table", () => {
+    const MIG = src("supabase/migrations/20261012000001_remove_launch_system.sql");
+    assert.ok(MIG.includes("drop function if exists public.admin_set_launch(boolean, text)"));
+    assert.ok(MIG.includes("drop table if exists public.launch_config"));
   });
 
-  it("fails closed with compensation when the audit write fails", () => {
-    const body = launch();
-    assert.ok(body.includes("!audited"), "audit result must be checked");
-    const restores = body.match(/admin_set_launch/g) ?? [];
-    assert.ok(restores.length >= 2, "must restore via the sanctioned writer on audit failure");
-    const i = body.indexOf("!audited");
-    assert.ok(body.slice(i, i + 800).includes("status: 500"), "must return 500, never silent success");
+  it("cleanup migration keeps the active audit CHECK strict (six permanent actions)", () => {
+    const body = code(src("supabase/migrations/20261012000001_remove_launch_system.sql"));
+    // Scope to the ACTIVE table CHECK (PART 5): the same file legitimately
+    // names the three launch actions in its archive-table CHECK + backfill.
+    const i = body.indexOf("add constraint inside_audit_events_action_check");
+    assert.ok(i >= 0, "cleanup must rewrite the active CHECK constraint");
+    const block = body.slice(i, i + 600);
+    for (const a of [
+      "ADMIN_LOGIN_SUCCESS",
+      "ADMIN_LOGIN_FAILURE",
+      "ADMIN_LOGOUT",
+      "STUDENT_SUSPENDED",
+      "STUDENT_RESTORED",
+      "REPORT_RESOLVED",
+    ]) {
+      assert.ok(block.includes(`'${a}'`), `active CHECK must keep ${a}`);
+    }
+    for (const a of ["LAUNCH_ENABLED", "LAUNCH_DISABLED", "LAUNCH_VERSION_CHANGED"]) {
+      assert.ok(!block.includes(`'${a}'`), `active CHECK must drop ${a}`);
+    }
+  });
+
+  it("cleanup migration archives historical launch events (no history loss)", () => {
+    const body = code(src("supabase/migrations/20261012000001_remove_launch_system.sql"));
+    assert.ok(
+      body.includes("create table if not exists public.inside_audit_events_history"),
+      "must create the launch-event archive table idempotently",
+    );
+    // The archive mirrors every useful audit column — never just the action.
+    for (const col of [
+      "actor_user_id",
+      "action",
+      "target_type",
+      "target_id",
+      "metadata",
+      "created_at",
+    ]) {
+      const createAt = body.indexOf("inside_audit_events_history (");
+      assert.ok(createAt >= 0);
+      const def = body.slice(createAt, createAt + 1200);
+      assert.ok(def.includes(col), `archive schema must include ${col}`);
+    }
+    // Archive admits ONLY the three launch actions: history stays
+    // identifiable and the archive can never become a second live table.
+    const h = body.indexOf("constraint inside_audit_events_history_action_check");
+    assert.ok(h >= 0, "archive must carry a launch-only CHECK constraint");
+    const hBlock = body.slice(h, h + 400);
+    for (const a of ["LAUNCH_ENABLED", "LAUNCH_DISABLED", "LAUNCH_VERSION_CHANGED"]) {
+      assert.ok(hBlock.includes(`'${a}'`), `archive CHECK must admit ${a}`);
+    }
+    for (const a of [
+      "ADMIN_LOGIN_SUCCESS",
+      "ADMIN_LOGIN_FAILURE",
+      "ADMIN_LOGOUT",
+      "STUDENT_SUSPENDED",
+      "STUDENT_RESTORED",
+      "REPORT_RESOLVED",
+    ]) {
+      assert.ok(!hBlock.includes(`'${a}'`), `archive CHECK must not admit ${a}`);
+    }
+    // Backfill copies launch rows idempotently, then removes them from the
+    // active table so the strict CHECK can be added; permanent events are
+    // never touched and no launch row is renamed into another action.
+    assert.ok(body.includes("not exists"), "backfill must skip already-archived rows");
+    assert.ok(body.includes("delete from public.inside_audit_events"), "must clear launch rows from the active table");
+    const delAt = body.indexOf("delete from public.inside_audit_events");
+    const delBlock = body.slice(delAt, delAt + 400);
+    for (const a of ["LAUNCH_ENABLED", "LAUNCH_DISABLED", "LAUNCH_VERSION_CHANGED"]) {
+      assert.ok(delBlock.includes(`'${a}'`), `active-table delete must target ${a}`);
+    }
+    // Archive RLS mirrors the active table: enabled, no policies, no grants.
+    const rlsAt = body.indexOf("inside_audit_events_history enable row level security");
+    assert.ok(rlsAt >= 0, "archive RLS must be enabled");
+    assert.ok(!/create\s+policy/i.test(body), "no policies: archive has no client access");
+    assert.ok(!/\bgrant\b/i.test(body), "no grants on the archive table");
   });
 });
 
@@ -291,7 +384,6 @@ describe("inside audit — authorization and security", () => {
     for (const rel of [
       "src/app/api/inside/login/route.ts",
       "src/app/api/inside/logout/route.ts",
-      "src/app/api/inside/launch/route.ts",
     ]) {
       const body = code(src(rel));
       assert.ok(!body.includes("actor_user_id"), `no actor field in ${rel}`);
@@ -304,7 +396,6 @@ describe("inside audit — authorization and security", () => {
       "src/lib/inside/audit.ts",
       "src/app/api/inside/login/route.ts",
       "src/app/api/inside/logout/route.ts",
-      "src/app/api/inside/launch/route.ts",
     ]) {
       const metaLines = code(src(rel))
         .split("\n")
@@ -339,11 +430,15 @@ describe("inside audit — Step 1 and product regressions", () => {
     assert.ok(body.includes("check_login_rate_limit"), "rate limiter preserved");
   });
 
-  it("inside launch keeps its Step 1 architecture", () => {
-    const body = code(src("src/app/api/inside/launch/route.ts"));
-    assert.ok(body.includes("requireInsideAdmin"), "gate preserved");
-    assert.ok(body.includes("admin_set_launch"), "sanctioned writer preserved");
-    assert.ok(body.includes("verifySameOrigin"), "Origin check preserved");
+  it("inside launch surface is removed (no route, no writer, no helpers)", () => {
+    assert.ok(
+      !existsSync(new URL("src/app/api/inside/launch/route.ts", ROOT)),
+      "launch route must be removed",
+    );
+    assert.ok(
+      !existsSync(new URL("src/lib/auth/launch.ts", ROOT)),
+      "launch helpers must be removed",
+    );
   });
 
   it("student authentication is untouched (no inside imports)", () => {
