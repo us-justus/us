@@ -1,19 +1,21 @@
 /**
- * Internal sign-in email for password-capable accounts without a user email.
+ * LEGACY internal sign-in email — no new accounts may enter this state.
  *
- * Supabase Auth cannot hold a password on an anonymous user without a
- * verified email/phone. To let email-skipped users set a password and sign
- * back in with USN + password, the server attaches a confirmed, non-routable
- * internal email derived deterministically from the authenticated UID:
+ * EMAIL IS REQUIRED FOR EVERY ACCOUNT. This helper previously let
+ * email-skipped users set a password and sign back in with USN + password
+ * by attaching a confirmed, non-routable internal email derived
+ * deterministically from the authenticated UID:
  *
  *   u-<uidhex>@us.signin.invalid
  *
- * - UID comes exclusively from the authenticated session (never USN,
- *   username, or client input).
- * - Same auth.users.id preserved (admin update in place, never signUp).
+ * The skip path is removed (`POST /api/onboarding/email { skip: true }`
+ * → 410, `POST /api/onboarding/password` → 410, state machine never honors
+ * `email_skipped`). This module remains ONLY so historical rows and the
+ * login resolver keep parsing existing staging identities:
+ * - `isInternalEmail()` / `displayAccountEmail()` stay authoritative
+ *   (login rejects internal input; UI/API layers suppress it to null).
+ * - `toInternalEmail()` must NOT be used to create new accounts.
  * - `.invalid` (RFC 2606) never routes; no email is ever sent.
- * - Never displayed to users: UI/API layers must pass auth emails through
- *   displayAccountEmail() which suppresses this class to null.
  */
 
 const INTERNAL_DOMAIN = "us.signin.invalid";
