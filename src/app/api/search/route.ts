@@ -5,13 +5,11 @@ import { normalizeUsername, USERNAME_MAX } from "@/lib/validation/username";
 import { perfLog, perfStart } from "@/lib/utils/perf";
 
 /**
- * Pre-launch campus search (STEP 3B).
+ * Campus search.
  *
  * GET /api/search?q=@userna…
  *
  * - Completed campus/permanent users only (public → 401, incomplete → 403).
- * - No launch gate: search is a pre-launch feature that remains available
- *   once launched.
  * - Username-prefix only. Nickname search was never explicitly approved
  *   (SPEC.md §14.12), so username is the single lookup key.
  * - Bounded: hard cap SEARCH_LIMIT, minimum query length, prefix match only
@@ -47,6 +45,9 @@ export async function GET(req: Request) {
   const session = await getProductSession(user);
   const guard = guardProductSession(session);
   if (guard) {
+    if (session.suspended) {
+      return NextResponse.json({ error: "This account is suspended.", suspended: true }, { status: 403 });
+    }
     return NextResponse.json({ error: "Finish onboarding to search campus." }, { status: 403 });
   }
 
