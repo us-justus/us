@@ -4,7 +4,6 @@ import { getAccountState } from "@/lib/auth/account";
 import { displayAccountEmail } from "@/lib/auth/internal-email";
 import { getOnboardingState, stepPath } from "@/lib/onboarding/state";
 import { SignOutButton } from "@/components/settings/sign-out-button";
-import { ChangePasswordForm } from "@/components/settings/change-password-form";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -112,10 +111,20 @@ function AccountSettings({
         )}
       </section>
 
-      {/* permanent account controls */}
+      {/* settings destinations: account management only — profile
+          navigation lives in the account drawer, feedback lives in the account drawer. */}
       {kind !== "anonymous" && emailConfirmed && (
         <section>
-          <ChangePasswordForm />
+          <div className="h-px bg-line" />
+          <div className="flex flex-col gap-1 py-4">
+            <Link
+              href="/settings/password"
+              className="inline-flex min-h-[48px] items-center rounded-full py-2.5 text-[14px] tracking-[0.04em] text-ink-soft transition-colors hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            >
+              change password →
+            </Link>
+          </div>
+          <div className="h-px bg-line" />
         </section>
       )}
 
@@ -126,34 +135,6 @@ function AccountSettings({
             Signing out before securing your account may prevent returning to it.
           </p>
         )}
-      </section>
-
-      {/* profile shortcuts */}
-      <section>
-        <div className="h-px bg-line" />
-        <div className="flex flex-col gap-1 py-4">
-          <Link
-            href="/profile"
-            className="inline-flex min-h-[44px] items-center rounded-full py-2.5 text-[14px] tracking-[0.04em] text-ink-soft transition-colors hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-          >
-            view profile →
-          </Link>
-          <Link
-            href="/profile/edit"
-            className="inline-flex min-h-[44px] items-center rounded-full py-2.5 text-[14px] tracking-[0.04em] text-ink-soft transition-colors hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-          >
-            edit profile →
-          </Link>
-          {kind !== "anonymous" && (
-            <Link
-              href="/settings/account"
-              className="inline-flex min-h-[44px] items-center rounded-full py-2.5 text-[14px] tracking-[0.04em] text-ink-soft transition-colors hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-            >
-              manage account →
-            </Link>
-          )}
-        </div>
-        <div className="h-px bg-line" />
       </section>
     </div>
   );
