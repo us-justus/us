@@ -4,14 +4,16 @@ import { getAccountState } from "@/lib/auth/account";
 import { displayAccountEmail } from "@/lib/auth/internal-email";
 import { destinationForStep } from "@/lib/auth/redirect";
 import { getOnboardingState } from "@/lib/onboarding/state";
-import { getLaunchState } from "@/lib/auth/launch";
 import { getChatMatchIds, hasUnreadChat } from "@/lib/chat/read-state";
 
 /**
  * Server source of truth for account + onboarding state.
  *
  * Returns only safe, displayable fields — never USN, auth user ID internals,
- * verification metadata, tokens, or passwords.
+ * verification metadata, tokens, passwords, or suspension reasons. The
+ * `suspended` boolean (no reason) lets the client route suspended accounts
+ * to /suspended; the reason itself is exposed only through the dedicated
+ * suspended flow (/api/account/suspension + the login suspended response).
  */
 export async function GET() {
   const supabase = await createClient();
@@ -23,7 +25,7 @@ export async function GET() {
   const account = getAccountState(user);
   // Pass the already-authenticated user so getOnboardingState() does not
   // pay for a second auth.getUser() round-trip on this request.
-  // Onboarding state, launch state, and the notification badge count are
+  // Onboarding state and the notification badge count are
   // independent — resolve together.
   const unreadQuery = supabase
     .from("notifications")
@@ -75,15 +77,26 @@ export async function GET() {
   // IDs the header's realtime listener scopes itself to. Both degrade to
   // false/empty pre-migration. unreadCount stays exclusively notification
   // state — chat activity never touches it.
-  const [{ step }, launch, unread, primaryAvatarUrl, chatUnread, chatMatchIds] = await Promise.all([
+  const [{ step }, unread, primaryAvatarUrl, chatUnread, chatMatchIds] = await Promise.all([
     getOnboardingState(user),
-    getLaunchState(),
     unreadQuery,
     avatarQuery,
     hasUnreadChat(supabase),
     getChatMatchIds(supabase, user.id),
   ]);
   const next = destinationForStep(step);
+  // Suspension flag for routing only — the reason never leaves the
+  // dedicated suspended flow. Fail-closed as non-suspended on read error
+  // (the product guard re-checks server-side regardless).
+  let suspended = false;
+  try {
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("is_active")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    suspended = (prof as { is_active?: boolean | null } | null)?.is_active === false;
+  } catch {}
 
   return NextResponse.json({
     signedIn: true as const,
@@ -96,10 +109,7 @@ export async function GET() {
     emailConfirmed: account?.emailConfirmed ?? false,
     onboardingStep: step,
     next,
-    // Server-authoritative launch flag. launchAt (UTC) is display-only for
-    // a future countdown — never authorization.
-    launched: launch.launched,
-    launchAt: launch.launchAt,
+    suspended,
     // Notification badge count (spec/3D3.md). Additive only — 0 until the
     // notifications migration is applied or when there is nothing unread.
     unreadCount: unread,
