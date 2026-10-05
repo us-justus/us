@@ -11,6 +11,7 @@ export function UsnForm() {
   const [usn, setUsn] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [enteringEmailFirst, setEnteringEmailFirst] = useState(false);
   // Server-authoritative bootstrap: a new anonymous onboarding session
   // resumes/mints exactly as before, while a returning authenticated account
   // that belongs on a different step reports `redirectTo` — the form then
@@ -64,6 +65,32 @@ export function UsnForm() {
     return <p className="text-[13px] text-ink-soft">taking you to the right step…</p>;
   }
 
+  /**
+   * First-year / email-first entry (Slice 2): records the track choice
+   * server-side (a verification row without a USN — the state machine reads
+   * row-exists-without-USN as the email-first track, so refresh/re-entry
+   * never bounces back to `usn`) and routes to the email step. Same UID,
+   * same session — no signUp, no second identity. Subordinate to the USN
+   * path by design: a quiet text action, never a competing CTA.
+   */
+  async function enterEmailFirst() {
+    if (sessionStatus !== "ready" || enteringEmailFirst) return;
+    setEnteringEmailFirst(true);
+    try {
+      const res = await fetch("/api/onboarding/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emailFirst: true }),
+      });
+      const j = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(typeof j?.error === "string" ? j.error : "Try again.");
+      router.push("/onboarding/email");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Try again.");
+      setEnteringEmailFirst(false);
+    }
+  }
+
   const isContinueDisabled = loading || sessionStatus !== "ready";
 
   return (
@@ -94,6 +121,17 @@ export function UsnForm() {
         </div>
       )}
       <p className="text-[11px] leading-4 text-ink-faint">We only use this to confirm you&apos;re on campus. Never displayed publicly.</p>
+      <div className="flex items-center gap-3 pt-1" aria-hidden="true">
+        <span className="h-px flex-1 bg-line" />
+      </div>
+      <button
+        type="button"
+        onClick={enterEmailFirst}
+        disabled={sessionStatus !== "ready" || enteringEmailFirst || loading}
+        className="w-full py-2 text-[12px] tracking-[0.12em] uppercase text-ink-soft transition-colors hover:text-accent-deep hover:bg-accent-wash rounded-full min-h-[44px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40"
+      >
+        {enteringEmailFirst ? "starting…" : "don't have a USN yet? continue with email"}
+      </button>
     </div>
   );
 }
