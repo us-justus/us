@@ -2,7 +2,6 @@ export type NavStatus = "loading" | "public" | "onboarding" | "product";
 
 export type NavSnapshot = {
   status: NavStatus;
-  launched: boolean;
   unread: number;
   primaryAvatarUrl: string | null;
   /**
@@ -14,7 +13,6 @@ export type NavSnapshot = {
 
 export const initialNavSnapshot: NavSnapshot = {
   status: "loading",
-  launched: false,
   unread: 0,
   primaryAvatarUrl: null,
   chatUnread: false,
