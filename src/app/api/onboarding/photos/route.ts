@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { ALLOWED_PHOTO_TYPES, MAX_PHOTO_BYTES, MAX_PHOTOS } from "@/lib/validation/profile";
+import { requireVerifiedEmailForWrite } from "@/lib/onboarding/require-verified-email";
 import { perfLog, perfStart } from "@/lib/utils/perf";
 
 function extFromType(t: string) { if (t==="image/png") return "png"; if (t==="image/webp") return "webp"; return "jpg"; }
@@ -21,6 +22,12 @@ export async function POST(req: Request) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+  // Email-required completion guard: blocks photo uploads that bypass
+  // email verification (same invariant as profile writes + completion).
+  const gate = await requireVerifiedEmailForWrite(supabase, user);
+  if (!gate.ok) {
+    return NextResponse.json({ error: gate.error, emailRequired: true }, { status: gate.status });
+  }
   const { data: profile } = await supabase.from("profiles").select("id").eq("user_id", user.id).maybeSingle();
   if (!profile) return NextResponse.json({ error: "Create profile first." }, { status: 400 });
   const form = await req.formData().catch(()=>null);
