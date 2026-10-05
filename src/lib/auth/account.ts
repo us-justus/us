@@ -1,6 +1,7 @@
 import type { User } from "@supabase/supabase-js";
+import { isInternalEmail } from "./internal-email.ts";
 
-export { displayAccountEmail, isInternalEmail } from "@/lib/auth/internal-email";
+export { displayAccountEmail, isInternalEmail } from "./internal-email.ts";
 
 export type AccountKind = "anonymous" | "permanent-unverified" | "permanent-verified";
 
@@ -37,6 +38,27 @@ export function getAccountState(user: User | null): AccountState | null {
     email,
     emailConfirmed,
   };
+}
+
+/**
+ * Canonical onboarding completion identity check: a REAL verified email.
+ *
+ * EMAIL IS REQUIRED FOR EVERY ACCOUNT. The Supabase Auth user must hold a
+ * non-internal email address with `email_confirmed_at IS NOT NULL`
+ * (surfaced here as `permanent-verified` + a non-internal email).
+ * Internal sign-in identities (`u-…@us.signin.invalid`, legacy skip path)
+ * are NEVER real emails — they fail this check even when confirmed.
+ *
+ * Pure + unit-testable. Server completion guards must use this (never a
+ * client-provided flag, never `verification_records.email_verified` alone).
+ */
+export function hasRealVerifiedEmail(user: User | null): boolean {
+  const account = getAccountState(user);
+  if (!account || account.kind !== "permanent-verified") return false;
+  const email = account.email;
+  if (!email || !email.trim()) return false;
+  if (isInternalEmail(email)) return false;
+  return account.emailConfirmed === true;
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
