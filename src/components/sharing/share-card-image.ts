@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * STEP 3D.1 — dependency-free share-card image generation.
+ * Minimal invite share-card image generation.
  *
  * Browser-native Canvas only (no libraries, no network, no remote fonts).
  * Fixed 1080×1350 (4:5 portrait) export so output is deterministic and
@@ -18,8 +18,6 @@ const H = 1350;
 const PAPER = "#fffdf9";
 const INK = "#171615";
 const INK_SOFT = "#6f6862";
-const INK_FAINT = "#9a948f";
-const ACCENT = "#ff6666";
 // Canvas cannot read CSS vars — these constants must mirror the token
 // values in src/app/globals.css exactly.
 const ACCENT_DEEP = "#a53a32";
@@ -85,46 +83,21 @@ export async function generateInviteCardImage({
   ctx.font = `400 54px ${serif}`;
   ctx.fillText("just us.", cx, 420);
 
-  // Coral dot.
-  ctx.fillStyle = ACCENT;
-  ctx.beginPath();
-  ctx.arc(cx, 560, 12, 0, Math.PI * 2);
-  ctx.fill();
-
-  // "join us." / "i'm #N."
+  // "i'm #N." — the single personal line.
   ctx.fillStyle = INK;
   ctx.font = `400 108px ${serif}`;
-  ctx.fillText("join us.", cx, 700);
   const spotLabel = `i'm #${spot ?? "—"}.`;
   // Paint the spot portion in accent-deep for identity emphasis.
   // Measure split: draw full line in ink, then overdraw the "#N." part.
   const fullW = ctx.measureText(spotLabel).width;
-  ctx.fillText(spotLabel, cx, 830);
+  ctx.fillText(spotLabel, cx, 740);
   const hashPart = `#${spot ?? "—"}.`;
   const prefix = spotLabel.slice(0, spotLabel.indexOf("#"));
   const prefixW = ctx.measureText(prefix).width;
   const hashW = ctx.measureText(hashPart).width;
   const hashX = cx - fullW / 2 + prefixW + hashW / 2;
   ctx.fillStyle = ACCENT_DEEP;
-  ctx.fillText(hashPart, hashX, 830);
-
-  // "secure your spot."
-  ctx.fillStyle = INK_FAINT;
-  ctx.font = `500 34px ${sans}`;
-  const spaced = "SECURE YOUR SPOT.";
-  // Manual letterspacing for small-caps feel (canvas has no CSS tracking).
-  const tracking = 8;
-  let total = 0;
-  for (const ch of spaced) total += ctx.measureText(ch).width + tracking;
-  total -= tracking;
-  let sx = cx - total / 2;
-  const prevAlign = ctx.textAlign;
-  ctx.textAlign = "left";
-  for (const ch of spaced) {
-    ctx.fillText(ch, sx, 950);
-    sx += ctx.measureText(ch).width + tracking;
-  }
-  ctx.textAlign = prevAlign;
+  ctx.fillText(hashPart, hashX, 740);
 
   // Divider + username.
   ctx.strokeStyle = LINE;
