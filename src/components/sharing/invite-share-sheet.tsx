@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { InviteShareCard } from "@/components/sharing/invite-share-card";
 import {
   absolutizeUrl,
@@ -24,7 +25,7 @@ type SheetStatus =
   | "error";
 
 /**
- * STEP 3D.1 — lightweight invite share sheet (presentation only).
+ * Minimal invite share sheet (presentation only).
  *
  * Bottom sheet on mobile, centered compact dialog on desktop. Does not
  * navigate. Attribution unchanged: the absolute /invite/<token> URL from
@@ -33,6 +34,23 @@ type SheetStatus =
  *
  * The stable invite URL is fetched lazily on first Share/Copy tap (cached
  * after) — never on page render, never just to show the preview.
+ *
+ * Mobile behavior: the outer box is pinned to exactly the visible
+ * viewport (`inset-x-0 top-0 h-[100dvh]` — anchored at the viewport top
+ * with an explicit dynamic-viewport height, so no edge extends behind
+ * Safari's bottom toolbar). The previous `fixed inset-0` relied on the
+ * browser to resolve the over-constrained top + height + bottom triple,
+ * which let the bottom-anchored panel bleed into the browser area on
+ * mobile. The panel is content-sized with an explicit
+ * `max-sm:max-h-[100dvh]` guard plus safe-area bottom padding, sized to
+ * fit without scrolling; `overflow-y-auto` remains only as a safety valve
+ * for transient states (error/manual-link). The page behind cannot
+ * scroll (body overflow lock).
+ *
+ * Stacking: portaled to document.body so `z-50` competes at the root
+ * level — above the sticky bottom nav (z-40). Without the portal,
+ * ancestors such as the pre-launch panel's `isolate` trap the sheet
+ * in a local stacking context and Search/Profile paint over it.
  *
  * Fallback order (LAN-safe): COPY LINK is the only path that copies
  * (Clipboard API → legacy execCommand → manual readonly field). SHARE only
@@ -189,29 +207,25 @@ export function InviteShareSheet({
   const busy = status === "working";
   const canAct = !busy;
 
-  return (
+  const sheet = (
     <div
       role="dialog"
       aria-modal="true"
       aria-label="Share your spot"
-      className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6"
+      className="fixed inset-x-0 top-0 z-50 flex h-[100dvh] items-end justify-center sm:inset-0 sm:h-auto sm:items-center sm:p-6"
     >
-      {/* Backdrop — tap to dismiss. */}
+      {/* Backdrop — tap to dismiss. Covers the full box so Search/Profile
+          underneath are dimmed and not interactable while open. */}
       <button
         aria-label="Close share dialog"
         onClick={handleClose}
         className="absolute inset-0 cursor-default bg-black/30"
       />
-      <div className="relative flex max-h-[92dvh] w-full max-w-[400px] flex-col overflow-y-auto rounded-t-[24px] border border-line bg-paper px-6 pt-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:rounded-[24px] sm:pb-6">
+      <div className="relative flex w-full max-w-[340px] flex-col overscroll-contain rounded-t-[24px] border border-line bg-paper px-6 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))] max-sm:max-h-[100dvh] max-sm:overflow-y-auto sm:rounded-[24px] sm:pt-5 sm:pb-5">
         <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="font-display text-[22px] tracking-[-0.02em] text-ink">
-              share your spot
-            </h2>
-            <p className="mt-1 text-[11px] tracking-[0.14em] uppercase text-ink-faint">
-              @{username} · #{spot ?? "—"}
-            </p>
-          </div>
+          <h2 className="flex min-h-[44px] items-center font-display text-[22px] tracking-[-0.02em] text-ink">
+            share your spot
+          </h2>
           <button
             ref={closeRef}
             onClick={handleClose}
@@ -222,11 +236,11 @@ export function InviteShareSheet({
           </button>
         </div>
 
-        <div className="mt-4">
+        <div className="mt-2 sm:mt-3">
           {busy ? (
             <div
               aria-hidden
-              className="flex aspect-[3/4] w-full items-center justify-center rounded-[20px] border border-line bg-paper-2"
+              className="mx-auto flex aspect-[4/5] w-[62%] max-w-[180px] items-center justify-center rounded-[20px] border border-line bg-paper-2 sm:aspect-[3/4] sm:w-[72%] sm:max-w-[240px]"
             >
               <p className="text-[11px] tracking-[0.16em] uppercase text-ink-faint">
                 sharing…
@@ -268,26 +282,30 @@ export function InviteShareSheet({
           </div>
         )}
 
-        <div className="mt-4 flex flex-col gap-2">
+        <div className="mt-3 flex flex-col gap-2.5 sm:mt-4 sm:gap-2">
           <button
             onClick={handleShare}
             disabled={!canAct}
-            className="inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-ink px-8 py-[14px] text-[12.5px] tracking-[0.16em] uppercase font-medium text-paper transition-colors hover:bg-black focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40"
+            className="inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-ink px-8 py-3 text-[12.5px] tracking-[0.16em] uppercase font-medium text-paper transition-colors hover:bg-black focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40 sm:py-[14px]"
           >
             {busy ? "sharing…" : "share"}
           </button>
           <button
             onClick={handleCopy}
             disabled={!canAct}
-            className="inline-flex min-h-[44px] w-full items-center justify-center rounded-full border border-line bg-paper px-8 py-[13px] text-[12px] tracking-[0.16em] uppercase font-medium text-ink transition-colors hover:bg-accent-wash hover:border-accent-soft hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40"
+            className="inline-flex min-h-[44px] w-full items-center justify-center rounded-full border border-line bg-paper px-8 py-3 text-[12px] tracking-[0.16em] uppercase font-medium text-ink transition-colors hover:bg-accent-wash hover:border-accent-soft hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40 sm:py-[13px]"
           >
             copy link
           </button>
         </div>
-        <p className="mt-3 text-center text-[11px] leading-5 text-ink-faint">
-          friends join through your personal link.
-        </p>
       </div>
     </div>
   );
+
+  // Portal out of the page's stacking contexts (e.g. the pre-launch
+  // panel's `isolate`) so the fixed overlay + backdrop truly cover the
+  // sticky bottom nav. `open` is only ever set from a client tap, so
+  // document exists here; guard anyway for SSR safety.
+  if (typeof document === "undefined") return sheet;
+  return createPortal(sheet, document.body);
 }
