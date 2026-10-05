@@ -8,7 +8,7 @@
  * SCOPE DECISIONS (reviewed Step 1 hardening):
  *   - `Path=/` is the narrowest path that supports the architecture: the
  *     cookie is minted by `POST /api/inside/login`, verified on
- *     `GET /inside` (page) and `POST /api/inside/launch|logout`, and must
+ *     `GET /inside` (page) and `POST /api/inside/logout`, and must
  *     therefore be sent to BOTH `/inside` and `/api/inside/*`. `Path=/inside`
  *     would stop the browser sending it to `/api/inside/*` and break the
  *     gate, so `/` is required — not a relaxation.
