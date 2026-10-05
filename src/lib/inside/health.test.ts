@@ -211,9 +211,10 @@ describe("inside step 4 — unhealthy dependency handling", () => {
     assert.ok(errors.length >= 3, "each check must degrade to error");
   });
 
-  it("database check is a lightweight read (no writes, no user enumeration)", () => {
+  it("database check is a lightweight probe (no writes, no user enumeration, no launch state)", () => {
     const body = code(src(ROUTE));
-    assert.ok(body.includes("launch_config"), "reuses the launch singleton read");
+    assert.ok(body.includes('supabase.rpc("is_admin")'), "reuses a boolean-only RPC probe");
+    assert.ok(!body.includes("launch_config"), "must not depend on the removed launch table");
     assert.ok(!body.includes(".insert("), "no writes");
     assert.ok(!body.includes(".update("), "no writes");
     assert.ok(!body.includes(".delete("), "no writes");
@@ -250,11 +251,13 @@ describe("inside step 4 — dashboard UI", () => {
     assert.ok(body.includes("Not checked"), "not_checked must be explicit");
   });
 
-  it("keeps launch/students/reports panels mounted", () => {
+  it("keeps students/reports panels mounted with no launch control", () => {
     const body = code(src(CLIENT));
     assert.ok(body.includes("StudentsPanel"), "students panel must stay");
     assert.ok(body.includes("ReportsPanel"), "reports panel must stay");
-    assert.ok(body.includes("/api/inside/launch"), "launch control must stay");
+    assert.ok(body.includes("<ReportsPanel />"), "reports must render unconditionally");
+    assert.ok(!body.includes("/api/inside/launch"), "launch control must be gone");
+    assert.ok(!body.includes("launched"), "no launch state in the dashboard");
   });
 });
 
@@ -268,11 +271,11 @@ describe("inside step 4 — no changes to existing admin functionality", () => {
     );
   });
 
-  it("existing admin routes still reuse the gate (launch/students/reports)", () => {
+  it("existing admin routes still reuse the gate (students/reports/health)", () => {
     for (const rel of [
-      "src/app/api/inside/launch/route.ts",
       "src/app/api/inside/students/route.ts",
       "src/app/api/inside/reports/route.ts",
+      "src/app/api/inside/health/route.ts",
     ]) {
       const body = code(src(rel));
       assert.ok(body.includes("requireInsideAdmin()"), `${rel} must keep the gate`);
@@ -280,10 +283,20 @@ describe("inside step 4 — no changes to existing admin functionality", () => {
     }
   });
 
-  it("audit action set is untouched", () => {
+  it("no launch API remains", () => {
+    assert.ok(
+      !existsSync(new URL("src/app/api/inside/launch/route.ts", ROOT)),
+      "the launch route must be removed",
+    );
+  });
+
+  it("audit action set carries no launch actions", () => {
     const body = code(src("src/lib/inside/audit.ts"));
-    for (const a of ["LAUNCH_ENABLED", "STUDENT_SUSPENDED", "REPORT_RESOLVED"]) {
+    for (const a of ["STUDENT_SUSPENDED", "REPORT_RESOLVED"]) {
       assert.ok(body.includes(`"${a}"`), `audit must keep ${a}`);
+    }
+    for (const a of ["LAUNCH_ENABLED", "LAUNCH_DISABLED", "LAUNCH_VERSION_CHANGED"]) {
+      assert.ok(!body.includes(`"${a}"`), `audit must drop ${a}`);
     }
   });
 });
