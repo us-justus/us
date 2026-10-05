@@ -7,13 +7,13 @@ export const dynamic = "force-dynamic";
 
 /**
  * Server-side completion guard: a completed user opening this step URL is
- * bounced to /discover. Incomplete sessions render the step normally.
+ * bounced to /home (waiting home). Incomplete sessions render the step normally.
  */
 export default async function PhotosPage() {
   const { step } = await getOnboardingState();
-  if (step === "complete") redirect("/discover");
+  if (step === "complete") redirect("/home");
   return (
-    <Shell title="add your photos." subtitle="At least one. Up to six. You can reorder and change them anytime." step="05 — photos">
+    <Shell title="add your photos." subtitle="Get your photos ready for when us launches. At least one, up to six." step="05 — photos">
       <PhotosForm />
     </Shell>
   );
