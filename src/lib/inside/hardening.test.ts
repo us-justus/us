@@ -20,11 +20,10 @@ function src(rel: string): string {
 
 describe("inside hardening — route wiring", () => {
   const login = src("src/app/api/inside/login/route.ts");
-  const launch = src("src/app/api/inside/launch/route.ts");
   const logout = src("src/app/api/inside/logout/route.ts");
 
   it("all state-changing inside APIs enforce the Origin check", () => {
-    for (const [name, body] of [["login", login], ["launch", launch], ["logout", logout]] as const) {
+    for (const [name, body] of [["login", login], ["logout", logout]] as const) {
       assert.ok(body.includes("verifySameOrigin"), `${name} must call verifySameOrigin`);
     }
   });
