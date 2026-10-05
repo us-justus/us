@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import type { User } from "@supabase/supabase-js";
 
 export type OwnProfile = {
   id: string;
@@ -20,11 +21,13 @@ export type OwnPhoto = {
   url: string;
 };
 
-export async function getOwnProfile() {
+export async function getOwnProfile(knownUser?: User | null) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  let user = knownUser;
+  if (user === undefined) {
+    const { data } = await supabase.auth.getUser();
+    user = data.user;
+  }
   if (!user) return { user: null, profile: null, photos: [] as OwnPhoto[], error: null as string | null };
 
   const { data: profile, error: profileError } = await supabase
