@@ -6,25 +6,23 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { useExistingSession } from "@/lib/auth/use-existing-session";
 import { validateAccountEmail } from "@/lib/auth/account";
-import { isLaunchGatedPath, safeNextPath } from "@/lib/auth/safe-next";
-import { normalizeUSN, validateUSN } from "@/lib/verification/usn";
+import { safeNextPath } from "@/lib/auth/safe-next";
 import { FieldError } from "@/components/onboarding/shell";
 
 /**
- * Sign-in with USN + password, bound to campus identity.
+ * Sign-in with USN-or-email + password, bound to campus identity.
  *
  * Never calls ensureAnonymousSession — no anonymous user is minted here.
- * Email is optional across the product, so it is not the login identifier:
- * USN exists for every verified student.
- *
- * Flow: USN + password → POST /api/auth/login, which resolves the private
- * USN → auth-email mapping server-side (email never leaves the server),
- * authenticates with Supabase Auth (Supabase owns passwords; USN is never a
- * password and never authenticates alone), then verifies server-side that
- * the submitted USN belongs to the authenticated user. All credential
- * failures return one generic message so login never reveals whether a USN
- * exists. Destination comes from the server onboarding state: complete →
- * /discover, otherwise the onboarding step. An optional `/login?next=`
+ * The single identifier field accepts either a USN (normal student path) or
+ * a verified account email (first-year / no-USN accounts, or normal accounts
+ * that prefer their email). Classification happens server-side in
+ * POST /api/auth/login: valid USNs take the existing password-gated
+ * USN → auth-email mapping (email never leaves the server), valid emails
+ * authenticate directly with Supabase Auth (Supabase owns passwords; the
+ * identifier alone never authenticates). All credential failures return one
+ * generic message so login never reveals whether a USN or an email exists.
+ * Destination comes from the server onboarding state: complete → /home,
+ * otherwise the onboarding step. An optional `/login?next=`
  * return URL is forwarded to the API, which validates it server-side and
  * honors it only where the existing guards already allow it.
  *
@@ -39,7 +37,7 @@ function LoginFlow() {
   const searchParams = useSearchParams();
   const { status, user } = useExistingSession();
 
-  const [usn, setUsn] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,9 +51,10 @@ function LoginFlow() {
 
   async function signIn() {
     setError(null);
-    const normalizedUsn = normalizeUSN(usn);
-    if (!validateUSN(normalizedUsn) || !password) {
-      setError("Enter your USN and password.");
+    // Identifier shape is classified server-side (USN vs email) — the client
+    // only requires something typed plus a password.
+    if (!identifier.trim() || !password) {
+      setError("Enter your USN or email and password.");
       return;
     }
     setBusy(true);
@@ -67,10 +66,19 @@ function LoginFlow() {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ usn: normalizedUsn, password, next: searchParams.get("next") }),
+        body: JSON.stringify({ identifier: identifier.trim(), password, next: searchParams.get("next") }),
       });
       const j = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(typeof j?.error === "string" ? j.error : GENERIC);
+      if (!res.ok) {
+        // Suspended accounts authenticate but are refused product access:
+        // the session stays (appeals need auth) and the dedicated screen
+        // explains why + links the appeal flow. Never a generic error here.
+        if (j?.suspended === true) {
+          window.location.assign("/suspended");
+          return;
+        }
+        throw new Error(typeof j?.error === "string" ? j.error : GENERIC);
+      }
       // Full document navigation, not router.push: the server route sets the
       // session cookies, but the singleton browser client still holds the
       // pre-sign-in (often anonymous) session and server mutations do not
@@ -139,20 +147,20 @@ function LoginFlow() {
         }}
       >
       <div>
-        <label htmlFor="login-usn" className="text-[11px] tracking-[0.14em] uppercase text-ink-faint">usn</label>
+        <label htmlFor="login-identifier" className="text-[11px] tracking-[0.14em] uppercase text-ink-faint">usn or email</label>
         <input
-          id="login-usn"
-          name="usn"
+          id="login-identifier"
+          name="identifier"
           type="text"
-          value={usn}
-          onChange={(e) => setUsn(e.target.value)}
-          placeholder="e.g. 1AY22CS001"
-          autoCapitalize="characters"
+          value={identifier}
+          onChange={(e) => setIdentifier(e.target.value)}
+          placeholder="1AY22CS001 or you@campus.edu"
+          autoCapitalize="none"
           autoCorrect="off"
           spellCheck={false}
           autoComplete="username"
           enterKeyHint="next"
-          className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base uppercase tracking-[0.08em] text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft placeholder:normal-case placeholder:tracking-normal"
+          className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft"
         />
       </div>
       {!forgot && (
@@ -273,7 +281,7 @@ function LoginFlow() {
       <p className="mt-6 text-center text-[11px] leading-4 text-ink-faint">
         New here?{" "}
         <Link href="/onboarding" className="underline underline-offset-4 text-ink-soft transition-colors hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent rounded-full">
-          start fresh on this device
+          create a new account
         </Link>
       </p>
     </div>
@@ -282,7 +290,7 @@ function LoginFlow() {
 
 /**
  * Permanent-account visitor on /login: forward once to the server-decided
- * destination (complete → /discover, otherwise the onboarding step). Renders
+ * destination (complete → /home, otherwise the onboarding step). Renders
  * no credential form. Anonymous sessions never reach this component — they
  * see the form (see LoginFlow above).
  */
@@ -298,17 +306,18 @@ function SignedInContinue() {
         const res = await fetch("/api/account/state", { cache: "no-store" });
         const j = await res.json().catch(() => null);
         if (cancelled) return;
+        // Suspended sessions never continue into the product: the dedicated
+        // screen explains why and links the appeal flow.
+        if (j?.suspended === true) {
+          router.replace("/suspended");
+          return;
+        }
         let dest = typeof j?.next === "string" ? j.next : "/onboarding";
         // Already-signed-in branch honors `/login?next=` with the same rules
-        // as the login API: complete accounts only, launch-gated
-        // destinations only once launched. The destination page re-guards
-        // server-side regardless, so authority stays server-side.
+        // as the login API: complete accounts only. The destination page
+        // re-guards server-side regardless, so authority stays server-side.
         const candidate = safeNextPath(searchParams.get("next"));
-        if (
-          candidate &&
-          j?.onboardingStep === "complete" &&
-          (j?.launched === true || !isLaunchGatedPath(candidate))
-        ) {
+        if (candidate && j?.onboardingStep === "complete") {
           dest = candidate;
         }
         router.replace(dest);
