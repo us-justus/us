@@ -4,7 +4,7 @@ import { stepPath } from "@/lib/onboarding/state";
 /**
  * Single reusable helper for deciding where an authenticated user should go.
  *
- * - complete  → /discover
+ * - complete  → /home (waiting home)
  * - otherwise → the appropriate /onboarding/* step
  *
  * Never routes between /login and /onboarding in a loop: /login sends
