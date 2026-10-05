@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { ProfilePhotoCarousel } from "@/components/profile/profile-photo-carousel";
+import type { OwnPhoto } from "@/lib/profile/queries";
 import { getProductSession, guardProductSession } from "@/lib/auth/product-state";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
-
-type PublicPhoto = { url: string };
 
 /**
  * Minimal public profile (STEP 3B).
@@ -14,7 +14,7 @@ type PublicPhoto = { url: string };
  * USN. The username → internal profile resolution happens server-side
  * (case-insensitive equality via the existing `idx_profiles_username_lower`
  * index); only public fields render. Blocked in either direction, inactive,
- * or missing → notFound. Product-guarded like /search, never launch-gated.
+ * or missing → notFound. Product-guarded like /search.
  */
 export default async function PublicProfilePage({ params }: { params: Promise<{ username: string }> }) {
   const session = await getProductSession();
@@ -81,18 +81,22 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
 
   const { data: photos } = await supabase
     .from("profile_photos")
-    .select("storage_path, display_order")
+    .select("id, storage_path, display_order")
     .eq("profile_id", profile.id)
     .order("display_order", { ascending: true });
 
-  const urls: PublicPhoto[] = ((photos ?? []) as { storage_path: string }[]).map((p) => ({
+  // Reuse the /profile presentation layer directly: same ordering
+  // (display_order ASC), same framing (aspect + object-position live in the
+  // shared carousel — never recalculated here), same carousel + enlarged
+  // viewer. No second crop pipeline, no object-position math.
+  const carouselPhotos: OwnPhoto[] = (
+    (photos ?? []) as { id: string; storage_path: string; display_order: number }[]
+  ).map((p) => ({
+    id: p.id,
+    storage_path: p.storage_path,
+    display_order: p.display_order,
     url: supabase.storage.from("profile-photos").getPublicUrl(p.storage_path).data.publicUrl,
   }));
-  // Product maximum is 6 photos (already ordered by display_order ASC above).
-  // Primary + up to 5 more = all available photos. Previously `slice(1, 4)`
-  // truncated 6-photo profiles to 4.
-  const primary = urls[0];
-  const rest = urls.slice(1, 6);
 
   return (
     <div className="flex flex-1 flex-col">
@@ -111,34 +115,11 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
           <p className="mt-1 text-[13px] tracking-[0.04em] text-ink-soft">spot #{profile.spot}</p>
         )}
 
-        {primary ? (
-          <div className="mt-8 overflow-hidden rounded-[24px] border border-line bg-paper-2">
-            <div className="aspect-[3/4]">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={primary.url}
-                alt={`${profile.nickname} photo`}
-                className="h-full w-full object-cover"
-                loading="eager"
-                fetchPriority="high"
-                decoding="async"
-              />
-            </div>
+        {carouselPhotos.length ? (
+          <div className="mt-8">
+            <ProfilePhotoCarousel photos={carouselPhotos} name={profile.nickname} />
           </div>
         ) : null}
-        {rest.length > 0 && (
-          <div className="mt-3 grid grid-cols-3 gap-3">
-            {rest.map((p) => (
-              <div
-                key={p.url}
-                className="relative aspect-[3/4] overflow-hidden rounded-2xl border border-line bg-paper-2"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={p.url} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
-              </div>
-            ))}
-          </div>
-        )}
 
         {profile.bio && <p className="mt-6 text-[14px] leading-7 text-ink">{profile.bio}</p>}
         {profile.interests && profile.interests.length > 0 && (
