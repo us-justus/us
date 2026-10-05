@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { validateNickname, validateAge, validateYear, validateBranch, validateBio } from "@/lib/validation/profile";
 import { normalizeUsername, validateUsername } from "@/lib/validation/username";
+import { requireVerifiedEmailForWrite } from "@/lib/onboarding/require-verified-email";
 import { perfLog, perfStart } from "@/lib/utils/perf";
 import { cookies } from "next/headers";
 
@@ -23,6 +24,14 @@ export async function POST(req: Request) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+
+  // Email-required completion guard: a real verified Auth email plus a
+  // recorded onboarding email must exist before profile writes. Blocks
+  // direct-API bypasses that skip email verification.
+  const gate = await requireVerifiedEmailForWrite(supabase, user);
+  if (!gate.ok) {
+    return NextResponse.json({ error: gate.error, emailRequired: true }, { status: gate.status });
+  }
 
   // Ownership + idempotency: a user with a spot keeps it forever; a username
   // once set is immutable (exact-casing refresh of the same name allowed).
