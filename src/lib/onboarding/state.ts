@@ -1,6 +1,8 @@
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import { getAccountState } from "@/lib/auth/account";
+import { getAccountState, hasRealVerifiedEmail } from "@/lib/auth/account";
+import { isInternalEmail } from "@/lib/auth/internal-email";
+import { decideOnboardingTrack } from "@/lib/onboarding/track-decision";
 import { perfLog, perfStart } from "@/lib/utils/perf";
 
 export type OnboardingStep = "usn" | "email" | "password" | "profile" | "photos" | "complete";
@@ -8,23 +10,34 @@ export type OnboardingStep = "usn" | "email" | "password" | "profile" | "photos"
 /**
  * Single source of onboarding truth (DB + auth state, never localStorage).
  *
- * Flow: usn → email → password → profile → photos → complete.
- * Email is OPTIONAL (STEP 3C): usn → email → skip → password → profile →
- * photos → complete is equally valid. Skipped-email accounts set a password
- * on an internal confirmed sign-in identity (server-attached, never shown).
+ * EMAIL IS REQUIRED AND MUST BE VERIFIED FOR EVERY USER. Both tracks share
+ * one verified-email tail:
  *
- * - `usn`: no verified USN on verification_records.
- * - `email`: USN present, no email recorded, and no explicit skip yet.
- * - `password`: email recorded but the Supabase Auth identity is not yet a
- *   verified permanent account (anonymous, or email-change pending), OR an
- *   explicit email skip without a permanent identity yet. The password step
- *   links the email to the CURRENT anonymous user (UID preserved, never
- *   signUp), verifies it, and sets the password; the skipped path attaches
- *   a confirmed internal identity plus the password via
- *   POST /api/onboarding/password (same UID, no email sent).
- *   Accounts that already built a profile (existing campus sessions) are
- *   grandfathered past this gate — they secure via Settings instead.
- * - `profile` / `photos` / `complete`: as before.
+ * NORMAL (USN verified first):
+ *   usn → email (REQUIRED, verified) → password → profile → photos → complete.
+ *
+ * FIRST-YEAR / email-first (no USN yet):
+ *   email (REQUIRED, verified) → password → profile → photos → complete.
+ *
+ * There is NO skip-email path. A legacy `email_skipped` row is observed for
+ * parsing only and NEVER honored — it resolves to the `email` step.
+ *
+ * Canonical completion identity (server-enforced, never client-provided):
+ * the Supabase Auth user must hold a REAL non-internal email with
+ * `email_confirmed_at IS NOT NULL` (`hasRealVerifiedEmail()`). The
+ * `/auth/confirm` flow is the source of truth. `verification_records.email`
+ * alone, a custom flag, or a `?verified=1` param is never sufficient.
+ *
+ * - `usn`: no verification row yet (neither path entered).
+ * - `email`: no real recorded email yet (either track), OR a legacy skip.
+ * - `password`: recorded email exists but the Auth identity is not yet a
+ *   real verified permanent account (anonymous, email-change pending,
+ *   or legacy internal identity). The password step links the email to the
+ *   CURRENT anonymous user (UID preserved, never signUp), verifies it, and
+ *   sets the password. No profile/photo grandfathering: even accounts with
+ *   a profile owe this gate until the Auth email is real + confirmed.
+ * - `profile` / `photos` / `complete`: shared tail, reachable ONLY with a
+ *   real verified Auth email plus the recorded email.
  *
  * Pass the already-authenticated User whenever the caller has it so this
  * never pays for a second auth.getUser() on one request.
@@ -45,9 +58,8 @@ export async function getOnboardingState(
     perfLog("onboarding.state", t);
     return { user: { id: userId }, step };
   };
-  // email_skipped arrives with the STEP 3C migration. If the remote schema
-  // predates it, fall back to the legacy projection so the email path keeps
-  // working (skip simply unavailable until the migration is applied).
+  // email_skipped is a legacy column. Read it when present so historical
+  // rows still parse, but NEVER honor it — skip is not a valid state.
   type VrRow = { usn: string | null; email: string | null; email_skipped?: boolean | null };
   let vr: VrRow | null = null;
   const full = await supabase
@@ -65,22 +77,38 @@ export async function getOnboardingState(
       .maybeSingle();
     if (!legacy.error) vr = legacy.data as unknown as VrRow | null;
   }
-  if (!vr || !vr.usn) {
-    return done("usn");
+  // Pure track decision: fresh (no row) → `usn`; missing email (including
+  // legacy skip) → `email` on BOTH tracks; recorded email → `beyond-email`.
+  // A legacy internal Auth email never counts as a recorded email here —
+  // verification_records.email holds only real user input (NULL for skips).
+  const rawEmail = typeof vr?.email === "string" ? vr.email.trim() : "";
+  const recordedEmail = rawEmail && !isInternalEmail(rawEmail) ? vr?.email ?? null : null;
+  const decision = decideOnboardingTrack({
+    hasRecord: vr !== null,
+    usn: vr?.usn ?? null,
+    email: recordedEmail,
+    emailSkipped: vr?.email_skipped === true,
+  });
+  if (decision.step !== "beyond-email") {
+    return done(decision.step);
   }
-  const skipped = vr.email_skipped === true;
-  if (!vr.email && !skipped) {
+  // Beyond-email still owes the email step when no real email is recorded
+  // (defensive: the pure decision already covers this).
+  if (!recordedEmail) {
     return done("email");
+  }
+  // Canonical gate: Supabase Auth must hold a REAL confirmed email.
+  // No grandfathering past this — even accounts with a profile/photos owe
+  // verification until `email_confirmed_at IS NOT NULL` on a non-internal
+  // address. Client flags are never trusted.
+  if (!hasRealVerifiedEmail(user)) {
+    // Keep the single authoritative account read for observability; the
+    // boolean above is the gate.
+    void getAccountState(user);
+    return done("password");
   }
   const { data: profile } = await supabase.from("profiles").select("id").eq("user_id", userId).maybeSingle();
   if (!profile) {
-    // Gate new accounts on a verified permanent identity before they build a
-    // profile. Existing campus sessions (profile already built) keep product
-    // access and secure from Settings.
-    const account = getAccountState(user);
-    if (account?.kind !== "permanent-verified") {
-      return done("password");
-    }
     return done("profile");
   }
   const { count } = await supabase.from("profile_photos").select("id", { count: "exact", head: true }).eq("profile_id", profile.id);
@@ -91,6 +119,7 @@ export async function getOnboardingState(
 }
 
 export function stepPath(step: OnboardingStep): string {
-  if (step === "complete") return "/discover";
+  // Waiting home (/home) is a protected product route; / remains the public landing.
+  if (step === "complete") return "/home";
   return `/onboarding/${step}`;
 }
