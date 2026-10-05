@@ -4,7 +4,8 @@ import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { useExistingSession } from "@/lib/auth/use-existing-session";
+import { useExistingSession, type ExistingSessionStatus } from "@/lib/auth/use-existing-session";
+import type { User } from "@supabase/supabase-js";
 import { getAccountState, validateAccountEmail, validateNewPassword } from "@/lib/auth/account";
 import { displayAccountEmail } from "@/lib/auth/internal-email";
 import { FieldError } from "@/components/onboarding/shell";
@@ -22,10 +23,17 @@ import { SignOutButton } from "@/components/settings/sign-out-button";
  *   ?verified=1     — email was just verified, show the password step
  *   ?error=link-expired — the verification link was invalid/expired
  */
-function AccountFlow() {
+function AccountFlow({
+  status,
+  user,
+  refresh,
+}: {
+  status: ExistingSessionStatus;
+  user: User | null;
+  refresh: () => Promise<void>;
+}) {
   const router = useRouter();
   const params = useSearchParams();
-  const { status, user, refresh } = useExistingSession();
 
   const [email, setEmail] = useState("");
   const [sentTo, setSentTo] = useState<string | null>(null);
@@ -72,34 +80,18 @@ function AccountFlow() {
     };
   }, [justVerified, account?.email]);
 
-  // Product guard (server /settings already redirects, this covers back/forward
-  // cache and direct client navigation): logged-out → /login, incomplete
-  // onboarding → its /onboarding/* step. Never renders account UI to visitors.
+  // Signed-out routing only (no account-state fetch): the server
+  // /settings/account guard already enforced public → /login and incomplete
+  // → step path, and SiteChrome owns the ambient snapshot. The local session
+  // going away (sign-out, back/forward cache) routes to /login; the
+  // server-side guard remains authoritative on every navigation. Fresh
+  // post-mutation reads (password set, verify-continue below) are
+  // intentional and unchanged.
   useEffect(() => {
     if (status === "signed-out") {
       router.replace("/login");
-      return;
     }
-    if (status !== "ready" || !user) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/account/state", { cache: "no-store" });
-        const j = await res.json().catch(() => null);
-        if (cancelled) return;
-        if (!j?.signedIn) router.replace("/login");
-        else if (j.onboardingStep !== "complete" && typeof j.next === "string") {
-          router.replace(j.next);
-        }
-      } catch {
-        // Leave the account UI in place if the guard check itself fails —
-        // the server-side /settings guard remains authoritative.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [status, user, router]);
+  }, [status, router]);
 
   async function sendLink(target?: string) {
     const value = (target ?? email).trim();
@@ -383,6 +375,9 @@ function AccountFlow() {
 }
 
 export default function AccountClient() {
+  // Single session subscription for this page — shared by the account flow
+  // and the sign-out section below (never two independent hooks).
+  const { status, user, refresh } = useExistingSession();
   return (
     <div className="flex flex-1 flex-col pb-[env(safe-area-inset-bottom)]">
       <div className="mx-auto w-full max-w-[560px] flex-1 px-6 sm:px-8 py-8 sm:py-10">
@@ -400,9 +395,9 @@ export default function AccountClient() {
           secure it.
         </h1>
         <Suspense fallback={<p className="mt-8 text-[13px] text-ink-soft">loading…</p>}>
-          <AccountFlow />
+          <AccountFlow status={status} user={user} refresh={refresh} />
         </Suspense>
-        <AccountSignOut />
+        <AccountSignOut status={status} user={user} />
       </div>
     </div>
   );
@@ -415,8 +410,7 @@ export default function AccountClient() {
  * are untouched server-side). Shown below the account flow so all branches
  * (secured, pending, anonymous) expose the same control.
  */
-function AccountSignOut() {
-  const { status, user } = useExistingSession();
+function AccountSignOut({ status, user }: { status: ExistingSessionStatus; user: User | null }) {
   if (status !== "ready" || !user) return null;
   const account = getAccountState(user);
   if (!account) return null;
