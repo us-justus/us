@@ -10,11 +10,13 @@ const DEBOUNCE_MS = 250;
 const MIN_QUERY = 2;
 
 /**
- * Pre-launch campus search input (STEP 3B).
+ * Campus search input.
  *
  * Minimal by design: one input, one result list, no filters, no cards, no
  * animation libraries. Debounced (no dependency), stale responses ignored
  * via a sequence id so a slow "ath" can never overwrite a fresh "atha".
+ * The previous in-flight request is aborted when a new query begins (or the
+ * component unmounts) so stale responses are never even downloaded.
  * No request fires below the minimum query length.
  */
 export function SearchClient() {
@@ -23,12 +25,16 @@ export function SearchClient() {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [attempt, setAttempt] = useState(0);
   const seq = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
 
   function handleChange(value: string) {
     setQuery(value);
     // Below the minimum length no request may fire: reset synchronously in
-    // the event handler (never in the effect below).
+    // the event handler (never in the effect below). Cancel any in-flight
+    // request so it is never downloaded just to be discarded.
     if (value.trim().replace(/^@/, "").length < MIN_QUERY) {
+      abortRef.current?.abort();
+      abortRef.current = null;
       seq.current += 1;
       setResults([]);
       setStatus("idle");
@@ -41,7 +47,11 @@ export function SearchClient() {
     const handle = setTimeout(() => {
       const mySeq = ++seq.current;
       setStatus("searching");
-      fetch(`/api/search?q=${encodeURIComponent(q)}`, { cache: "no-store" })
+      // Abort the previous in-flight search before starting a new one.
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+      fetch(`/api/search?q=${encodeURIComponent(q)}`, { cache: "no-store", signal: controller.signal })
         .then(async (res) => {
           if (mySeq !== seq.current) return;
           if (!res.ok) {
@@ -54,12 +64,21 @@ export function SearchClient() {
           setResults(rows);
           setStatus(rows.length > 0 ? "results" : "empty");
         })
-        .catch(() => {
+        .catch((err: unknown) => {
+          // Aborts are expected (superseded query or unmount) — never a
+          // visible search error.
+          if (typeof err === "object" && err !== null && "name" in err && (err as { name?: unknown }).name === "AbortError") return;
           if (mySeq !== seq.current) return;
           setStatus("error");
         });
     }, DEBOUNCE_MS);
-    return () => clearTimeout(handle);
+    return () => {
+      clearTimeout(handle);
+      // A new query beginning (or unmount) cancels the previous download
+      // immediately instead of downloading it just to discard it.
+      abortRef.current?.abort();
+      abortRef.current = null;
+    };
   }, [query, attempt]);
 
   return (
@@ -120,6 +139,7 @@ export function SearchClient() {
               <li key={r.username.toLowerCase()} className="border-b border-line last:border-0">
                 <Link
                   href={`/u/${encodeURIComponent(r.username)}`}
+                  prefetch={false}
                   className="group flex min-h-[44px] items-center justify-between gap-4 py-3 transition-colors hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent rounded-[8px]"
                 >
                   <span className="min-w-0">
