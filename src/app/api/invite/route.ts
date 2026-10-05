@@ -22,6 +22,9 @@ export async function GET() {
   const session = await getProductSession(user);
   const guard = guardProductSession(session);
   if (guard) {
+    if (session.suspended) {
+      return NextResponse.json({ error: "This account is suspended.", suspended: true }, { status: 403 });
+    }
     return NextResponse.json({ error: "Finish onboarding to invite friends." }, { status: 403 });
   }
 
