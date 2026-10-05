@@ -9,7 +9,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:inside": "node --test src/lib/inside/origin.test.ts src/lib/inside/cookie.test.ts src/lib/auth/login-rate-limit.test.ts src/lib/inside/hardening.test.ts src/lib/inside/audit.test.ts src/lib/inside/moderation.test.ts src/lib/inside/health.test.ts src/lib/auth/onboarding-session-decision.test.ts src/lib/onboarding/usn-mutation.test.ts src/lib/auth/login-destination.test.ts"
+    "test:inside": "node --test src/lib/inside/origin.test.ts src/lib/inside/cookie.test.ts src/lib/auth/login-rate-limit.test.ts src/lib/inside/hardening.test.ts src/lib/inside/audit.test.ts src/lib/inside/moderation.test.ts src/lib/inside/suspension-appeals.test.ts src/lib/inside/health.test.ts src/lib/inside/dashboard.test.ts src/lib/inside/email-queue.test.ts src/lib/feedback/feedback.test.ts src/lib/auth/onboarding-session-decision.test.ts src/lib/onboarding/usn-mutation.test.ts src/lib/onboarding/track-decision.test.ts src/lib/onboarding/email-edit.test.ts src/lib/onboarding/email-required.test.ts src/lib/auth/login-destination.test.ts src/lib/auth/login-email.test.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
