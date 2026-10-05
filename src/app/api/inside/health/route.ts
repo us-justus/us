@@ -27,15 +27,12 @@ export async function GET() {
 
   const supabase = await createClient();
 
-  // Database: lightweight read of the launch singleton (anon-readable RLS).
-  // Success proves the database is reachable through the session client.
+  // Database: lightweight is_admin() RPC through the session client.
+  // Success proves the database is reachable; the function returns a
+  // boolean only and carries no data, so nothing private can leak.
   let database: Status = "error";
   try {
-    const { error } = await supabase
-      .from("launch_config")
-      .select("id")
-      .eq("id", 1)
-      .maybeSingle();
+    const { error } = await supabase.rpc("is_admin");
     if (!error) database = "ok";
   } catch {
     database = "error";
