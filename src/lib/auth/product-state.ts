@@ -2,7 +2,6 @@ import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { getAccountState, type AccountState } from "@/lib/auth/account";
 import { getOnboardingState, stepPath, type OnboardingStep } from "@/lib/onboarding/state";
-import type { LaunchState } from "@/lib/auth/launch";
 
 /**
  * Product auth state model — the single server-side source of truth for
@@ -29,6 +28,14 @@ export type ProductSession = {
   user: User | null;
   account: AccountState | null;
   step: OnboardingStep | null;
+  /**
+   * True when profiles.is_active = false for this user. Server-resolved
+   * (one profiles read beside the onboarding state) — never client input.
+   * Suspended users keep their Supabase session (appeals need auth) but
+   * lose normal product access via guardProductSession(); only the
+   * appeal/support path opts back in with { allowSuspended: true }.
+   */
+  suspended: boolean;
 };
 
 export async function getProductSession(knownUser?: User | null): Promise<ProductSession> {
@@ -39,18 +46,30 @@ export async function getProductSession(knownUser?: User | null): Promise<Produc
     user = data.user;
   }
   if (!user) {
-    return { state: "public", user: null, account: null, step: null };
+    return { state: "public", user: null, account: null, step: null, suspended: false };
   }
   const account = getAccountState(user);
   // Reuse the already-authenticated user — never a second getUser().
-  const { step } = await getOnboardingState(user);
+  // Suspension is independent of onboarding — resolve together.
+  const [{ step }, suspension] = await Promise.all([
+    getOnboardingState(user),
+    supabase
+      .from("profiles")
+      .select("is_active")
+      .eq("user_id", user.id)
+      .maybeSingle()
+      .then(
+        (r) => (r.data as { is_active?: boolean | null } | null)?.is_active === false,
+        () => false,
+      ),
+  ]);
   if (step !== "complete") {
-    return { state: "onboarding", user, account, step };
+    return { state: "onboarding", user, account, step, suspended: suspension };
   }
   if (account && account.kind !== "anonymous") {
-    return { state: "permanent", user, account, step };
+    return { state: "permanent", user, account, step, suspended: suspension };
   }
-  return { state: "campus", user, account, step };
+  return { state: "campus", user, account, step, suspended: suspension };
 }
 
 /**
@@ -60,39 +79,19 @@ export async function getProductSession(knownUser?: User | null): Promise<Produc
  *
  * - public (no session) → /login (never expose product, never mint a session)
  * - onboarding (incomplete) → appropriate /onboarding/* step
+ * - suspended → /suspended (the appeal/support path only), unless the
+ *   caller opts in with { allowSuspended: true } (/suspended itself,
+ *   /feedback, and the suspension/appeal APIs)
  * - campus / permanent → null (allowed)
  */
-export function guardProductSession(session: ProductSession): string | null {
+export function guardProductSession(
+  session: ProductSession,
+  opts?: { allowSuspended?: boolean },
+): string | null {
   if (session.state === "public") return "/login";
   if (session.state === "onboarding") {
     return stepPath(session.step ?? "usn");
   }
+  if (session.suspended && opts?.allowSuspended !== true) return "/suspended";
   return null;
-}
-
-/**
- * Conceptual two-phase product model (STEP 1 pre-launch rebaseline).
- *
- * This is a pure mapping over the preserved primitives — it changes no
- * onboarding, login, or account semantics:
- *
- * - public     → existing `public` (no session)
- * - onboarding → existing `onboarding` (step != complete)
- * - pre-launch → campus/permanent session while launch_config.launched = false
- * - launched   → campus/permanent session once launched = true
- *
- * Account state (anonymous / permanent-unverified / permanent-verified)
- * stays separate via getAccountState(). Callers that need the launch
- * dimension fetch it via getLaunchState() and map with this helper.
- */
-export type ProductPhase = "public" | "onboarding" | "pre-launch" | "launched";
-
-export function productPhaseFor(
-  session: ProductSession,
-  launch: LaunchState | boolean,
-): ProductPhase {
-  if (session.state === "public") return "public";
-  if (session.state === "onboarding") return "onboarding";
-  const launched = typeof launch === "boolean" ? launch : launch.launched;
-  return launched ? "launched" : "pre-launch";
 }
