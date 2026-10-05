@@ -57,7 +57,7 @@ export function AmbientHeartField() {
       const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 40);
       camera.position.z = 8;
       const heartColor = new THREE.Color(
-        getComputedStyle(document.documentElement).getPropertyValue("--accent-deep").trim(),
+        getComputedStyle(document.documentElement).getPropertyValue("--ambient-heart").trim(),
       );
 
       // Each heart is a single fine Bezier gesture. Small per-instance changes
@@ -160,7 +160,7 @@ export function AmbientHeartField() {
         hearts.forEach((heart, i) => {
           heart.group.visible = i < Math.min(2, count);
           heart.lineGeometry.setDrawRange(0, heart.lineGeometry.attributes.position.count);
-          heart.lineMaterial.opacity = 0.061 * strength * heart.depthScale;
+          heart.lineMaterial.opacity = 0.092 * strength * heart.depthScale;
         });
         renderer.render(scene, camera);
       };
@@ -200,7 +200,7 @@ export function AmbientHeartField() {
           heart.group.rotation.z = heart.tilt;
           heart.group.scale.setScalar(heart.scale * (mobile.matches ? 0.9 : 1) * heart.depthScale * pulse);
           heart.lineGeometry.setDrawRange(0, Math.max(2, Math.floor(heart.lineGeometry.attributes.position.count * draw)));
-          heart.lineMaterial.opacity = opacity * heart.alpha * strength * 0.88 * heart.depthScale;
+          heart.lineMaterial.opacity = opacity * heart.alpha * strength * 1.32 * heart.depthScale;
         });
         renderer.render(scene, camera);
         frame = requestAnimationFrame(animate);
