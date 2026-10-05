@@ -2,11 +2,16 @@
 
 /* eslint-disable @next/next/no-img-element */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { renderCroppedPhoto } from "@/lib/photos/process";
-
-const MIN_SCALE = 1;
-const MAX_SCALE = 3;
+import {
+  MAX_CROP_SCALE,
+  MIN_CROP_SCALE,
+  clampFraming,
+  framingToCropRect,
+  type PhotoFraming,
+} from "@/lib/photos/framing";
 
 type Stage = "crop" | "processing" | "preview" | "error";
 
@@ -16,15 +21,27 @@ type Stage = "crop" | "processing" | "preview" | "error";
  * No animation libraries, no transitions — reduced-motion safe by
  * construction. No upload happens here; the parent uploads only after
  * `onConfirm` fires with the processed File.
+ *
+ * Per-photo framing: each queued photo owns its own framing (scale + x/y),
+ * held by the caller keyed by file identity. A newly added photo always
+ * starts from a fresh centered cover (`initialFraming` absent) and never
+ * inherits another photo's transform; the caller restores the saved framing
+ * when switching photos. Gestures here mutate only the active photo:
+ * every persisted update is reported via `onFramingChange` for the caller
+ * to store under the active file's key.
  */
 export function PhotoCropDialog({
   file,
   queueLabel,
+  initialFraming,
+  onFramingChange,
   onCancel,
   onConfirm,
 }: {
   file: File;
   queueLabel?: string;
+  initialFraming?: PhotoFraming;
+  onFramingChange?: (framing: PhotoFraming) => void;
   onCancel: () => void;
   onConfirm: (processed: File) => void;
 }) {
@@ -97,8 +114,10 @@ export function PhotoCropDialog({
 
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
-  const [scale, setScale] = useState(1);
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  // Fresh centered cover per mount; the caller remounts per queued file
+  // (key = file identity) and passes back the saved framing when switching.
+  const [scale, setScale] = useState(initialFraming?.scale ?? 1);
+  const [offset, setOffset] = useState({ x: initialFraming?.x ?? 0, y: initialFraming?.y ?? 0 });
   const [stage, setStage] = useState<Stage>("crop");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [processed, setProcessed] = useState<File | null>(null);
@@ -155,15 +174,8 @@ export function PhotoCropDialog({
   const clampWith = useCallback(
     (s: number, x: number, y: number) => {
       if (!natural || frame.w <= 0) return { x, y };
-      const k = Math.max(frame.w / natural.w, frame.h / natural.h);
-      const dw = natural.w * k * s;
-      const dh = natural.h * k * s;
-      const mx = Math.max(0, (dw - frame.w) / 2);
-      const my = Math.max(0, (dh - frame.h) / 2);
-      return {
-        x: Math.max(-mx, Math.min(mx, x)),
-        y: Math.max(-my, Math.min(my, y)),
-      };
+      const c = clampFraming({ scale: s, x, y }, natural, frame);
+      return { x: c.x, y: c.y };
     },
     [natural, frame],
   );
@@ -180,15 +192,31 @@ export function PhotoCropDialog({
     [clampWith, scale, offset],
   );
 
+  // Latest onFramingChange without re-subscribing gesture handlers.
+  const changeRef = useRef(onFramingChange);
+  useEffect(() => {
+    changeRef.current = onFramingChange;
+  }, [onFramingChange]);
+
+  // Persist gesture-end framing so the caller can restore this photo's own
+  // framing when switching photos. Drag/wheel ticks stay local (no parent
+  // re-render per tick); only settled state is reported.
+  function persistFraming(next: PhotoFraming) {
+    changeRef.current?.(next);
+  }
+
   function zoomBy(factor: number) {
-    const next = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale * factor));
+    const next = Math.max(MIN_CROP_SCALE, Math.min(MAX_CROP_SCALE, scale * factor));
+    const c = clampWith(next, offset.x, offset.y);
     setScale(next);
-    setOffset((o) => clampWith(next, o.x, o.y));
+    setOffset(c);
+    persistFraming({ scale: next, x: c.x, y: c.y });
   }
 
   function resetView() {
     setScale(1);
     setOffset({ x: 0, y: 0 });
+    persistFraming({ scale: 1, x: 0, y: 0 });
   }
 
   // Single-pointer drag pans; two-pointer pinch zooms + pans by midpoint.
@@ -213,7 +241,7 @@ export function PhotoCropDialog({
       pinchRef.current = { dist };
       const dx = cur.x - prev.x;
       const dy = cur.y - prev.y;
-      setScale((s) => Math.max(MIN_SCALE, Math.min(MAX_SCALE, (s * dist) / last)));
+      setScale((s) => Math.max(MIN_CROP_SCALE, Math.min(MAX_CROP_SCALE, (s * dist) / last)));
       setOffset((o) => clampOffset(o.x + dx / 2, o.y + dy / 2));
       return;
     }
@@ -226,8 +254,11 @@ export function PhotoCropDialog({
     pointersRef.current.delete(e.pointerId);
     if (pointersRef.current.size < 2) pinchRef.current = null;
     // Best-effort normalize after pinch (display is always clamped via
-    // `view` regardless, so this only removes drag dead-zone).
-    setOffset((o) => clampOffset(o.x, o.y));
+    // `view` regardless, so this only removes drag dead-zone). Gesture end
+    // is also when this photo's framing is persisted for restore-on-switch.
+    const c = clampOffset(offset.x, offset.y);
+    setOffset(c);
+    persistFraming({ scale, x: c.x, y: c.y });
   }
 
   // Wheel zooms centered; preventDefault stops the page scrolling.
@@ -236,7 +267,7 @@ export function PhotoCropDialog({
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const next = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale * Math.exp(-e.deltaY * 0.0015)));
+      const next = Math.max(MIN_CROP_SCALE, Math.min(MAX_CROP_SCALE, scale * Math.exp(-e.deltaY * 0.0015)));
       setScale(next);
       setOffset((o) => clampWith(next, o.x, o.y));
     };
@@ -251,15 +282,9 @@ export function PhotoCropDialog({
     setStage("processing");
     setError(null);
     try {
-      // Map the centered 3:4 frame back into natural-image pixels.
-      const imgLeft = (box.w - disp.w) / 2 + view.x;
-      const imgTop = (box.h - disp.h) / 2 + view.y;
-      const crop = {
-        sx: ((frame.x - imgLeft) / disp.w) * natural.w,
-        sy: ((frame.y - imgTop) / disp.h) * natural.h,
-        sw: (frame.w / disp.w) * natural.w,
-        sh: (frame.h / disp.h) * natural.h,
-      };
+      // Map the centered 3:4 frame back into natural-image pixels using
+      // THIS photo's own framing only — never a sibling photo's transform.
+      const crop = framingToCropRect({ scale, x: view.x, y: view.y }, natural, box, frame);
       const out = await renderCroppedPhoto(file, crop);
       const url = URL.createObjectURL(out.file);
       setPreviewUrl((prev) => {
@@ -292,17 +317,23 @@ export function PhotoCropDialog({
 
   const busy = stage === "processing";
 
-  return (
+  // Portaled to document.body so `z-50` competes at the root level — above
+  // the sticky bottom nav (z-40). Rendered inline, this dialog is trapped
+  // inside <main className="relative z-10">, so the bottom nav paints over
+  // the sheet and swallows taps meant for reset/cancel/done (same trap the
+  // invite share sheet portals out of). `open` is driven by the parent's
+  // crop queue (client state), so document exists here; guard for SSR.
+  const dialog = (
     <div
       role="dialog"
       aria-modal="true"
       aria-label="crop photo"
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center sm:p-4"
+      className="fixed inset-x-0 top-0 z-50 flex h-[100dvh] items-end justify-center bg-black/60 sm:inset-0 sm:h-auto sm:min-h-[100dvh] sm:items-center sm:p-4"
       onClick={(e) => {
         if (e.target === e.currentTarget && !busy) onCancel();
       }}
     >
-      <div className="w-full max-w-[400px] rounded-t-[28px] border border-line bg-paper p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:rounded-[28px]">
+      <div className="max-h-[100dvh] w-full max-w-[400px] overflow-y-auto overscroll-contain rounded-t-[28px] border border-line bg-paper p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:rounded-[28px] sm:pb-5">
         <div className="flex items-baseline justify-between gap-3">
           <p className="text-[11px] uppercase tracking-[0.18em] text-ink-faint">
             {stage === "preview" ? "preview" : "crop your photo"}
@@ -484,4 +515,7 @@ export function PhotoCropDialog({
       </div>
     </div>
   );
+
+  if (typeof document === "undefined") return dialog;
+  return createPortal(dialog, document.body);
 }
