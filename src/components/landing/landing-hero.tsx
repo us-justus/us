@@ -46,7 +46,7 @@ export function LandingHero() {
             href="/onboarding"
             className="group inline-flex min-h-[44px] items-center gap-3 rounded-full bg-ink px-8 py-[14px] text-[12.5px] tracking-[0.16em] uppercase font-medium text-paper transition-all hover:bg-black hover:gap-4 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
-            enter the campus
+            Get early access
             <span
               aria-hidden
               className="text-[14px] leading-none transition-transform group-hover:translate-x-0.5"
