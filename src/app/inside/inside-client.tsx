@@ -5,32 +5,12 @@ import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/onboarding/shell";
 
 type DashboardInitial = {
-  launched: boolean;
-  launchedAt: string | null;
-  version: string;
-  totalUsers: number;
   waiting: number;
+  suspended: number;
   countsLive: boolean;
 };
 
 const LOGIN_ERROR = "Those details don't open inside.";
-
-// Deterministic launch-timestamp formatter: explicit locale + timezone so
-// SSR and client hydration produce identical output.
-const LAUNCHED_AT_FORMATTER = new Intl.DateTimeFormat("en-IN", {
-  timeZone: "Asia/Kolkata",
-  day: "numeric",
-  month: "numeric",
-  year: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-  second: "2-digit",
-  hour12: true,
-});
-
-function formatLaunchedAt(iso: string): string {
-  return LAUNCHED_AT_FORMATTER.format(new Date(iso));
-}
 
 export function InsideClient(
   props: { mode: "login" } | { mode: "dashboard"; initial: DashboardInitial },
@@ -189,41 +169,7 @@ function InsideLogin() {
 /* ---------------- dashboard ---------------- */
 
 function InsideDashboard({ initial }: { initial: DashboardInitial }) {
-  const [launched, setLaunched] = useState(initial.launched);
-  const [launchedAt, setLaunchedAt] = useState<string | null>(initial.launchedAt);
-  const [version, setVersion] = useState(initial.version);
-  const [versionDraft, setVersionDraft] = useState(initial.version);
-  const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
   const [leaving, setLeaving] = useState(false);
-
-  async function setLaunch(next: boolean, nextVersion?: string) {
-    setBusy(true);
-    setNotice(null);
-    try {
-      const res = await fetch("/api/inside/launch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          launched: next,
-          ...(nextVersion !== undefined ? { version: nextVersion } : {}),
-        }),
-      });
-      const j = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(typeof j?.error === "string" ? j.error : "Could not update.");
-      setLaunched(j.launched === true);
-      setLaunchedAt(typeof j.launchedAt === "string" ? j.launchedAt : null);
-      if (typeof j.version === "string") {
-        setVersion(j.version);
-        setVersionDraft(j.version);
-      }
-      setNotice(j.launched === true ? "us is LIVE." : "back to pre-launch.");
-    } catch (e) {
-      setNotice(e instanceof Error ? e.message : "Could not update.");
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function leave() {
     setLeaving(true);
@@ -259,85 +205,18 @@ function InsideDashboard({ initial }: { initial: DashboardInitial }) {
         </button>
       </div>
 
-      {/* launch state */}
-      <section aria-label="launch state" className="mt-8 rounded-[24px] border border-line bg-paper-2 px-5 py-6">
-        <p className="text-[11px] uppercase tracking-[0.18em] text-ink-faint">launch</p>
-        <p className="mt-2 font-display text-[28px] leading-none tracking-[-0.02em]">
-          {launched ? "LIVE" : "PRE-LAUNCH"}
-        </p>
-        <p className="mt-2 text-[12px] leading-5 text-ink-soft">
-          {launchedAt ? `launched ${formatLaunchedAt(launchedAt)}` : "never launched yet."}
-        </p>
-        <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-          <Button
-            variant="subtle"
-            disabled={busy || launched}
-            onClick={() => void setLaunch(true)}
-            className="flex-1"
-          >
-            {busy ? "working…" : "go live"}
-          </Button>
-          <Button
-            variant="subtle"
-            disabled={busy || !launched}
-            onClick={() => void setLaunch(false)}
-            className="flex-1"
-          >
-            {busy ? "working…" : "back to pre-launch"}
-          </Button>
-        </div>
-        {notice && <FieldError msg={notice} />}
-      </section>
-
-      {/* pre-launch version */}
-      <section aria-label="pre-launch version" className="mt-4 rounded-[24px] border border-line bg-paper-2 px-5 py-6">
-        <p className="text-[11px] uppercase tracking-[0.18em] text-ink-faint">pre-launch version</p>
-        <form
-          className="mt-3 flex items-center gap-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const v = versionDraft.trim();
-            if (!/^v[0-9]{1,3}$/.test(v)) {
-              setNotice("Version looks like v1, v2, … (up to v999).");
-              return;
-            }
-            void setLaunch(launched, v);
-          }}
-        >
-          <input
-            aria-label="pre-launch version"
-            type="text"
-            value={versionDraft}
-            onChange={(e) => setVersionDraft(e.target.value)}
-            placeholder="v1"
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck={false}
-            enterKeyHint="done"
-            className="w-28 rounded-2xl border border-line bg-paper px-4 py-3 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft"
-          />
-          <Button type="submit" variant="subtle" disabled={busy || versionDraft.trim() === version}>
-            set
-          </Button>
-        </form>
-        <p className="mt-3 text-[12px] leading-5 text-ink-soft">
-          current: {version} — future pre-launch experiences plug in here without touching launch
-          state.
-        </p>
-      </section>
-
-      {/* campus overview */}
+      {/* waitlist overview: active photo-complete profiles vs suspended */}
       <section aria-label="campus overview" className="mt-4 grid grid-cols-2 gap-4">
-        <div className="rounded-[24px] border border-line bg-paper-2 px-5 py-6">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-ink-faint">total users</p>
-          <p className="mt-2 font-display text-[32px] leading-none tracking-[-0.02em]">
-            {initial.countsLive ? initial.totalUsers.toLocaleString() : "—"}
-          </p>
-        </div>
         <div className="rounded-[24px] border border-line bg-paper-2 px-5 py-6">
           <p className="text-[11px] uppercase tracking-[0.18em] text-ink-faint">waiting</p>
           <p className="mt-2 font-display text-[32px] leading-none tracking-[-0.02em]">
             {initial.countsLive ? initial.waiting.toLocaleString() : "—"}
+          </p>
+        </div>
+        <div className="rounded-[24px] border border-line bg-paper-2 px-5 py-6">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-ink-faint">suspended</p>
+          <p className="mt-2 font-display text-[32px] leading-none tracking-[-0.02em]">
+            {initial.countsLive ? initial.suspended.toLocaleString() : "—"}
           </p>
         </div>
       </section>
@@ -347,10 +226,421 @@ function InsideDashboard({ initial }: { initial: DashboardInitial }) {
         </p>
       )}
 
-      <HealthPanel />
       <StudentsPanel />
+      <FeedbackPanel />
+      <EmailQueuePanel />
       <ReportsPanel />
+      <HealthPanel />
     </div>
+  );
+}
+
+/* ---------------- waitlist email queue (preparation only) ---------------- */
+
+type EmailQueueSummary = {
+  waitingStudentCount: number;
+  uniqueRecipientCount: number;
+  skippedCount: number;
+  students: EmailAudienceStudent[];
+  pending: number;
+  sent: number;
+  failed: number;
+  lastPreparedAt: string | null;
+};
+
+type EmailAudienceStudent = {
+  username: string | null;
+  nickname: string | null;
+  usn: string | null;
+  spot: number | null;
+  email: string;
+};
+
+type EmailQueuePreparation = {
+  waitingStudentCount: number;
+  uniqueRecipientCount: number;
+  addedCount: number;
+  alreadyPreparedCount: number;
+  skippedCount: number;
+  students: EmailAudienceStudent[];
+  recipients: string[];
+};
+
+function formatQueueTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function EmailQueuePanel() {
+  const [summary, setSummary] = useState<EmailQueueSummary | null>(null);
+  const [preparation, setPreparation] = useState<EmailQueuePreparation | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [preparing, setPreparing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [studentsOpen, setStudentsOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [draftSubject, setDraftSubject] = useState("us waitlist update");
+  const [draftBody, setDraftBody] = useState(
+    "Hi there,\n\nThanks for being part of us. We’ll be in touch soon.\n\n— us",
+  );
+
+  async function loadSummary() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/inside/email-queue", { cache: "no-store" });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(
+          typeof json?.error === "string"
+            ? json.error
+            : "Could not load the email queue.",
+        );
+      }
+      setSummary(json as EmailQueueSummary);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load the email queue.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/inside/email-queue", { cache: "no-store" })
+      .then((res) => res.json().then((json) => ({ ok: res.ok, json })))
+      .then(({ ok, json }) => {
+        if (cancelled) return;
+        if (!ok) {
+          throw new Error(
+            typeof json?.error === "string"
+              ? json.error
+              : "Could not load the email queue.",
+          );
+        }
+        setSummary(json as EmailQueueSummary);
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : "Could not load the email queue.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function prepareQueue() {
+    setPreparing(true);
+    setError(null);
+    setPreparation(null);
+    try {
+      const res = await fetch("/api/inside/email-queue", { method: "POST" });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(
+          typeof json?.error === "string"
+            ? json.error
+            : "Could not prepare the email queue.",
+        );
+      }
+      const prepared = json as EmailQueuePreparation;
+      setPreparation(prepared);
+      setSummary((current) =>
+        current
+          ? {
+              ...current,
+              waitingStudentCount: prepared.waitingStudentCount,
+              uniqueRecipientCount: prepared.uniqueRecipientCount,
+              skippedCount: prepared.skippedCount,
+              students: prepared.students,
+            }
+          : current,
+      );
+      setConfirming(false);
+      await loadSummary();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not prepare the email queue.");
+    } finally {
+      setPreparing(false);
+    }
+  }
+
+  const counts: Array<[string, number | undefined]> = [
+    ["unique recipients", summary?.uniqueRecipientCount],
+    ["pending", summary?.pending],
+    ["sent", summary?.sent],
+    ["failed", summary?.failed],
+  ];
+
+  const waitingLabel =
+    summary === null
+      ? "loading…"
+      : `${summary.waitingStudentCount.toLocaleString()} ${summary.waitingStudentCount === 1 ? "student waiting" : "students waiting"}`;
+
+  return (
+    <section
+      aria-label="email queue"
+      className="mt-4 rounded-[24px] border border-line bg-paper-2 px-5 py-6"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[11px] uppercase tracking-[0.18em] text-ink-faint">email</p>
+        <button
+          type="button"
+          onClick={() => void loadSummary()}
+          disabled={loading || preparing}
+          className="inline-flex min-h-[44px] items-center rounded-full px-4 py-2 text-[11px] uppercase tracking-[0.12em] text-ink-soft transition-colors hover:bg-accent-wash hover:text-accent-deep disabled:opacity-40"
+        >
+          {loading ? "loading…" : "refresh"}
+        </button>
+      </div>
+
+      <p className="mt-4 font-display text-[32px] leading-none tracking-[-0.03em]">
+        {waitingLabel}
+      </p>
+      <p className="mt-2 text-[12px] leading-5 text-ink-soft">
+        These students have completed their profile and provided a valid email address.
+      </p>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant="subtle"
+          onClick={() => setStudentsOpen((v) => !v)}
+          disabled={loading}
+        >
+          {studentsOpen ? "hide students" : "view students"}
+        </Button>
+      </div>
+
+      {studentsOpen && (
+        <div className="mt-4 rounded-2xl border border-line bg-paper px-4 py-4">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-ink-faint">
+            waiting students
+          </p>
+          {summary?.students.length === 0 ? (
+            <p className="mt-2 text-[12px] leading-5 text-ink-faint">
+              No students are currently waiting.
+            </p>
+          ) : (
+            <ul className="mt-3 space-y-3">
+              {(summary?.students ?? []).map((student, index) => (
+                <li
+                  key={student.usn ?? student.username ?? `${student.email}-${index}`}
+                  className="rounded-2xl border border-line bg-paper-2 px-3 py-3"
+                >
+                  <p className="text-[13px] text-ink">
+                    {student.username ? `@${student.username}` : student.nickname ?? "student"}
+                    {typeof student.spot === "number" ? (
+                      <span className="text-ink-faint"> #{student.spot}</span>
+                    ) : null}
+                  </p>
+                  <p className="mt-1 text-[12px] leading-5 text-ink-soft">
+                    {student.nickname && student.username ? student.nickname : ""}
+                    {student.usn ? ` · ${student.usn}` : ""}
+                  </p>
+                  <p className="mt-1 text-[12px] leading-5 text-ink-faint">
+                    {student.email}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      <div className="mt-5 border-t border-line pt-4">
+        <p className="text-[11px] uppercase tracking-[0.18em] text-ink-faint">
+          email preparation
+        </p>
+        <p className="mt-2 text-[12px] leading-5 text-ink-soft">
+          Prepare an email for the students currently waiting.
+        </p>
+
+        <dl className="mt-4 divide-y divide-line">
+          {counts.map(([label, count]) => (
+            <div key={label} className="flex items-center justify-between gap-3 py-2.5">
+              <dt className="text-[13px] text-ink-soft">{label}</dt>
+              <dd className="text-[14px] tabular-nums text-ink">
+                {loading ? "…" : count?.toLocaleString() ?? "—"}
+              </dd>
+            </div>
+          ))}
+        </dl>
+
+        <p className="mt-3 text-[12px] leading-5 text-ink-faint">
+          last prepared:{" "}
+          {summary?.lastPreparedAt
+            ? formatQueueTime(summary.lastPreparedAt)
+            : loading
+              ? "loading…"
+              : "not yet"}
+        </p>
+        <p className="mt-1 text-[11px] leading-5 text-ink-faint">
+          Pending counts are saved email snapshots; suspended students remain
+          listed and must be rechecked before any future send.
+        </p>
+      </div>
+
+      {error && <FieldError msg={error} />}
+      {preparation && (
+        <div
+          className="mt-4 rounded-2xl border border-line bg-paper px-4 py-3"
+          aria-live="polite"
+        >
+          <p className="sr-only">
+            {preparation.waitingStudentCount.toLocaleString()} students waiting · {preparation.uniqueRecipientCount.toLocaleString()} recipients · {preparation.addedCount.toLocaleString()} added · {preparation.alreadyPreparedCount.toLocaleString()} already prepared · {preparation.skippedCount.toLocaleString()} skipped
+          </p>
+          <p className="text-[13px] text-ink">Email prepared.</p>
+          <p className="mt-1 text-[12px] leading-5 text-ink-soft">
+            {preparation.waitingStudentCount.toLocaleString()} students waiting ·{" "}
+            {preparation.uniqueRecipientCount.toLocaleString()} recipients
+          </p>
+          <p className="mt-1 text-[12px] leading-5 text-ink-soft">
+            {preparation.addedCount.toLocaleString()} new recipients ·{" "}
+            {preparation.alreadyPreparedCount.toLocaleString()} already prepared ·{" "}
+            {preparation.skippedCount.toLocaleString()} skipped
+          </p>
+          <p className="mt-1 text-[12px] text-ink-faint">No emails were sent.</p>
+        </div>
+      )}
+
+      {!confirming ? (
+        <Button
+          type="button"
+          className="mt-4"
+          onClick={() => {
+            setPreparation(null);
+            setConfirming(true);
+          }}
+          disabled={loading || preparing || summary === null}
+          aria-label="prepare queue"
+        >
+          prepare email
+        </Button>
+      ) : (
+        <div className="mt-4 rounded-2xl border border-accent-soft bg-accent-wash px-4 py-4">
+          <p className="sr-only">Prepare email queue?</p>
+          <p className="text-[13px] text-ink">Prepare email?</p>
+          <p className="mt-1 text-[12px] leading-5 text-ink-soft">
+            {summary?.waitingStudentCount.toLocaleString() ?? "—"} students ·{" "}
+            {summary?.uniqueRecipientCount.toLocaleString() ?? "—"} unique recipients
+            will be prepared. No emails will be sent.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setConfirming(false)}
+              disabled={preparing}
+            >
+              cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void prepareQueue()}
+              disabled={preparing || summary === null}
+              aria-label="prepare queue"
+            >
+              {preparing ? "preparing…" : "prepare email"}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {preparation && (
+        <div className="mt-5 rounded-[24px] border border-line bg-paper px-4 py-4">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-ink-faint">
+            prepared email
+          </p>
+          <p className="mt-2 text-[13px] text-ink">
+            Prepared for {preparation.waitingStudentCount.toLocaleString()}{" "}
+            {preparation.waitingStudentCount === 1 ? "student" : "students"}
+          </p>
+          <p className="mt-1 text-[12px] text-ink-soft">
+            {preparation.uniqueRecipientCount.toLocaleString()}{" "}
+            {preparation.uniqueRecipientCount === 1 ? "recipient" : "recipients"}
+          </p>
+          <p className="mt-4 text-[11px] uppercase tracking-[0.18em] text-ink-faint">
+            recipients
+          </p>
+          <ul className="mt-3 space-y-2">
+            {preparation.recipients.length === 0 ? (
+              <li className="text-[12px] leading-5 text-ink-faint">No recipients prepared.</li>
+            ) : (
+              preparation.recipients.map((email) => (
+                <li key={email} className="text-[12px] leading-5 text-ink-soft">
+                  ✓ {email}
+                </li>
+              ))
+            )}
+          </ul>
+
+          <div className="mt-4">
+            <label htmlFor="waitlist-subject" className="block text-[11px] uppercase tracking-[0.14em] text-ink-faint">
+              subject
+            </label>
+            <input
+              id="waitlist-subject"
+              value={draftSubject}
+              onChange={(e) => setDraftSubject(e.target.value)}
+              className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3 text-base text-ink outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent-soft"
+            />
+          </div>
+
+          <div className="mt-4">
+            <label htmlFor="waitlist-body" className="block text-[11px] uppercase tracking-[0.14em] text-ink-faint">
+              message
+            </label>
+            <textarea
+              id="waitlist-body"
+              value={draftBody}
+              onChange={(e) => setDraftBody(e.target.value)}
+              rows={6}
+              className="mt-2 w-full resize-y rounded-2xl border border-line bg-paper px-4 py-3 text-base text-ink outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent-soft"
+            />
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="subtle"
+              onClick={() => setPreviewOpen((v) => !v)}
+            >
+              {previewOpen ? "hide preview" : "preview"}
+            </Button>
+          </div>
+
+          {previewOpen && (
+            <div className="mt-4 rounded-2xl border border-line bg-paper-2 px-4 py-4">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-ink-faint">preview</p>
+              <div className="mt-3 rounded-2xl border border-line bg-paper px-3 py-3">
+                <p className="text-[12px] leading-5 text-ink-soft">from: us</p>
+                <p className="mt-1 text-[12px] leading-5 text-ink-soft">
+                  subject: {draftSubject || "(no subject)"}
+                </p>
+                <div className="mt-3 whitespace-pre-wrap text-[12px] leading-6 text-ink">
+                  {draftBody}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <p className="mt-3 text-[12px] text-ink-faint">No emails have been sent.</p>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -505,6 +795,8 @@ type StudentRow = {
   year: string | null;
   branch: string | null;
   is_active: boolean | null;
+  suspension_reason: string | null;
+  suspended_at: string | null;
   photo_count: number | null;
 };
 
@@ -518,30 +810,58 @@ function studentState(s: StudentRow): string {
 
 const PAGE_SIZE = 20;
 
+type StatusFilter = "all" | "active" | "suspended";
+
+const STATUS_OPTIONS: Array<{ value: StatusFilter; label: string }> = [
+  { value: "all", label: "all" },
+  { value: "active", label: "active" },
+  { value: "suspended", label: "suspended" },
+];
+
+/** Server-side student search/filter/page — no client-side counting. */
+async function fetchStudentsPage(
+  nextPage: number,
+  term: string,
+  nextStatus: StatusFilter,
+): Promise<{ students: StudentRow[]; total: number }> {
+  const params = new URLSearchParams({
+    q: term,
+    status: nextStatus,
+    limit: String(PAGE_SIZE),
+    offset: String(nextPage * PAGE_SIZE),
+  });
+  const res = await fetch(`/api/inside/students?${params.toString()}`);
+  const j = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(typeof j?.error === "string" ? j.error : "Could not load students.");
+  return {
+    students: Array.isArray(j.students) ? j.students : [],
+    total: typeof j.total === "number" ? j.total : 0,
+  };
+}
+
 function StudentsPanel() {
   const [q, setQ] = useState("");
   const [submitted, setSubmitted] = useState("");
+  const [status, setStatus] = useState<StatusFilter>("all");
   const [page, setPage] = useState(0);
   const [rows, setRows] = useState<StudentRow[]>([]);
   const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
+  // True until the auto-loaded first page resolves.
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [acting, setActing] = useState<string | null>(null);
+  // Suspending requires a reason: the button opens an inline
+  // confirmation/reason form for that row instead of suspending at once.
+  const [suspendId, setSuspendId] = useState<string | null>(null);
+  const [suspendReason, setSuspendReason] = useState("");
 
-  async function load(nextPage: number, term: string) {
+  async function load(nextPage: number, term: string, nextStatus: StatusFilter) {
     setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({
-        q: term,
-        limit: String(PAGE_SIZE),
-        offset: String(nextPage * PAGE_SIZE),
-      });
-      const res = await fetch(`/api/inside/students?${params.toString()}`);
-      const j = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(typeof j?.error === "string" ? j.error : "Could not load students.");
-      setRows(Array.isArray(j.students) ? j.students : []);
-      setTotal(typeof j.total === "number" ? j.total : 0);
+      const r = await fetchStudentsPage(nextPage, term, nextStatus);
+      setRows(r.students);
+      setTotal(r.total);
       setPage(nextPage);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load students.");
@@ -550,10 +870,38 @@ function StudentsPanel() {
     }
   }
 
-  async function moderate(s: StudentRow, action: "suspend" | "restore") {
-    if (action === "suspend") {
+  // The waitlist loads immediately — no search required to see students.
+  // State updates happen only in the async continuations below (mirrors
+  // HealthPanel), never synchronously in the effect body.
+  useEffect(() => {
+    let cancelled = false;
+    fetchStudentsPage(0, "", "all").then(
+      (r) => {
+        if (cancelled) return;
+        setRows(r.students);
+        setTotal(r.total);
+        setPage(0);
+        setLoading(false);
+      },
+      (e: unknown) => {
+        if (cancelled) return;
+        setError(e instanceof Error ? e.message : "Could not load students.");
+        setLoading(false);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function moderate(s: StudentRow, action: "suspend" | "restore", reason?: string) {
+    if (action === "suspend" && !reason?.trim()) {
+      // No silent suspends: the inline reason form supplies this.
       const label = s.username ? `@${s.username}` : (s.nickname ?? s.usn ?? "this student");
-      if (!window.confirm(`Suspend ${label}? They disappear from discover, search, and profiles.`)) return;
+      setSuspendId(s.user_id);
+      setSuspendReason("");
+      setError(`Tell ${label} why they're being suspended.`);
+      return;
     }
     setActing(s.user_id);
     setError(null);
@@ -561,12 +909,27 @@ function StudentsPanel() {
       const res = await fetch("/api/inside/students/moderate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: s.user_id, action }),
+        body: JSON.stringify({
+          userId: s.user_id,
+          action,
+          ...(action === "suspend" && reason?.trim() ? { reason: reason.trim() } : {}),
+        }),
       });
       const j = await res.json().catch(() => null);
       if (!res.ok) throw new Error(typeof j?.error === "string" ? j.error : "Could not update the student.");
+      setSuspendId(null);
+      setSuspendReason("");
       setRows((prev) =>
-        prev.map((r) => (r.user_id === s.user_id ? { ...r, is_active: j.isActive === true } : r)),
+        prev.map((r) =>
+          r.user_id === s.user_id
+            ? {
+                ...r,
+                is_active: j.isActive === true,
+                suspension_reason: action === "suspend" && reason?.trim() ? reason.trim() : null,
+                suspended_at: action === "suspend" ? new Date().toISOString() : null,
+              }
+            : r,
+        ),
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not update the student.");
@@ -585,7 +948,7 @@ function StudentsPanel() {
         onSubmit={(e) => {
           e.preventDefault();
           setSubmitted(q.trim());
-          void load(0, q.trim());
+          void load(0, q.trim(), status);
         }}
       >
         <input
@@ -593,7 +956,7 @@ function StudentsPanel() {
           type="text"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="username, name, USN…"
+          placeholder="USN, username, name, email…"
           autoCapitalize="none"
           autoCorrect="off"
           spellCheck={false}
@@ -605,37 +968,138 @@ function StudentsPanel() {
         </Button>
       </form>
 
+      <div
+        role="group"
+        aria-label="filter by status"
+        className="mt-3 flex flex-wrap gap-2"
+      >
+        {STATUS_OPTIONS.map((o) => {
+          const selected = status === o.value;
+          return (
+            <button
+              key={o.value}
+              type="button"
+              aria-pressed={selected}
+              onClick={() => {
+                setStatus(o.value);
+                void load(0, submitted, o.value);
+              }}
+              className={`inline-flex min-h-[44px] items-center rounded-full border px-4 py-2 text-[11px] uppercase tracking-[0.12em] transition-colors disabled:opacity-40 ${
+                selected
+                  ? "border-accent-soft bg-accent-wash text-accent-deep"
+                  : "border-line text-ink-soft hover:border-accent-soft hover:bg-accent-wash hover:text-accent-deep"
+              }`}
+            >
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
+
       {error && <FieldError msg={error} />}
 
       <div className="mt-4">
-        {rows.length === 0 && !loading ? (
+        {loading && rows.length === 0 ? (
+          <p className="text-[12px] leading-5 text-ink-faint">loading students…</p>
+        ) : rows.length === 0 ? (
           <p className="text-[12px] leading-5 text-ink-faint">
-            {submitted || total > 0 ? "no students match." : "search above to list students."}
+            {submitted || status !== "all" ? "no students match." : "no students yet."}
           </p>
         ) : (
           <ul className="divide-y divide-line">
             {rows.map((s) => {
               const suspended = s.is_active === false;
+              const state = studentState(s);
+              const confirming = suspendId === s.user_id;
               return (
-                <li key={s.user_id} className="flex items-center justify-between gap-3 py-3">
+                <li key={s.user_id} className="py-3">
+                  <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <p className="truncate text-[14px] text-ink">
                       {s.username ? `@${s.username}` : (s.nickname ?? "no name yet")}
-                      {s.spot ? <span className="text-ink-faint"> #{s.spot}</span> : null}
+                      {typeof s.spot === "number" ? (
+                        <span className="text-ink-faint"> #{s.spot}</span>
+                      ) : null}
+                      <span className={suspended ? "text-accent-deep" : "text-ink-faint"}>
+                        {" "}· {suspended ? "suspended" : state === "complete" ? "waiting" : state}
+                      </span>
                     </p>
-                    <p className="mt-0.5 truncate text-[12px] leading-5 text-ink-faint">
-                      {[s.usn, s.email, studentState(s)].filter(Boolean).join(" · ")}
+                    <p className="mt-0.5 truncate text-[12px] leading-5 text-ink-soft">
+                      {s.usn ?? "no USN yet"}
                     </p>
+                    <p className="truncate text-[12px] leading-5 text-ink-faint">
+                      {s.email ?? "no email yet"}
+                    </p>
+                    {suspended && s.suspension_reason ? (
+                      <p className="mt-0.5 line-clamp-2 text-[12px] leading-5 text-accent-deep">
+                        Reason: {s.suspension_reason}
+                      </p>
+                    ) : null}
                   </div>
                   <button
                     type="button"
-                    onClick={() => void moderate(s, suspended ? "restore" : "suspend")}
+                    onClick={() => {
+                      if (suspended) {
+                        void moderate(s, "restore");
+                      } else if (confirming) {
+                        setSuspendId(null);
+                        setSuspendReason("");
+                      } else {
+                        setSuspendId(s.user_id);
+                        setSuspendReason("");
+                        setError(null);
+                      }
+                    }}
                     disabled={acting === s.user_id}
-                    aria-label={`${suspended ? "Restore" : "Suspend"} ${s.username ? `@${s.username}` : (s.nickname ?? "student")}`}
+                    aria-label={`${suspended ? "Restore" : confirming ? "Cancel suspension of" : "Suspend"} ${s.username ? `@${s.username}` : (s.nickname ?? "student")}`}
                     className="inline-flex min-h-[44px] shrink-0 items-center rounded-full border border-line px-4 py-2 text-[11px] uppercase tracking-[0.12em] text-ink-soft transition-colors hover:border-accent-soft hover:bg-accent-wash hover:text-accent-deep disabled:opacity-40"
                   >
-                    {acting === s.user_id ? "…" : suspended ? "restore" : "suspend"}
+                    {acting === s.user_id ? "…" : suspended ? "restore" : confirming ? "cancel" : "suspend"}
                   </button>
+                  </div>
+                  {confirming && !suspended ? (
+                    <form
+                      className="mt-3 rounded-2xl border border-line bg-paper px-4 py-4"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (!suspendReason.trim()) {
+                          setError("Tell the student why they're suspended.");
+                          return;
+                        }
+                        if (suspendReason.trim().length > 280) {
+                          setError("Keep the reason under 280 characters.");
+                          return;
+                        }
+                        void moderate(s, "suspend", suspendReason);
+                      }}
+                    >
+                      <label
+                        htmlFor={`suspend-reason-${s.user_id}`}
+                        className="block text-[11px] uppercase tracking-[0.14em] text-ink-faint"
+                      >
+                        why are you suspending {s.username ? `@${s.username}` : "this student"}?
+                      </label>
+                      <textarea
+                        id={`suspend-reason-${s.user_id}`}
+                        value={suspendReason}
+                        onChange={(e) => setSuspendReason(e.target.value)}
+                        rows={2}
+                        maxLength={300}
+                        placeholder="the student sees this…"
+                        className="mt-2 w-full resize-y rounded-2xl border border-line bg-paper px-4 py-3 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft"
+                      />
+                      <p className="mt-1.5 text-[11px] text-ink-faint">
+                        {suspendReason.trim().length}/280 · they disappear from discover, search, and profiles.
+                      </p>
+                      <button
+                        type="submit"
+                        disabled={acting === s.user_id}
+                        className="mt-3 inline-flex min-h-[44px] items-center rounded-full bg-ink px-5 py-2 text-[12px] uppercase tracking-[0.12em] text-paper transition-colors hover:bg-black disabled:opacity-40"
+                      >
+                        {acting === s.user_id ? "suspending…" : "confirm suspension"}
+                      </button>
+                    </form>
+                  ) : null}
                 </li>
               );
             })}
@@ -645,7 +1109,7 @@ function StudentsPanel() {
 
       {total > PAGE_SIZE && (
         <div className="mt-4 flex items-center justify-between">
-          <Button variant="subtle" disabled={loading || page === 0} onClick={() => void load(page - 1, submitted)}>
+          <Button variant="subtle" disabled={loading || page === 0} onClick={() => void load(page - 1, submitted, status)}>
             ← prev
           </Button>
           <p className="text-[12px] text-ink-faint">
@@ -654,12 +1118,361 @@ function StudentsPanel() {
           <Button
             variant="subtle"
             disabled={loading || page + 1 >= pages}
-            onClick={() => void load(page + 1, submitted)}
+            onClick={() => void load(page + 1, submitted, status)}
           >
             next →
           </Button>
         </div>
       )}
+    </section>
+  );
+}
+
+/* ---------------- feedback (Step 3: admin inbox + email replies) ---------------- */
+
+type FeedbackRow = {
+  id: string;
+  user_id: string;
+  category: string;
+  message: string;
+  status: string;
+  created_at: string;
+  admin_reply: string | null;
+  replied_at: string | null;
+  resolved_at: string | null;
+  username: string | null;
+  nickname: string | null;
+  usn: string | null;
+  email: string | null;
+  suspension_related: boolean | null;
+  related_suspension_at: string | null;
+  author_suspended: boolean | null;
+  author_suspension_reason: string | null;
+};
+
+type FeedbackFilter = "open" | "resolved" | "all";
+
+const FEEDBACK_OPTIONS: Array<{ value: FeedbackFilter; label: string }> = [
+  { value: "open", label: "open" },
+  { value: "resolved", label: "resolved" },
+  { value: "all", label: "all" },
+];
+
+function formatFeedbackTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+/**
+ * Admin feedback inbox — a queue, not a chat interface. Rows expand for
+ * full context (category, student, USN, trusted email, message, status)
+ * with two explicit actions: reply by email (Brevo → the student's
+ * required onboarding email) and resolve. Replying never resolves;
+ * resolving never emails.
+ */
+function FeedbackPanel() {
+  const [filter, setFilter] = useState<FeedbackFilter>("open");
+  const [rows, setRows] = useState<FeedbackRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [reply, setReply] = useState("");
+  const [acting, setActing] = useState<string | null>(null);
+
+  async function load(next: FeedbackFilter) {
+    setLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams({
+        status: next,
+        limit: "20",
+        offset: "0",
+      });
+      const res = await fetch(`/api/inside/feedback?${params.toString()}`);
+      const j = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(typeof j?.error === "string" ? j.error : "Could not load feedback.");
+      setRows(Array.isArray(j.feedback) ? j.feedback : []);
+      setTotal(typeof j.total === "number" ? j.total : 0);
+      setLoaded(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load feedback.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/inside/feedback?status=open&limit=20&offset=0")
+      .then((res) => res.json().then((j) => ({ ok: res.ok, j })))
+      .then(({ ok, j }) => {
+        if (cancelled) return;
+        if (!ok) throw new Error(typeof j?.error === "string" ? j.error : "Could not load feedback.");
+        setRows(Array.isArray(j.feedback) ? j.feedback : []);
+        setTotal(typeof j.total === "number" ? j.total : 0);
+        setLoaded(true);
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Could not load feedback.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function sendReply(f: FeedbackRow) {
+    if (!reply.trim()) {
+      setError("Write a reply first.");
+      return;
+    }
+    setActing(`reply:${f.id}`);
+    setError(null);
+    try {
+      const res = await fetch("/api/inside/feedback/reply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ feedbackId: f.id, replyBody: reply.trim() }),
+      });
+      const j = await res.json().catch(() => null);
+      if (!res.ok) {
+        const suffix = j?.emailSent === true ? " (the email went out — check the row before resending)" : "";
+        throw new Error(`${typeof j?.error === "string" ? j.error : "Could not send the reply."}${suffix}`);
+      }
+      setRows((prev) =>
+        prev.map((r) => (r.id === f.id ? { ...r, admin_reply: reply.trim(), replied_at: new Date().toISOString() } : r)),
+      );
+      setReply("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not send the reply.");
+    } finally {
+      setActing(null);
+    }
+  }
+
+  async function resolve(f: FeedbackRow) {
+    setActing(`resolve:${f.id}`);
+    setError(null);
+    try {
+      const res = await fetch("/api/inside/feedback/resolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ feedbackId: f.id }),
+      });
+      const j = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(typeof j?.error === "string" ? j.error : "Could not resolve the feedback.");
+      if (filter === "open") {
+        setRows((prev) => prev.filter((r) => r.id !== f.id));
+        setTotal((t) => Math.max(0, t - 1));
+      } else {
+        setRows((prev) => prev.map((r) => (r.id === f.id ? { ...r, status: "RESOLVED", resolved_at: new Date().toISOString() } : r)));
+      }
+      if (openId === f.id) setOpenId(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not resolve the feedback.");
+    } finally {
+      setActing(null);
+    }
+  }
+
+  return (
+    <section aria-label="feedback" className="mt-4 rounded-[24px] border border-line bg-paper-2 px-5 py-6">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[11px] uppercase tracking-[0.18em] text-ink-faint">
+          feedback{filter === "open" && total > 0 ? ` · ${total} open` : ""}
+        </p>
+        <button
+          type="button"
+          onClick={() => void load(filter)}
+          disabled={loading}
+          className="inline-flex min-h-[44px] items-center rounded-full px-4 py-2 text-[11px] uppercase tracking-[0.12em] text-ink-soft transition-colors hover:bg-accent-wash hover:text-accent-deep disabled:opacity-40"
+        >
+          {loading ? "loading…" : loaded ? "refresh" : "load inbox"}
+        </button>
+      </div>
+
+      <div
+        role="group"
+        aria-label="filter feedback by status"
+        className="mt-3 flex flex-wrap gap-2"
+      >
+        {FEEDBACK_OPTIONS.map((o) => {
+          const selected = filter === o.value;
+          return (
+            <button
+              key={o.value}
+              type="button"
+              aria-pressed={selected}
+              onClick={() => {
+                setFilter(o.value);
+                setOpenId(null);
+                void load(o.value);
+              }}
+              className={`inline-flex min-h-[44px] items-center rounded-full border px-4 py-2 text-[11px] uppercase tracking-[0.12em] transition-colors disabled:opacity-40 ${
+                selected
+                  ? "border-accent-soft bg-accent-wash text-accent-deep"
+                  : "border-line text-ink-soft hover:border-accent-soft hover:bg-accent-wash hover:text-accent-deep"
+              }`}
+            >
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {error && <FieldError msg={error} />}
+
+      <div className="mt-2">
+        {!loaded && !loading ? (
+          <p className="text-[12px] leading-5 text-ink-faint">
+            load the inbox to review feedback.
+          </p>
+        ) : rows.length === 0 && !loading ? (
+          <p className="text-[12px] leading-5 text-ink-faint">
+            {filter === "open" ? "the inbox is clear." : "nothing here."}
+          </p>
+        ) : (
+          <ul className="divide-y divide-line">
+            {rows.map((f) => {
+              const expanded = openId === f.id;
+              const who = f.username ? `@${f.username}` : (f.nickname ?? "a student");
+              return (
+                <li key={f.id} className="py-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpenId(expanded ? null : f.id);
+                      setReply("");
+                    }}
+                    aria-expanded={expanded}
+                    className="block w-full rounded-xl text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                  >
+                    <p className="text-[14px] text-ink">
+                      <span className="text-[11px] uppercase tracking-[0.12em] text-accent-deep">
+                        [{f.category}]
+                      </span>{" "}
+                      {who}
+                      {f.suspension_related === true ? (
+                        <span className="text-accent-deep"> · suspension appeal</span>
+                      ) : null}
+                      {f.admin_reply ? <span className="text-ink-faint"> · replied</span> : null}
+                      {f.status === "RESOLVED" ? <span className="text-ink-faint"> · resolved</span> : null}
+                    </p>
+                    {!expanded && (
+                      <p className="mt-0.5 line-clamp-2 text-[12px] leading-5 text-ink-soft">
+                        {f.message}
+                      </p>
+                    )}
+                    <p className="mt-0.5 truncate text-[12px] leading-5 text-ink-faint">
+                      {f.email ?? "no email on file"} · {formatFeedbackTime(f.created_at)}
+                    </p>
+                  </button>
+
+                  {expanded && (
+                    <div className="mt-3 rounded-2xl border border-line bg-paper px-4 py-4">
+                      <dl className="divide-y divide-line text-[13px]">
+                        <div className="flex justify-between gap-3 py-1.5">
+                          <dt className="text-ink-faint">student</dt>
+                          <dd className="text-right text-ink">{who}</dd>
+                        </div>
+                        <div className="flex justify-between gap-3 py-1.5">
+                          <dt className="text-ink-faint">USN</dt>
+                          <dd className="text-right text-ink">{f.usn ?? "—"}</dd>
+                        </div>
+                        <div className="flex justify-between gap-3 py-1.5">
+                          <dt className="text-ink-faint">email</dt>
+                          <dd className="truncate text-right text-ink">{f.email ?? "no email on file"}</dd>
+                        </div>
+                        <div className="flex justify-between gap-3 py-1.5">
+                          <dt className="text-ink-faint">submitted</dt>
+                          <dd className="text-right text-ink">{formatFeedbackTime(f.created_at)}</dd>
+                        </div>
+                        <div className="flex justify-between gap-3 py-1.5">
+                          <dt className="text-ink-faint">status</dt>
+                          <dd className="text-right text-ink">{f.status === "RESOLVED" ? "resolved" : "open"}</dd>
+                        </div>
+                      </dl>
+                      <p className="mt-3 whitespace-pre-wrap text-[14px] leading-6 text-ink">{f.message}</p>
+                      {f.suspension_related === true ? (
+                        <div className="mt-3 rounded-2xl border border-accent-soft bg-accent-wash px-4 py-3">
+                          <p className="text-[11px] uppercase tracking-[0.12em] text-accent-deep">
+                            suspension appeal
+                            {f.related_suspension_at ? ` · suspended ${formatFeedbackTime(f.related_suspension_at)}` : ""}
+                          </p>
+                          <p className="mt-1 text-[13px] leading-6 text-ink">
+                            <span className="text-ink-soft">Reason for suspension: </span>
+                            {f.author_suspension_reason ?? (f.author_suspended === false ? "account has since been restored." : "—")}
+                          </p>
+                          {f.author_suspended === false ? (
+                            <p className="mt-1 text-[12px] leading-5 text-ink-soft">
+                              the author is no longer suspended — restore already happened, if it was needed.
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {f.admin_reply && (
+                        <div className="mt-3 rounded-2xl border border-accent-soft bg-accent-wash px-4 py-3">
+                          <p className="text-[11px] uppercase tracking-[0.12em] text-accent-deep">
+                            reply sent{f.replied_at ? ` · ${formatFeedbackTime(f.replied_at)}` : ""}
+                          </p>
+                          <p className="mt-1 whitespace-pre-wrap text-[13px] leading-6 text-ink">{f.admin_reply}</p>
+                        </div>
+                      )}
+
+                      {f.status !== "RESOLVED" && (
+                        <>
+                          <label
+                            htmlFor={`feedback-reply-${f.id}`}
+                            className="mt-4 block text-[11px] uppercase tracking-[0.14em] text-ink-faint"
+                          >
+                            reply by email
+                          </label>
+                          <textarea
+                            id={`feedback-reply-${f.id}`}
+                            value={reply}
+                            onChange={(e) => setReply(e.target.value)}
+                            rows={3}
+                            placeholder="write to the student…"
+                            className="mt-2 w-full resize-y rounded-2xl border border-line bg-paper px-4 py-3 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft"
+                          />
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void sendReply(f)}
+                              disabled={acting !== null}
+                              className="inline-flex min-h-[44px] items-center rounded-full bg-ink px-5 py-2 text-[12px] uppercase tracking-[0.12em] text-paper transition-colors hover:bg-black disabled:opacity-40"
+                            >
+                              {acting === `reply:${f.id}` ? "sending…" : "reply by email"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void resolve(f)}
+                              disabled={acting !== null}
+                              className="inline-flex min-h-[44px] items-center rounded-full border border-line px-5 py-2 text-[12px] uppercase tracking-[0.12em] text-ink-soft transition-colors hover:border-accent-soft hover:bg-accent-wash hover:text-accent-deep disabled:opacity-40"
+                            >
+                              {acting === `resolve:${f.id}` ? "…" : "resolve"}
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
     </section>
   );
 }
@@ -726,14 +1539,25 @@ function ReportsPanel() {
 
   async function suspendReported(report: ReportRow) {
     const label = report.reported_username ? `@${report.reported_username}` : "the reported student";
-    if (!window.confirm(`Suspend ${label}? They disappear from discover, search, and profiles.`)) return;
+    // Suspension requires a reason the student will see — no silent
+    // one-click suspends, even from the report queue.
+    const reason = window.prompt(`Why are you suspending ${label}? They disappear from discover, search, and profiles.`);
+    if (reason === null) return;
+    if (!reason.trim()) {
+      setError("Tell the student why they're suspended.");
+      return;
+    }
+    if (reason.trim().length > 280) {
+      setError("Keep the reason under 280 characters.");
+      return;
+    }
     setActing(report.id);
     setError(null);
     try {
       const res = await fetch("/api/inside/students/moderate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: report.reported_id, action: "suspend", reason: `report ${report.id}` }),
+        body: JSON.stringify({ userId: report.reported_id, action: "suspend", reason: reason.trim() }),
       });
       const j = await res.json().catch(() => null);
       if (!res.ok) throw new Error(typeof j?.error === "string" ? j.error : "Could not update the student.");
