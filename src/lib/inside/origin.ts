@@ -2,7 +2,7 @@
  * INSIDE — Origin-vs-Host check for state-changing `/inside` APIs.
  *
  * Server-only helper (no framework imports) shared by
- * `POST /api/inside/login|launch|logout`. It is defense-in-depth ONLY:
+ * `POST /api/inside/login|logout`. It is defense-in-depth ONLY:
  * `requireInsideAdmin()` remains the authoritative authorization check.
  *
  * DESIGN (no canonical-URL config exists in this repo, and none is added):
