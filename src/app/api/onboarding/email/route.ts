@@ -4,51 +4,80 @@ import { validateAccountEmail } from "@/lib/auth/account";
 import { perfLog, perfStart } from "@/lib/utils/perf";
 
 /**
- * Onboarding email identity. Email is OPTIONAL (STEP 3C): it enables
- * cross-device sign-in and email recovery, but a student without an email
- * can skip and still complete onboarding as a campus account.
+ * Onboarding email identity. EMAIL IS REQUIRED FOR EVERY ACCOUNT.
  *
+ * NORMAL (USN verified first): USN → email (REQUIRED, verified) → password
+ *   → profile → photos → complete.
+ *
+ * FIRST-YEAR / email-first (no USN yet): email (REQUIRED, verified) →
+ *   password → profile → photos → complete. Entered via
+ *   POST { emailFirst: true } (from the `/onboarding/usn` secondary
+ *   affordance), which ensures a verification row exists without a USN.
+ *
+ * There is NO skip-email path. POST { skip: true } is rejected for every
+ * account (410 Gone) and never records a skipped flag. Supplying an email
+ * clears any legacy skip. The legacy column is read for compatibility
+ * only — it never authorizes completion.
+ *
+ * - POST { emailFirst: true }: idempotent entry — ensures a row exists for
+ *   the current UID (insert-if-missing only, never clobbers usn/email).
  * - POST { email }: validates format, records it, clears any prior skip.
  *   Linking/verifying it to the CURRENT anonymous user (UID preserved, never
  *   signUp) plus the password happens on the password step.
- * - POST { skip: true }: records an explicit skip (email NULL,
- *   email_skipped true). No user email is recorded and no verification is
- *   attempted. The password step then attaches a confirmed internal sign-in
- *   identity plus the chosen password to the same user (never derived from
- *   USN/username).
+ * - POST { skip: true }: REMOVED — always rejected. Email is required.
  * - Stored on the private verification record only — never exposed publicly.
+ *   GET returns own-row email + legacy skip observation plus track flags
+ *   (`usnPresent` boolean only — never the USN value itself).
+ *   `emailRequired` is ALWAYS true.
  */
 export async function POST(req: Request) {
   const t = perfStart();
   const body = await req.json().catch(() => ({}));
+  const emailFirst = body?.emailFirst === true;
   const skip = body?.skip === true;
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
 
-  if (skip) {
-    const { error } = await supabase
+  if (emailFirst) {
+    // Idempotent entry: insert a bare row only when none exists. Never
+    // upserts email/usn fields, so an existing normal-track row (USN, email)
+    // is left untouched. A concurrent insert loses the unique race —
+    // that just means the row now exists, which is the entire goal.
+    const { data: existing } = await supabase
       .from("verification_records")
-      .upsert({ user_id: user.id, email: null, email_skipped: true }, { onConflict: "user_id" });
-    if (error) {
-      if (/email_skipped/i.test(error.message)) {
-        return NextResponse.json(
-          { error: "Skipping email isn't available right now. Please add an email." },
-          { status: 503 },
-        );
+      .select("user_id")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (!existing) {
+      const { error } = await supabase
+        .from("verification_records")
+        .insert({ user_id: user.id });
+      if (error && error.code !== "23505" && !/duplicate/i.test(error.message ?? "")) {
+        return NextResponse.json({ error: "Could not start email signup. Try again." }, { status: 400 });
       }
-      return NextResponse.json({ error: "Could not save. Try again." }, { status: 400 });
     }
-    perfLog("onboarding.email.skip", t);
-    return NextResponse.json({ ok: true, skipped: true });
+    perfLog("onboarding.email.first", t);
+    return NextResponse.json({ ok: true, emailFirst: true });
+  }
+
+  if (skip) {
+    // Skip-email was removed: every account must supply + verify a real
+    // email. Rejected for ALL tracks (including USN-anchored) — no new
+    // skipped rows are ever created. Legacy rows remain observable via GET
+    // but never authorize completion.
+    perfLog("onboarding.email.skip-rejected", t);
+    return NextResponse.json(
+      { error: "An email is required — verification is required to continue.", emailRequired: true },
+      { status: 410 },
+    );
   }
 
   const val = body?.email ? String(body.email).trim() : "";
-  // Empty here means "no email typed": point at the skip path, don't 400
-  // with a message that reads as email-required.
+  // Empty here means "no email typed": email is required, point back.
   if (!val) {
     return NextResponse.json(
-      { error: "Enter your email, or skip for now.", skippable: true },
+      { error: "Enter your email.", emailRequired: true },
       { status: 400 },
     );
   }
@@ -73,29 +102,42 @@ export async function POST(req: Request) {
   return NextResponse.json({ ok: true });
 }
 
-/** Own recorded email + skip state only (private; RLS-scoped to the session user). */
+/** Own recorded email + legacy skip observation + track flags (private; RLS-scoped). */
 export async function GET() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   const full = await supabase
     .from("verification_records")
-    .select("email, email_skipped")
+    .select("email, email_skipped, usn")
     .eq("user_id", user.id)
     .maybeSingle();
   if (full.error && /email_skipped/i.test(full.error.message)) {
     const legacy = await supabase
       .from("verification_records")
-      .select("email")
+      .select("email, usn")
       .eq("user_id", user.id)
       .maybeSingle();
+    const usnPresent = Boolean((legacy.data as { usn?: unknown } | null)?.usn);
     return NextResponse.json({
-      email: ((legacy.data?.email as string | null) ?? null),
+      email: (((legacy.data as { email?: unknown } | null)?.email as string | null) ?? null),
+      // Legacy column unreadable here — report unskipped; skip is removed.
       emailSkipped: false,
+      // Booleans only — the USN value itself never leaves the server.
+      usnPresent,
+      // Email is required on every track.
+      emailRequired: true,
     });
   }
+  const row = (full.data as { email?: unknown; email_skipped?: unknown; usn?: unknown } | null) ?? null;
+  const usnPresent = Boolean(row?.usn);
   return NextResponse.json({
-    email: ((full.data?.email as string | null) ?? null),
-    emailSkipped: (full.data?.email_skipped as boolean | null) === true,
+    email: ((row?.email as string | null) ?? null),
+    // Legacy observation only — never authorizes completion.
+    emailSkipped: row?.email_skipped === true,
+    // Booleans only — the USN value itself never leaves the server.
+    usnPresent,
+    // Email is required on every track.
+    emailRequired: true,
   });
 }
