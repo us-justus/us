@@ -44,6 +44,11 @@ const EXPECTED_ACTIONS = [
   "LAUNCH_DISABLED",
   "LAUNCH_VERSION_CHANGED",
 ];
+// NOTE (Step 3): the three moderation actions (STUDENT_SUSPENDED,
+// STUDENT_RESTORED, REPORT_RESOLVED) extend the CHECK in migration
+// 20261011000001_inside_students_moderation.sql and are guarded in
+// src/lib/inside/moderation.test.ts. This file keeps pinning the Step 2
+// migration + helper inclusion so neither file can silently narrow the set.
 
 describe("inside audit — migration and schema", () => {
   it("migration file exists", () => {

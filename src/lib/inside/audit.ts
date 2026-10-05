@@ -40,6 +40,12 @@ import { requireInsideAdmin } from "./auth";
  *     compensation) and returns 500 instead of success, so we never end up
  *     with "launch changed + no audit record" reported as success. Audit
  *     errors are logged server-side with no secrets or identifiers.
+ *   - Student moderation and report resolution (Step 3 privileged state
+ *     changes: STUDENT_SUSPENDED / STUDENT_RESTORED / REPORT_RESOLVED):
+ *     FAIL CLOSED with the same snapshot-and-restore compensation via the
+ *     same sanctioned writers. No-op calls (already suspended / already
+ *     resolved) record nothing; failed or unauthorized mutations record
+ *     nothing.
  *   - Login success/failure and logout: BEST-EFFORT. An audit-storage
  *     outage must not change authentication outcomes: failures still
  *     return the generic 401, successes still return the session, logout
@@ -57,6 +63,9 @@ export const INSIDE_AUDIT_ACTIONS = [
   "LAUNCH_ENABLED",
   "LAUNCH_DISABLED",
   "LAUNCH_VERSION_CHANGED",
+  "STUDENT_SUSPENDED",
+  "STUDENT_RESTORED",
+  "REPORT_RESOLVED",
 ] as const;
 
 export type InsideAuditAction = (typeof INSIDE_AUDIT_ACTIONS)[number];

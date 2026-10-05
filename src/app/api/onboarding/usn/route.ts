@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { normalizeUSN, validateUSN } from "@/lib/verification/usn";
+import { decideUsnMutation, isDuplicateUsnError } from "@/lib/onboarding/usn-mutation";
 import { perfLog, perfStart } from "@/lib/utils/perf";
 
 export async function POST(req: Request) {
@@ -27,20 +28,23 @@ export async function POST(req: Request) {
   if (!user) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
 
   // USN is immutable once a profile exists: reject any change past that
-  // point (identical retry passes through idempotently).
+  // point (identical retry passes through idempotently — e.g. a returning
+  // user re-submitting their own USN always succeeds, never 409s).
   const [{ data: existingVr }, { data: existingProfile }] = await Promise.all([
     supabase.from("verification_records").select("usn").eq("user_id", user.id).maybeSingle(),
     supabase.from("profiles").select("id").eq("user_id", user.id).maybeSingle(),
   ]);
-  if (existingProfile) {
-    const stored = existingVr?.usn ? normalizeUSN(String(existingVr.usn)) : "";
-    if (stored && stored !== normalized) {
-      return NextResponse.json({ error: "Your USN is already set and can't be changed." }, { status: 409 });
-    }
-    if (stored === normalized) {
-      perfLog("onboarding.usn", t);
-      return NextResponse.json({ ok: true });
-    }
+  const stored = existingVr?.usn ? normalizeUSN(String(existingVr.usn)) : "";
+  const mutation = decideUsnMutation({
+    hasProfile: Boolean(existingProfile),
+    storedUsn: stored,
+    submittedUsn: normalized,
+  });
+  if (mutation.action === "ok-idempotent") {
+    perfLog("onboarding.usn", t);
+    return NextResponse.json({ ok: true });
+  }
+  if (mutation.action === "reject-immutable") {
     return NextResponse.json({ error: "Your USN is already set and can't be changed." }, { status: 409 });
   }
 
@@ -58,7 +62,7 @@ export async function POST(req: Request) {
       status: (error as unknown as { status?: number }).status,
     });
 
-    if (error.code === "23505" || error.message.toLowerCase().includes("duplicate")) {
+    if (isDuplicateUsnError(error)) {
       return NextResponse.json({ error: "This USN has already been registered." }, { status: 409 });
     }
 
