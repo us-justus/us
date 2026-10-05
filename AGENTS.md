@@ -36,10 +36,11 @@ conflict, SPEC.md wins — flag the conflict, do not silently pick one.
 - Reuse the known user within a request (`getOnboardingState(user)` in
   API routes); never pay for a second `auth.getUser()` on one request.
 - Preserve the onboarding order usn → email → password → profile → photos:
-  email is optional (skippable); the password step converts the CURRENT
-  anonymous user (supplied email via `updateUser()` verify-then-password,
-  skipped email via POST /api/onboarding/password attaching a confirmed
-  internal identity — never `signUp`, UID preserved), and
+  EMAIL IS REQUIRED AND MUST BE VERIFIED FOR EVERY USER (SPEC.md wins on
+  conflict); the password step converts the CURRENT anonymous user (real
+  email via `updateUser()` verify-then-password — never `signUp`, UID
+  preserved; the legacy skip path is removed: POST /api/onboarding/email
+  `{ skip: true }` → 410, POST /api/onboarding/password → 410), and
   login verifies USN server-side (`/api/auth/login` + `resolve_login_email`)
   with one generic failure message. USN/email stay private and immutable.
   Never display the internal identity (`u-…@us.signin.invalid`).
