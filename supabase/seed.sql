@@ -6,12 +6,6 @@
 -- is brittle, so bootstrap is done through the app's normal anonymous flow
 -- (see README / AGENTS: local admin bootstrap procedure).
 --
--- This seed keeps the one singleton the app reads on every pre-launch load
--- (public.launch_config) deterministically pinned to "not launched".
-
-insert into public.launch_config (id, launched, launched_at, prelaunch_version)
-values (1, false, null, 'v1')
-on conflict (id) do update
-  set launched = excluded.launched,
-      launched_at = excluded.launched_at,
-      prelaunch_version = excluded.prelaunch_version;
+-- No product-state singletons are seeded: the launch system was removed
+-- (see migration 20261012000001_remove_launch_system.sql) and the
+-- application operates permanently in its waiting experience.
