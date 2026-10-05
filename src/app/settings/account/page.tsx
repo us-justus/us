@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
  * → /login, incomplete onboarding → its /onboarding/* step. The client keeps
  * its useExistingSession() check for back/forward cache and client-side
  * navigation, but protected HTML is never server-rendered to signed-out
- * visitors. No launch gate here — account pages stay accessible pre-launch.
+ * visitors. Account pages stay accessible to completed product sessions.
  */
 export default async function AccountPage() {
   const session = await getProductSession();
