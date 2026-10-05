@@ -22,39 +22,24 @@ const UNSAFE_RE = /[\s\\<>"'`\u0000-\u001f\u007f]/;
 
 // Public profile URLs reuse the username format rule (3–30, URL-safe).
 const USERNAME_RE = /^[A-Za-z0-9_]{3,30}$/;
-// /chat/<matchId>: single path segment; match IDs are UUIDs, kept general.
-const MATCH_SEGMENT_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** Strip a single trailing slash for matching (root stays "/"). */
 function stripTrailingSlash(pathname: string): string {
   return pathname.length > 1 && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
 }
 
-/** Pathname (no query/hash) of an already shape-checked raw value. */
-function pathnameOf(raw: string): string {
-  const q = raw.indexOf("?");
-  const h = raw.indexOf("#");
-  const end = q === -1 ? h : h === -1 ? q : Math.min(q, h);
-  return stripTrailingSlash(end === -1 ? raw : raw.slice(0, end));
-}
-
 /**
- * Allowlisted internal destinations a login may return to. Product-guarded
- * pages only — never /login, /onboarding/* (owned by destinationForStep()),
+ * Allowlisted internal destinations a login may return to. Product pages
+ * only — never /login, /onboarding/* (owned by destinationForStep()),
  * /auth/*, /invite/* (public), or /inside (admin).
  */
 function isAllowlistedPath(pathname: string): boolean {
   const path = stripTrailingSlash(pathname);
   if (path === "/") return true;
-  if (path === "/discover") return true;
-  if (path === "/matches") return true;
+  if (path === "/home") return true;
   if (path === "/search") return true;
-  if (path === "/notifications") return true;
-  if (path === "/chat") return true;
   if (path === "/profile" || path === "/profile/edit") return true;
-  if (path === "/settings" || path === "/settings/account") return true;
-  const chatChild = path.match(/^\/chat\/([^/]+)$/);
-  if (chatChild && MATCH_SEGMENT_RE.test(chatChild[1])) return true;
+  if (path === "/settings" || path === "/settings/account" || path === "/settings/password") return true;
   const publicProfile = path.match(/^\/u\/([^/]+)$/);
   if (publicProfile && USERNAME_RE.test(publicProfile[1])) return true;
   return false;
@@ -109,36 +94,17 @@ export function safeNextPath(raw: unknown): string | null {
 }
 
 /**
- * Launch-gated destinations (guardLaunch() → "/" while PRE_LAUNCH).
- * Mirrors the server guards on /discover, /matches, /chat*, /notifications.
- * Takes an already-validated safeNextPath() result.
- */
-export function isLaunchGatedPath(validatedNext: string): boolean {
-  const path = pathnameOf(validatedNext);
-  return (
-    path === "/discover" ||
-    path === "/matches" ||
-    path === "/notifications" ||
-    path === "/chat" ||
-    path.startsWith("/chat/")
-  );
-}
-
-/**
  * Final login redirect decision. Guards stay authoritative:
  * - incomplete onboarding → existing fallback (step path), `next` ignored
- * - launch-locked destination while PRE_LAUNCH → existing fallback
  * - otherwise valid `next`, else existing fallback
  */
 export function resolveLoginNext(args: {
   step: OnboardingStep;
-  launched: boolean;
   requestedNext: unknown;
   fallback: string;
 }): string {
   if (args.step !== "complete") return args.fallback;
   const candidate = safeNextPath(args.requestedNext);
   if (!candidate) return args.fallback;
-  if (!args.launched && isLaunchGatedPath(candidate)) return args.fallback;
   return candidate;
 }
