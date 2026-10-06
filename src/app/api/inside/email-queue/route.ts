@@ -13,6 +13,8 @@ type QueueSummary = {
   pending: number;
   sent: number;
   failed: number;
+  sending?: number;
+  skippedQueue?: number;
   lastPreparedAt: string | null;
 };
 
@@ -97,6 +99,8 @@ export async function GET() {
     !isCount(summary.pending) ||
     !isCount(summary.sent) ||
     !isCount(summary.failed) ||
+    (summary.sending !== undefined && !isCount(summary.sending)) ||
+    (summary.skippedQueue !== undefined && !isCount(summary.skippedQueue)) ||
     (summary.lastPreparedAt !== null &&
       typeof summary.lastPreparedAt !== "string")
   ) {

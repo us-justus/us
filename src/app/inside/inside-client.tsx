@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/onboarding/shell";
+import { getQueueSendState } from "@/lib/inside/email-queue-send-state";
 
 type DashboardInitial = {
   waiting: number;
@@ -245,6 +246,8 @@ type EmailQueueSummary = {
   pending: number;
   sent: number;
   failed: number;
+  sending?: number;
+  skippedQueue?: number;
   lastPreparedAt: string | null;
 };
 
@@ -264,6 +267,14 @@ type EmailQueuePreparation = {
   skippedCount: number;
   students: EmailAudienceStudent[];
   recipients: string[];
+};
+
+type EmailQueueSendResult = {
+  attempted: number;
+  sent: number;
+  failed: number;
+  skipped: number;
+  remaining: number;
 };
 
 function formatQueueTime(iso: string): string {
@@ -287,6 +298,9 @@ function EmailQueuePanel() {
   const [error, setError] = useState<string | null>(null);
   const [studentsOpen, setStudentsOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [sendConfirming, setSendConfirming] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sendResult, setSendResult] = useState<EmailQueueSendResult | null>(null);
   const [draftSubject, setDraftSubject] = useState("us waitlist update");
   const [draftBody, setDraftBody] = useState(
     "Hi there,\n\nThanks for being part of us. We’ll be in touch soon.\n\n— us",
@@ -297,7 +311,7 @@ function EmailQueuePanel() {
     setError(null);
     try {
       const res = await fetch("/api/inside/email-queue", { cache: "no-store" });
-      const json = await res.json().catch(() => null);
+      const json = (await res.json().catch(() => null)) as { error?: unknown } | null;
       if (!res.ok) {
         throw new Error(
           typeof json?.error === "string"
@@ -305,7 +319,7 @@ function EmailQueuePanel() {
             : "Could not load the email queue.",
         );
       }
-      setSummary(json as EmailQueueSummary);
+      setSummary(json as unknown as EmailQueueSummary);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load the email queue.");
     } finally {
@@ -316,7 +330,7 @@ function EmailQueuePanel() {
   useEffect(() => {
     let cancelled = false;
     fetch("/api/inside/email-queue", { cache: "no-store" })
-      .then((res) => res.json().then((json) => ({ ok: res.ok, json })))
+      .then((res) => res.json().then((json: unknown) => ({ ok: res.ok, json: json as { error?: unknown } | null })))
       .then(({ ok, json }) => {
         if (cancelled) return;
         if (!ok) {
@@ -326,7 +340,7 @@ function EmailQueuePanel() {
               : "Could not load the email queue.",
           );
         }
-        setSummary(json as EmailQueueSummary);
+        setSummary(json as unknown as EmailQueueSummary);
       })
       .catch((e: unknown) => {
         if (!cancelled) {
@@ -345,9 +359,11 @@ function EmailQueuePanel() {
     setPreparing(true);
     setError(null);
     setPreparation(null);
+    setSendResult(null);
+    setSendConfirming(false);
     try {
       const res = await fetch("/api/inside/email-queue", { method: "POST" });
-      const json = await res.json().catch(() => null);
+      const json = (await res.json().catch(() => null)) as { error?: unknown } | null;
       if (!res.ok) {
         throw new Error(
           typeof json?.error === "string"
@@ -355,7 +371,7 @@ function EmailQueuePanel() {
             : "Could not prepare the email queue.",
         );
       }
-      const prepared = json as EmailQueuePreparation;
+      const prepared = json as unknown as EmailQueuePreparation;
       setPreparation(prepared);
       setSummary((current) =>
         current
@@ -376,6 +392,65 @@ function EmailQueuePanel() {
       setPreparing(false);
     }
   }
+
+  async function sendQueue() {
+    if (sending) return;
+    setSending(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/inside/email-queue/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subject: draftSubject, message: draftBody }),
+      });
+      const json = (await res.json().catch(() => null)) as { error?: unknown } | null;
+      if (!res.ok) {
+        throw new Error(
+          typeof json?.error === "string"
+            ? json.error
+            : "Could not send the email.",
+        );
+      }
+      const result = json as unknown as EmailQueueSendResult;
+      setSendResult({
+        attempted: result.attempted,
+        sent: result.sent,
+        failed: result.failed,
+        skipped: result.skipped,
+        remaining: result.remaining,
+      });
+      setSendConfirming(false);
+      await loadSummary();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not send the email.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  // Persisted send availability — the ONLY source of truth for whether
+  // a send action may be offered. `summary` comes from the server queue
+  // snapshot and survives refresh; local `preparation`/`sendResult` do not.
+  // remaining = PENDING + SENDING (mirrors the send route); SENT rows are
+  // never candidates and SKIPPED/permanent FAILED rows are terminal.
+  const queueSendState = getQueueSendState(summary, { isSending: sending });
+  // Visibility of the refresh-safe persisted block must not flicker away
+  // mid-send: derive it without the transient in-flight flag.
+  const queueBaseState = getQueueSendState(summary);
+  const persistedShowSent = queueBaseState === "sent";
+  const persistedShowRetry = queueBaseState === "retry";
+  const queuePending = summary?.pending ?? 0;
+  const queueSendingCount = summary?.sending ?? 0;
+  const queueSent = summary?.sent ?? 0;
+  const queueFailed = summary?.failed ?? 0;
+  const queueSkipped = summary?.skippedQueue ?? 0;
+  const queueRemaining = queuePending + queueSendingCount;
+  const queueFullySent = queueSendState === "sent";
+  const queueNeedsRetry = queueSendState === "retry";
+  // The prepared-email form becomes historical once everything eligible
+  // is durably sent: keep subject/message visible for reference but stop
+  // them implying a further send is possible.
+  const sendFormLocked = sending || (summary !== null && queueFullySent);
 
   const counts: Array<[string, number | undefined]> = [
     ["unique recipients", summary?.uniqueRecipientCount],
@@ -595,7 +670,9 @@ function EmailQueuePanel() {
               id="waitlist-subject"
               value={draftSubject}
               onChange={(e) => setDraftSubject(e.target.value)}
-              className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3 text-base text-ink outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent-soft"
+              readOnly={sendFormLocked}
+              aria-readonly={sendFormLocked || undefined}
+              className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3 text-base text-ink outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent-soft read-only:bg-paper-2 read-only:text-ink-soft"
             />
           </div>
 
@@ -608,7 +685,9 @@ function EmailQueuePanel() {
               value={draftBody}
               onChange={(e) => setDraftBody(e.target.value)}
               rows={6}
-              className="mt-2 w-full resize-y rounded-2xl border border-line bg-paper px-4 py-3 text-base text-ink outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent-soft"
+              readOnly={sendFormLocked}
+              aria-readonly={sendFormLocked || undefined}
+              className="mt-2 w-full resize-y rounded-2xl border border-line bg-paper px-4 py-3 text-base text-ink outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent-soft read-only:bg-paper-2 read-only:text-ink-soft"
             />
           </div>
 
@@ -637,7 +716,277 @@ function EmailQueuePanel() {
             </div>
           )}
 
-          <p className="mt-3 text-[12px] text-ink-faint">No emails have been sent.</p>
+          {!sendResult && !queueFullySent && queueSent === 0 && (
+            <p className="mt-3 text-[12px] text-ink-faint">No emails have been sent.</p>
+          )}
+
+          {sendResult && (
+            <div
+              className="mt-4 rounded-2xl border border-line bg-paper-2 px-4 py-3"
+              aria-live="polite"
+            >
+              <p className="text-[13px] text-ink">
+                {sendResult.failed === 0 && sendResult.skipped === 0
+                  ? "✓ Email sent."
+                  : "Email partially sent."}
+              </p>
+              <p className="mt-1 text-[12px] leading-5 text-ink-soft">
+                {sendResult.attempted.toLocaleString()} attempted ·{" "}
+                {sendResult.sent.toLocaleString()} sent ·{" "}
+                {sendResult.failed.toLocaleString()} failed ·{" "}
+                {sendResult.skipped.toLocaleString()} skipped ·{" "}
+                {sendResult.remaining.toLocaleString()} remaining
+              </p>
+              {queueFullySent && (
+                <p className="mt-1 text-[12px] leading-5 text-ink-soft">
+                  This prepared email has been sent.
+                </p>
+              )}
+            </div>
+          )}
+
+          {sending ? (
+            <Button
+              type="button"
+              className="mt-4"
+              disabled
+              aria-label="sending email"
+            >
+              sending…
+            </Button>
+          ) : queueFullySent ? (
+            <div
+              className="mt-4 rounded-2xl border border-line bg-paper-2 px-4 py-3"
+              aria-live="polite"
+            >
+              <p className="text-[13px] text-ink">✓ Email sent.</p>
+              <p className="mt-1 text-[12px] leading-5 text-ink-soft">
+                {queueSent.toLocaleString()}{" "}
+                {queueSent === 1 ? "recipient" : "recipients"} ·{" "}
+                {queueSent.toLocaleString()} sent ·{" "}
+                {queueFailed.toLocaleString()} failed ·{" "}
+                {queueSkipped.toLocaleString()} skipped
+              </p>
+              <p className="mt-1 text-[12px] leading-5 text-ink-faint">
+                This prepared email has been sent.
+              </p>
+            </div>
+          ) : queueNeedsRetry ? (
+            <div className="mt-4">
+              <div
+                className="rounded-2xl border border-accent-soft bg-accent-wash px-4 py-3"
+                aria-live="polite"
+              >
+                <p className="text-[13px] text-ink">Email partially sent.</p>
+                <p className="mt-1 text-[12px] leading-5 text-ink-soft">
+                  {queueSent.toLocaleString()} sent ·{" "}
+                  {queueFailed.toLocaleString()} failed ·{" "}
+                  {queueSkipped.toLocaleString()} skipped ·{" "}
+                  {queueRemaining.toLocaleString()} remaining
+                </p>
+                <p className="mt-1 text-[12px] leading-5 text-ink-soft">
+                  Only failed recipients will be retried — already-sent
+                  recipients are never sent again.
+                </p>
+              </div>
+              {!sendConfirming ? (
+                <Button
+                  type="button"
+                  className="mt-4"
+                  onClick={() => setSendConfirming(true)}
+                  disabled={sending}
+                  aria-label="retry failed"
+                >
+                  retry failed
+                </Button>
+              ) : (
+                <div className="mt-4 rounded-2xl border border-accent-soft bg-accent-wash px-4 py-4">
+                  <p className="text-[13px] text-ink">Retry the failed recipients?</p>
+                  <p className="mt-1 text-[12px] leading-5 text-ink-soft">
+                    Only failed recipients will be retried. Already-sent
+                    recipients are never sent again.
+                  </p>
+                  <p className="mt-2 text-[12px] leading-5 text-ink-soft">
+                    This will send a real email through us.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => setSendConfirming(false)}
+                      disabled={sending}
+                    >
+                      cancel
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={() => void sendQueue()}
+                      disabled={sending}
+                      aria-label="retry failed"
+                    >
+                      {sending ? "sending…" : "retry failed"}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : !sendConfirming ? (
+            <Button
+              type="button"
+              className="mt-4"
+              onClick={() => setSendConfirming(true)}
+              disabled={sending || preparation.recipients.length === 0}
+              aria-label="send email"
+            >
+              {sending ? "sending…" : "send email"}
+            </Button>
+          ) : (
+            <div className="mt-4 rounded-2xl border border-accent-soft bg-accent-wash px-4 py-4">
+              <p className="text-[13px] text-ink">Send this email?</p>
+              <p className="mt-1 text-[12px] leading-5 text-ink-soft">
+                You are about to send this message to{" "}
+                {preparation.uniqueRecipientCount.toLocaleString()}{" "}
+                {preparation.uniqueRecipientCount === 1 ? "recipient" : "recipients"}.
+              </p>
+              <p className="mt-2 text-[12px] leading-5 text-ink-soft">
+                Subject: {draftSubject || "(no subject)"}
+              </p>
+              <div className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap rounded-2xl border border-line bg-paper px-3 py-3 text-[12px] leading-6 text-ink">
+                {draftBody}
+              </div>
+              <p className="mt-2 text-[12px] leading-5 text-ink-soft">
+                This will send a real email through us.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setSendConfirming(false)}
+                  disabled={sending}
+                >
+                  cancel
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => void sendQueue()}
+                  disabled={sending}
+                  aria-label="send email"
+                >
+                  {sending ? "sending…" : "send email"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!preparation && !loading && summary && (persistedShowSent || persistedShowRetry || sending) && (
+        <div
+          className="mt-5 rounded-[24px] border border-line bg-paper px-4 py-4"
+          aria-live="polite"
+        >
+          <p className="text-[11px] uppercase tracking-[0.18em] text-ink-faint">
+            prepared email
+          </p>
+          {sending ? (
+            <Button
+              type="button"
+              className="mt-4"
+              disabled
+              aria-label="sending email"
+            >
+              sending…
+            </Button>
+          ) : persistedShowSent ? (
+            <>
+              <p className="mt-2 text-[13px] text-ink">✓ Email sent.</p>
+              <p className="mt-1 text-[12px] leading-5 text-ink-soft">
+                {queueSent.toLocaleString()}{" "}
+                {queueSent === 1 ? "recipient" : "recipients"} ·{" "}
+                {queueSent.toLocaleString()} sent ·{" "}
+                {queueFailed.toLocaleString()} failed ·{" "}
+                {queueSkipped.toLocaleString()} skipped
+              </p>
+              {summary.lastPreparedAt && (
+                <p className="mt-1 text-[12px] leading-5 text-ink-faint">
+                  last prepared: {formatQueueTime(summary.lastPreparedAt)}
+                </p>
+              )}
+              <p className="mt-1 text-[12px] leading-5 text-ink-faint">
+                This prepared email has been sent.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="mt-2 text-[13px] text-ink">Email partially sent.</p>
+              <p className="mt-1 text-[12px] leading-5 text-ink-soft">
+                {queueSent.toLocaleString()} sent ·{" "}
+                {queueFailed.toLocaleString()} failed ·{" "}
+                {queueSkipped.toLocaleString()} skipped ·{" "}
+                {queueRemaining.toLocaleString()} remaining
+              </p>
+              <div className="mt-4">
+                <label htmlFor="waitlist-retry-subject" className="block text-[11px] uppercase tracking-[0.14em] text-ink-faint">
+                  subject
+                </label>
+                <input
+                  id="waitlist-retry-subject"
+                  value={draftSubject}
+                  onChange={(e) => setDraftSubject(e.target.value)}
+                  className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3 text-base text-ink outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent-soft"
+                />
+              </div>
+              <div className="mt-4">
+                <label htmlFor="waitlist-retry-body" className="block text-[11px] uppercase tracking-[0.14em] text-ink-faint">
+                  message
+                </label>
+                <textarea
+                  id="waitlist-retry-body"
+                  value={draftBody}
+                  onChange={(e) => setDraftBody(e.target.value)}
+                  rows={6}
+                  className="mt-2 w-full resize-y rounded-2xl border border-line bg-paper px-4 py-3 text-base text-ink outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent-soft"
+                />
+              </div>
+              {!sendConfirming ? (
+                <Button
+                  type="button"
+                  className="mt-4"
+                  onClick={() => setSendConfirming(true)}
+                  disabled={sending}
+                  aria-label="retry failed"
+                >
+                  retry failed
+                </Button>
+              ) : (
+                <div className="mt-4 rounded-2xl border border-accent-soft bg-accent-wash px-4 py-4">
+                  <p className="text-[13px] text-ink">Retry the failed recipients?</p>
+                  <p className="mt-1 text-[12px] leading-5 text-ink-soft">
+                    Only failed recipients will be retried. Already-sent
+                    recipients are never sent again.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => setSendConfirming(false)}
+                      disabled={sending}
+                    >
+                      cancel
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={() => void sendQueue()}
+                      disabled={sending}
+                      aria-label="retry failed"
+                    >
+                      {sending ? "sending…" : "retry failed"}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
     </section>
@@ -672,12 +1021,12 @@ function HealthPanel() {
     let cancelled = false;
     fetch("/api/inside/health")
       .then(async (res) => {
-        const j = await res.json().catch(() => null);
+        const j = (await res.json().catch(() => null)) as { error?: unknown } | null;
         if (!res.ok)
           throw new Error(
             typeof j?.error === "string" ? j.error : "Could not load system health.",
           );
-        return j as HealthState;
+        return j as unknown as HealthState;
       })
       .then(
         (h) => {
@@ -701,12 +1050,12 @@ function HealthPanel() {
     setError(null);
     try {
       const res = await fetch("/api/inside/health");
-      const j = await res.json().catch(() => null);
+      const j = (await res.json().catch(() => null)) as { error?: unknown } | null;
       if (!res.ok)
         throw new Error(
           typeof j?.error === "string" ? j.error : "Could not load system health.",
         );
-      setHealth(j as HealthState);
+      setHealth(j as unknown as HealthState);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load system health.");
     } finally {
@@ -831,11 +1180,20 @@ async function fetchStudentsPage(
     offset: String(nextPage * PAGE_SIZE),
   });
   const res = await fetch(`/api/inside/students?${params.toString()}`);
-  const j = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(typeof j?.error === "string" ? j.error : "Could not load students.");
+  const j = (await res.json().catch(() => null)) as {
+    error?: unknown;
+    students?: unknown;
+    total?: unknown;
+  } | null;
+  if (!res.ok) {
+    const errMsg: unknown = j?.error;
+    throw new Error(typeof errMsg === "string" && errMsg ? errMsg : "Could not load students.");
+  }
+  const students = j?.students;
+  const total = j?.total;
   return {
-    students: Array.isArray(j.students) ? j.students : [],
-    total: typeof j.total === "number" ? j.total : 0,
+    students: Array.isArray(students) ? (students as StudentRow[]) : [],
+    total: typeof total === "number" ? total : 0,
   };
 }
 
@@ -915,8 +1273,11 @@ function StudentsPanel() {
           ...(action === "suspend" && reason?.trim() ? { reason: reason.trim() } : {}),
         }),
       });
-      const j = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(typeof j?.error === "string" ? j.error : "Could not update the student.");
+      const j = (await res.json().catch(() => null)) as { error?: unknown; isActive?: unknown } | null;
+      if (!res.ok) {
+        const errMsg: unknown = j?.error;
+        throw new Error(typeof errMsg === "string" && errMsg ? errMsg : "Could not update the student.");
+      }
       setSuspendId(null);
       setSuspendReason("");
       setRows((prev) =>
@@ -924,7 +1285,7 @@ function StudentsPanel() {
           r.user_id === s.user_id
             ? {
                 ...r,
-                is_active: j.isActive === true,
+                is_active: j?.isActive === true,
                 suspension_reason: action === "suspend" && reason?.trim() ? reason.trim() : null,
                 suspended_at: action === "suspend" ? new Date().toISOString() : null,
               }
@@ -1197,10 +1558,19 @@ function FeedbackPanel() {
         offset: "0",
       });
       const res = await fetch(`/api/inside/feedback?${params.toString()}`);
-      const j = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(typeof j?.error === "string" ? j.error : "Could not load feedback.");
-      setRows(Array.isArray(j.feedback) ? j.feedback : []);
-      setTotal(typeof j.total === "number" ? j.total : 0);
+      const j = (await res.json().catch(() => null)) as {
+        error?: unknown;
+        feedback?: unknown;
+        total?: unknown;
+      } | null;
+      if (!res.ok) {
+        const errMsg: unknown = j?.error;
+        throw new Error(typeof errMsg === "string" && errMsg ? errMsg : "Could not load feedback.");
+      }
+      const rows = j?.feedback;
+      const total = j?.total;
+      setRows(Array.isArray(rows) ? (rows as FeedbackRow[]) : []);
+      setTotal(typeof total === "number" ? total : 0);
       setLoaded(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load feedback.");
@@ -1212,12 +1582,17 @@ function FeedbackPanel() {
   useEffect(() => {
     let cancelled = false;
     fetch("/api/inside/feedback?status=open&limit=20&offset=0")
-      .then((res) => res.json().then((j) => ({ ok: res.ok, j })))
+      .then((res) => res.json().then((j: unknown) => ({ ok: res.ok, j: j as { error?: unknown; feedback?: unknown; total?: unknown } | null })))
       .then(({ ok, j }) => {
         if (cancelled) return;
-        if (!ok) throw new Error(typeof j?.error === "string" ? j.error : "Could not load feedback.");
-        setRows(Array.isArray(j.feedback) ? j.feedback : []);
-        setTotal(typeof j.total === "number" ? j.total : 0);
+        if (!ok) {
+          const errMsg: unknown = j?.error;
+          throw new Error(typeof errMsg === "string" && errMsg ? errMsg : "Could not load feedback.");
+        }
+        const rows = j?.feedback;
+        const total = j?.total;
+        setRows(Array.isArray(rows) ? (rows as FeedbackRow[]) : []);
+        setTotal(typeof total === "number" ? total : 0);
         setLoaded(true);
       })
       .catch((e: unknown) => {
@@ -1244,10 +1619,11 @@ function FeedbackPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ feedbackId: f.id, replyBody: reply.trim() }),
       });
-      const j = await res.json().catch(() => null);
+      const j = (await res.json().catch(() => null)) as { error?: unknown; emailSent?: unknown } | null;
       if (!res.ok) {
+        const errMsg: unknown = j?.error;
         const suffix = j?.emailSent === true ? " (the email went out — check the row before resending)" : "";
-        throw new Error(`${typeof j?.error === "string" ? j.error : "Could not send the reply."}${suffix}`);
+        throw new Error(`${typeof errMsg === "string" && errMsg ? errMsg : "Could not send the reply."}${suffix}`);
       }
       setRows((prev) =>
         prev.map((r) => (r.id === f.id ? { ...r, admin_reply: reply.trim(), replied_at: new Date().toISOString() } : r)),
@@ -1269,8 +1645,11 @@ function FeedbackPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ feedbackId: f.id }),
       });
-      const j = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(typeof j?.error === "string" ? j.error : "Could not resolve the feedback.");
+      const j = (await res.json().catch(() => null)) as { error?: unknown } | null;
+      if (!res.ok) {
+        const errMsg: unknown = j?.error;
+        throw new Error(typeof errMsg === "string" && errMsg ? errMsg : "Could not resolve the feedback.");
+      }
       if (filter === "open") {
         setRows((prev) => prev.filter((r) => r.id !== f.id));
         setTotal((t) => Math.max(0, t - 1));
@@ -1506,10 +1885,19 @@ function ReportsPanel() {
     setError(null);
     try {
       const res = await fetch("/api/inside/reports?status=unresolved&limit=20&offset=0");
-      const j = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(typeof j?.error === "string" ? j.error : "Could not load reports.");
-      setRows(Array.isArray(j.reports) ? j.reports : []);
-      setTotal(typeof j.total === "number" ? j.total : 0);
+      const j = (await res.json().catch(() => null)) as {
+        error?: unknown;
+        reports?: unknown;
+        total?: unknown;
+      } | null;
+      if (!res.ok) {
+        const errMsg: unknown = j?.error;
+        throw new Error(typeof errMsg === "string" && errMsg ? errMsg : "Could not load reports.");
+      }
+      const rows = j?.reports;
+      const total = j?.total;
+      setRows(Array.isArray(rows) ? (rows as ReportRow[]) : []);
+      setTotal(typeof total === "number" ? total : 0);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load reports.");
     } finally {
@@ -1526,8 +1914,11 @@ function ReportsPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reportId: report.id, resolution }),
       });
-      const j = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(typeof j?.error === "string" ? j.error : "Could not resolve the report.");
+      const j = (await res.json().catch(() => null)) as { error?: unknown } | null;
+      if (!res.ok) {
+        const errMsg: unknown = j?.error;
+        throw new Error(typeof errMsg === "string" && errMsg ? errMsg : "Could not resolve the report.");
+      }
       setRows((prev) => prev.filter((r) => r.id !== report.id));
       setTotal((t) => Math.max(0, t - 1));
     } catch (e) {
@@ -1559,8 +1950,11 @@ function ReportsPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: report.reported_id, action: "suspend", reason: reason.trim() }),
       });
-      const j = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(typeof j?.error === "string" ? j.error : "Could not update the student.");
+      const j = (await res.json().catch(() => null)) as { error?: unknown } | null;
+      if (!res.ok) {
+        const errMsg: unknown = j?.error;
+        throw new Error(typeof errMsg === "string" && errMsg ? errMsg : "Could not update the student.");
+      }
       setRows((prev) =>
         prev.map((r) => (r.id === report.id ? { ...r, reported_is_active: false } : r)),
       );

@@ -69,6 +69,7 @@ export const INSIDE_AUDIT_ACTIONS = [
   "FEEDBACK_REPLIED",
   "FEEDBACK_RESOLVED",
   "WAITLIST_EMAIL_QUEUE_PREPARED",
+  "WAITLIST_EMAIL_SENT",
 ] as const;
 
 export type InsideAuditAction = (typeof INSIDE_AUDIT_ACTIONS)[number];
