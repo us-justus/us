@@ -17,8 +17,9 @@ export function AccountDrawer({ avatarUrl }: { avatarUrl: string | null }) {
 
   function open() {
     setIsOpen(true);
-    void fetch("/api/profile", { cache: "no-store" }).then((res) => res.json()).then((data) => {
-      if (data?.profile) setProfile(data.profile as DrawerProfile);
+    void fetch("/api/profile", { cache: "no-store" }).then((res) => res.json()).then((data: unknown) => {
+      const profile = (data as { profile?: unknown } | null)?.profile;
+      if (profile) setProfile(profile as DrawerProfile);
     }).catch(() => undefined);
   }
   function close() {

@@ -25,15 +25,23 @@ export function ProfileForm() {
   // claiming a username late, or a re-submission). Never auto-creates.
   useEffect(() => {
     fetch("/api/profile", { cache: "no-store" })
-      .then(r=>r.json()).then(j=>{
-        const p = j?.profile;
+      .then(r=>r.json()).then((j: unknown)=>{
+        const p = (j as { profile?: unknown } | null)?.profile as {
+          nickname?: unknown;
+          age?: unknown;
+          year?: unknown;
+          branch?: unknown;
+          bio?: unknown;
+          interests?: unknown;
+          username?: unknown;
+        } | undefined;
         if (!p) return;
         if (typeof p.nickname === "string" && p.nickname) setNickname(p.nickname);
         if (typeof p.age === "number") setAge(String(p.age));
         if (typeof p.year === "string") setYear(p.year);
         if (typeof p.branch === "string") setBranch(p.branch);
         if (typeof p.bio === "string") setBio(p.bio);
-        if (Array.isArray(p.interests)) setInterests(p.interests.join(", "));
+        if (Array.isArray(p.interests)) setInterests((p.interests as unknown[]).join(", "));
         if (typeof p.username === "string" && p.username) {
           setUsername(p.username);
           setUsernameLocked(true);
@@ -57,9 +65,11 @@ export function ProfileForm() {
     try {
       const res = await fetch("/api/onboarding/profile", { method: "POST", headers: { "Content-Type":"application/json" }, body: JSON.stringify({ username: username.trim(), nickname: nickname.trim(), age: aNum, year, branch, bio: bio.trim() || null, interests: interests.split(",").map(s=>s.trim()).filter(Boolean).slice(0,8) }) });
       if (!res.ok) {
-        const j = await res.json().catch(()=>null);
-        const msg = j?.error || "Failed";
-        if (j?.field) setFieldErr(prev=>({ ...prev, [j.field]: msg }));
+        const j = (await res.json().catch(()=>null)) as { error?: unknown; field?: unknown } | null;
+        const errMsg: unknown = j?.error;
+        const msg = typeof errMsg === "string" && errMsg ? errMsg : "Failed";
+        const field: unknown = j?.field;
+        if (typeof field === "string" && field) setFieldErr(prev=>({ ...prev, [field]: msg }));
         throw new Error(msg);
       }
       router.push("/onboarding/photos");

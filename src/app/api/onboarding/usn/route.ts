@@ -6,7 +6,7 @@ import { perfLog, perfStart } from "@/lib/utils/perf";
 
 export async function POST(req: Request) {
   const t = perfStart();
-  const { usn } = await req.json().catch(() => ({}));
+  const { usn } = (await req.json().catch(() => ({}))) as { usn?: unknown };
   const normalized = normalizeUSN(String(usn || ""));
   if (!validateUSN(normalized)) return NextResponse.json({ error: "Enter a valid USN." }, { status: 400 });
   const supabase = await createClient();

@@ -48,8 +48,8 @@ function EmailFormInner() {
     setError(null);
     try {
       const res = await fetch("/api/onboarding/email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: val }) });
-      const j = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(j?.error || "Failed");
+      const j = (await res.json().catch(() => null)) as { error?: unknown } | null;
+      if (!res.ok) throw new Error(typeof j?.error === "string" && j.error ? j.error : "Failed");
       // Auth linking (email → current anonymous user, UID preserved) plus
       // verification and password happen on the next step.
       router.push("/onboarding/password");

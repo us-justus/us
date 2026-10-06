@@ -60,13 +60,21 @@ export function PasswordForm() {
       fetch("/api/onboarding/email", { cache: "no-store" }),
       fetch("/api/account/state", { cache: "no-store" }),
     ]);
-    const emailJ = await emailRes.json().catch(() => null);
-    const stateJ = await stateRes.json().catch(() => null);
+    const emailJ = (await emailRes.json().catch(() => null)) as { email?: unknown } | null;
+    const stateJ = (await stateRes.json().catch(() => null)) as {
+      account?: { kind?: unknown } | null;
+      next?: unknown;
+      onboardingStep?: unknown;
+    } | null;
+    const vrEmail: unknown = emailJ?.email;
+    const accountKind: unknown = stateJ?.account?.kind;
+    const next: unknown = stateJ?.next;
+    const step: unknown = stateJ?.onboardingStep;
     return {
-      vrEmail: (emailJ?.email as string | null) ?? null,
-      kind: (stateJ?.account?.kind as string | null) ?? null,
-      next: (typeof stateJ?.next === "string" ? stateJ.next : null) as string | null,
-      step: (typeof stateJ?.onboardingStep === "string" ? stateJ.onboardingStep : null) as string | null,
+      vrEmail: typeof vrEmail === "string" ? vrEmail : null,
+      kind: typeof accountKind === "string" ? accountKind : null,
+      next: typeof next === "string" ? next : null,
+      step: typeof step === "string" ? step : null,
     };
   }, []);
 

@@ -94,9 +94,16 @@ export default function EditProfileClient() {
       // the payload itself: 401 keeps the retryable error below, and the
       // signed-out effect above routes to /login.
       const res = await fetch("/api/profile", { cache: "no-store" });
-      const j = await res.json().catch(() => ({}));
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: unknown;
+        profile?: unknown;
+        photos?: unknown;
+      };
       if (res.status === 401) throw new Error("We couldn't start your session. Please try again.");
-      if (!res.ok) throw new Error(j.error || "Failed to load profile");
+      if (!res.ok) {
+        const errMsg: unknown = j.error;
+        throw new Error(typeof errMsg === "string" && errMsg ? errMsg : "Failed to load profile");
+      }
       if (!j.profile) {
         router.replace("/onboarding/profile");
         return;
@@ -108,7 +115,8 @@ export default function EditProfileClient() {
       setBranch(p.branch);
       setBio(p.bio ?? "");
       setInterests((p.interests ?? []).join(", "));
-      setPhotos(j.photos ?? []);
+      const photos: unknown = j.photos;
+      setPhotos(Array.isArray(photos) ? (photos as Photo[]) : []);
       setInitial({
         nickname: p.nickname,
         age: String(p.age),
@@ -177,10 +185,13 @@ export default function EditProfileClient() {
             .slice(0, 8),
         }),
       });
-      const j = await res.json().catch(() => ({}));
+      const j = (await res.json().catch(() => ({}))) as { error?: unknown; field?: unknown };
       if (!res.ok) {
-        if (j.field) setFieldErr((prev) => ({ ...prev, [j.field]: j.error }));
-        throw new Error(j.error || "Could not save.");
+        const errMsg: unknown = j.error;
+        const msg = typeof errMsg === "string" && errMsg ? errMsg : "Could not save.";
+        const field: unknown = j.field;
+        if (typeof field === "string" && field) setFieldErr((prev) => ({ ...prev, [field]: msg }));
+        throw new Error(msg);
       }
       setSuccess(true);
       setInitial({
@@ -235,9 +246,13 @@ export default function EditProfileClient() {
     setPhotoError(null);
     try {
       const res = await fetch(`/api/profile/photos?id=${id}`, { method: "DELETE" });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error || "Failed");
-      setPhotos(j.photos);
+      const j = (await res.json()) as { error?: unknown; photos?: unknown } | null;
+      if (!res.ok) {
+        const errMsg: unknown = j?.error;
+        throw new Error(typeof errMsg === "string" && errMsg ? errMsg : "Failed");
+      }
+      const photos: unknown = j?.photos;
+      setPhotos(Array.isArray(photos) ? (photos as Photo[]) : []);
     } catch (err: unknown) {
       setPhotoError(err instanceof Error ? err.message : "Failed to delete.");
     }
@@ -259,9 +274,13 @@ export default function EditProfileClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orderedIds }),
       });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error || "Could not reorder");
-      setPhotos(j.photos);
+      const j = (await res.json()) as { error?: unknown; photos?: unknown } | null;
+      if (!res.ok) {
+        const errMsg: unknown = j?.error;
+        throw new Error(typeof errMsg === "string" && errMsg ? errMsg : "Could not reorder");
+      }
+      const reordered: unknown = j?.photos;
+      setPhotos(Array.isArray(reordered) ? (reordered as Photo[]) : []);
     } catch (err: unknown) {
       setPhotoError(err instanceof Error ? err.message : "Could not reorder");
       // refetch to revert

@@ -113,9 +113,10 @@ export function InviteShareSheet({
   const ensureInviteUrl = useCallback(async (): Promise<string> => {
     if (inviteUrl) return inviteUrl;
     const res = await fetch("/api/invite", { cache: "no-store" });
-    const j = await res.json().catch(() => null);
+    const j = (await res.json().catch(() => null)) as { inviteUrl?: unknown; error?: unknown } | null;
     if (!res.ok || !j?.inviteUrl) {
-      throw new Error(j?.error || "Could not create invite.");
+      const errMsg: unknown = j?.error;
+      throw new Error(typeof errMsg === "string" && errMsg ? errMsg : "Could not create invite.");
     }
     const absolute = absolutizeUrl(j.inviteUrl as string);
     setInviteUrl(absolute);

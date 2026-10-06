@@ -32,7 +32,7 @@ import { perfLog, perfStart } from "@/lib/utils/perf";
  */
 export async function POST(req: Request) {
   const t = perfStart();
-  const body = await req.json().catch(() => ({}));
+  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const emailFirst = body?.emailFirst === true;
   const skip = body?.skip === true;
   const supabase = await createClient();

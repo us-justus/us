@@ -141,10 +141,10 @@ function AccountFlow({
       if (error) throw new Error("Could not set password. Please try again.");
       // Same session, same UID — resolve where to go next server-side.
       const res = await fetch("/api/account/state", { cache: "no-store" });
-      const j = await res.json().catch(() => null);
+      const j = (await res.json().catch(() => null)) as { next?: unknown } | null;
       setDone(true);
-      const next = typeof j?.next === "string" ? j.next : "/discover";
-      setTimeout(() => router.push(next), 900);
+      const next: unknown = j?.next;
+      setTimeout(() => router.push(typeof next === "string" ? next : "/discover"), 900);
     } catch (e: unknown) {
       setPwErr(e instanceof Error ? e.message : "Could not set password.");
     } finally {
@@ -269,15 +269,19 @@ function AccountFlow({
               onClick={async () => {
                 // Re-check server-side (source of truth), then sync local session.
                 const res = await fetch("/api/account/state", { cache: "no-store" });
-                const j = await res.json().catch(() => null);
+                const j = (await res.json().catch(() => null)) as {
+                  account?: { emailConfirmed?: unknown } | null;
+                  email?: unknown;
+                } | null;
                 await refresh();
                 if (j?.account?.emailConfirmed) {
                   // Sync the private onboarding email record with the just
                   // verified Auth email (own row; best-effort hygiene).
                   try {
                     const supabase = createClient();
+                    const rawEmail: unknown = j?.email;
                     const authedEmail =
-                      typeof j?.email === "string" ? (j.email as string) : null;
+                      typeof rawEmail === "string" ? rawEmail : null;
                     const { data: { user: u } } = await supabase.auth.getUser();
                     if (u && authedEmail) {
                       const full = await supabase

@@ -68,7 +68,12 @@ function LoginFlow() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ identifier: identifier.trim(), password, next: searchParams.get("next") }),
       });
-      const j = await res.json().catch(() => null);
+      const j = (await res.json().catch(() => null)) as {
+        suspended?: unknown;
+        error?: unknown;
+        next?: unknown;
+        onboardingStep?: unknown;
+      } | null;
       if (!res.ok) {
         // Suspended accounts authenticate but are refused product access:
         // the session stays (appeals need auth) and the dedicated screen
@@ -77,7 +82,8 @@ function LoginFlow() {
           window.location.assign("/suspended");
           return;
         }
-        throw new Error(typeof j?.error === "string" ? j.error : GENERIC);
+        const errMsg: unknown = j?.error;
+        throw new Error(typeof errMsg === "string" && errMsg ? errMsg : GENERIC);
       }
       // Full document navigation, not router.push: the server route sets the
       // session cookies, but the singleton browser client still holds the
@@ -85,7 +91,8 @@ function LoginFlow() {
       // reliably fire onAuthStateChange. Reloading rehydrates the browser
       // client from the fresh cookies, so SERVER UID === BROWSER UID before
       // any onboarding mutation is allowed.
-      window.location.assign(typeof j?.next === "string" ? j.next : "/onboarding");
+      const dest: unknown = j?.next;
+      window.location.assign(typeof dest === "string" ? dest : "/onboarding");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : GENERIC);
     } finally {
@@ -304,7 +311,11 @@ function SignedInContinue() {
     (async () => {
       try {
         const res = await fetch("/api/account/state", { cache: "no-store" });
-        const j = await res.json().catch(() => null);
+        const j = (await res.json().catch(() => null)) as {
+          suspended?: unknown;
+          next?: unknown;
+          onboardingStep?: unknown;
+        } | null;
         if (cancelled) return;
         // Suspended sessions never continue into the product: the dedicated
         // screen explains why and links the appeal flow.
@@ -312,7 +323,8 @@ function SignedInContinue() {
           router.replace("/suspended");
           return;
         }
-        let dest = typeof j?.next === "string" ? j.next : "/onboarding";
+        const accountNext: unknown = j?.next;
+        let dest = typeof accountNext === "string" ? accountNext : "/onboarding";
         // Already-signed-in branch honors `/login?next=` with the same rules
         // as the login API: complete accounts only. The destination page
         // re-guards server-side regardless, so authority stays server-side.

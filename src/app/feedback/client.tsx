@@ -50,9 +50,10 @@ export function FeedbackClient() {
     let cancelled = false;
     fetch("/api/feedback", { cache: "no-store" })
       .then((res) => res.json().catch(() => null))
-      .then((j) => {
-        if (!cancelled && j && Array.isArray(j.feedback)) {
-          setHistory(j.feedback as OwnRow[]);
+      .then((j: unknown) => {
+        const rows = (j as { feedback?: unknown } | null)?.feedback;
+        if (!cancelled && j && Array.isArray(rows)) {
+          setHistory(rows as OwnRow[]);
         }
       })
       .catch(() => undefined)
@@ -83,17 +84,18 @@ export function FeedbackClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ category, message: message.trim() }),
       });
-      const j = await res.json().catch(() => null);
+      const j = (await res.json().catch(() => null)) as { error?: unknown; feedback?: unknown } | null;
       if (!res.ok) {
+        const errMsg: unknown = j?.error;
         throw new Error(
-          typeof j?.error === "string" ? j.error : "Could not send feedback. Try again.",
+          typeof errMsg === "string" && errMsg ? errMsg : "Could not send feedback. Try again.",
         );
       }
       setMessage("");
       setNotice(SENT);
-      const row = await fetch("/api/feedback", { cache: "no-store" })
+      const row = (await fetch("/api/feedback", { cache: "no-store" })
         .then((r) => r.json().catch(() => null))
-        .catch(() => null);
+        .catch(() => null)) as { feedback?: unknown } | null;
       if (row && Array.isArray(row.feedback)) setHistory(row.feedback as OwnRow[]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not send feedback. Try again.");

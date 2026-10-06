@@ -70,7 +70,11 @@ import {
 const GENERIC = "Those details don't open inside.";
 
 export async function POST(req: Request) {
-  const { identifier, password, adminKey } = await req.json().catch(() => ({}));
+  const { identifier, password, adminKey } = (await req.json().catch(() => ({}))) as {
+    identifier?: unknown;
+    password?: unknown;
+    adminKey?: unknown;
+  };
 
   const idRaw = typeof identifier === "string" ? identifier.trim() : "";
   const pw = typeof password === "string" ? password : "";

@@ -69,7 +69,12 @@ import {
 const GENERIC = "Incorrect USN or password.";
 
 export async function POST(req: Request) {
-  const { identifier, usn, password, next: requestedNext } = await req.json().catch(() => ({}));
+  const { identifier, usn, password, next: requestedNext } = (await req.json().catch(() => ({}))) as {
+    identifier?: unknown;
+    usn?: unknown;
+    password?: unknown;
+    next?: unknown;
+  };
   // `identifier` is the current client field; legacy clients send `usn`.
   const rawIdentifier = typeof identifier === "string" ? identifier : typeof usn === "string" ? usn : "";
   const classified = classifyLoginIdentifier(rawIdentifier);

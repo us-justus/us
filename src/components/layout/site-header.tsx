@@ -134,7 +134,13 @@ export function SiteChrome({ children }: { children: ReactNode }) {
   const resolve = useCallback(async () => {
     try {
       const res = await fetch("/api/account/state", { cache: "no-store" });
-      const j = await res.json().catch(() => null);
+      const j = (await res.json().catch(() => null)) as {
+        signedIn?: unknown;
+        onboardingStep?: unknown;
+        unreadCount?: unknown;
+        primaryAvatarUrl?: unknown;
+        chatUnread?: unknown;
+      } | null;
       if (!j?.signedIn) {
         setSnapshot({ status: "public", unread: 0, primaryAvatarUrl: null, chatUnread: false });
         return;

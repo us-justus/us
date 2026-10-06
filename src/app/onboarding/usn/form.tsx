@@ -45,8 +45,8 @@ export function UsnForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ usn: normalized }),
       });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error || "Failed");
+      const j = (await res.json()) as { error?: unknown } | null;
+      if (!res.ok) throw new Error(typeof j?.error === "string" && j.error ? j.error : "Failed");
       router.push("/onboarding/email");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Try again.";
@@ -82,7 +82,7 @@ export function UsnForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ emailFirst: true }),
       });
-      const j = await res.json().catch(() => null);
+      const j = (await res.json().catch(() => null)) as { error?: unknown } | null;
       if (!res.ok) throw new Error(typeof j?.error === "string" ? j.error : "Try again.");
       router.push("/onboarding/email");
     } catch (e: unknown) {

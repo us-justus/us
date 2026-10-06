@@ -8,7 +8,7 @@ import { cookies } from "next/headers";
 
 export async function POST(req: Request) {
   const t = perfStart();
-  const body = await req.json().catch(()=>null);
+  const body = (await req.json().catch(()=>null)) as Record<string, unknown> | null;
   if (!body) return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   const { nickname, age, year, branch, bio, interests, username } = body;
   const nErr = validateNickname(String(nickname||"")); if (nErr) return NextResponse.json({ error: nErr }, { status: 400 });

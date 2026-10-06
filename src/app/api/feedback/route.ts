@@ -38,7 +38,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   }
 
-  const body = await req.json().catch(() => ({}));
+  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   if (!isFeedbackCategory(body?.category)) {
     return NextResponse.json(
       { error: "Pick a feedback category." },

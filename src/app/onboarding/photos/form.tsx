@@ -30,7 +30,7 @@ export function PhotosForm() {
   const occupied = photos.length + pending.length + cropQueue.length;
   const full = occupied >= MAX_PHOTOS;
 
-  useEffect(() => { fetch("/api/onboarding/photos").then(r=>r.json()).then(j=>{ if(j.photos) setPhotos(j.photos); }); }, []);
+  useEffect(() => { fetch("/api/onboarding/photos").then(r=>r.json()).then((j: unknown)=>{ const photos = (j as { photos?: unknown } | null)?.photos; if(Array.isArray(photos)) setPhotos(photos as Photo[]); }); }, []);
 
   async function select(e: React.ChangeEvent<HTMLInputElement>) {
     const files = [...(e.target.files ?? [])];
@@ -56,9 +56,9 @@ export function PhotosForm() {
   async function remove(id: string) {
     setError(null);
     const res = await fetch(`/api/onboarding/photos?id=${id}`, { method: "DELETE" });
-    const j = await res.json();
-    if (!res.ok) setError(j.error || "Failed");
-    else setPhotos(j.photos);
+    const j = (await res.json()) as { error?: unknown; photos?: unknown } | null;
+    if (!res.ok) setError(typeof j?.error === "string" && j.error ? j.error : "Failed");
+    else setPhotos(Array.isArray(j?.photos) ? (j.photos as Photo[]) : []);
   }
 
   return (

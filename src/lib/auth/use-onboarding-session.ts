@@ -44,7 +44,12 @@ export function useOnboardingSession(expectedStep: OnboardingStepSlug) {
     let server: OnboardingServerSnapshot | null = null;
     try {
       const res = await fetch("/api/account/state", { cache: "no-store" });
-      const j = await res.json().catch(() => null);
+      const j = (await res.json().catch(() => null)) as {
+        signedIn?: unknown;
+        account?: { kind?: unknown } | null;
+        onboardingStep?: unknown;
+        next?: unknown;
+      } | null;
       if (res.ok && j && typeof j.signedIn === "boolean") {
         const kind = j?.account?.kind;
         const step = j?.onboardingStep;

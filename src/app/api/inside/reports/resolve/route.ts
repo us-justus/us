@@ -41,7 +41,12 @@ export async function POST(req: Request) {
   const gate = await requireInsideAdmin();
   if (!gate) return NextResponse.json({ error: GENERIC }, { status: 403 });
 
-  const { reportId, resolution, moderate, reason } = await req.json().catch(() => ({}));
+  const { reportId, resolution, moderate, reason } = (await req.json().catch(() => ({}))) as {
+    reportId?: unknown;
+    resolution?: unknown;
+    moderate?: unknown;
+    reason?: unknown;
+  };
   if (typeof reportId !== "string" || !reportId) {
     return NextResponse.json({ error: "Pass a reportId." }, { status: 400 });
   }

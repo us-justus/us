@@ -56,7 +56,7 @@ export async function GET() {
 }
 
 export async function PATCH(req: Request) {
-  const body = await req.json().catch(() => null);
+  const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return NextResponse.json({ error: "Invalid request." }, { status: 400 });
 
   const { nickname, age, year, branch, bio, interests, username, spot } = body;

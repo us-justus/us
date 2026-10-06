@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { MAX_PHOTOS } from "@/lib/validation/profile";
 
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => null);
+  const body = (await req.json().catch(() => null)) as { orderedIds?: unknown } | null;
   const orderedIds: unknown = body?.orderedIds;
   if (!Array.isArray(orderedIds) || orderedIds.length === 0) {
     return NextResponse.json({ error: "Missing orderedIds." }, { status: 400 });
