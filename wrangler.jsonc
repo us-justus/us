@@ -1,0 +1,39 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // OpenNext builds the Worker entrypoint at `.open-next/worker.js` and
+  // static assets at `.open-next/assets`. Never point `main` at `next start`
+  // — Next.js cannot run directly on Workers; it must go through OpenNext.
+  "main": ".open-next/worker.js",
+  "name": "us",
+  // Must stay >= 2024-09-23 for `nodejs_compat` (required by node:crypto /
+  // global Buffer usage in the runtime bundle). Bumped to a current date for
+  // this wiring; do not backdate below 2024-09-23.
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": [
+    // Required: runtime bundle uses node:crypto and global Buffer.
+    "nodejs_compat",
+    // Restrict server-side fetch() to public IPs (Supabase + Brevo are
+    // public endpoints). SSRF hardening per the OpenNext template.
+    "global_fetch_strictly_public"
+  ],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "services": [
+    {
+      // Self-reference used by OpenNext for internal sub-requests
+      // (e.g. revalidation). `service` must match the worker `name`.
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "us"
+    }
+  ]
+  // NOTE: no R2/KV/D1/R2/images/queues/cron bindings — nothing in the current
+  // app requires them. Default OpenNext caching is used (no R2 incremental
+  // cache). Add bindings here only when a measured need appears.
+  //
+  // NOTE: no vars/secrets are declared here. NEXT_PUBLIC_* values are baked
+  // at build time; server-only secrets (SUPABASE_SERVICE_ROLE_KEY,
+  // ADMIN_SECRET_KEY, BREVO_API_KEY, …) must be set as Worker secrets in the
+  // Cloudflare dashboard (`wrangler secret put …`) — never committed.
+}
