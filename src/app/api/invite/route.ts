@@ -36,7 +36,7 @@ export async function GET() {
   const { data, error } = await supabase.rpc("get_or_create_invite");
   if (error) {
     if (process.env.NODE_ENV !== "production") {
-      console.error("[invite] get_or_create_invite error", error.code, error.message);
+      if (String(process.env.NODE_ENV) !== "production") console.error("[invite] get_or_create_invite failed", error.code);
     }
     return NextResponse.json({ error: "Could not create invite." }, { status: 500 });
   }
