@@ -36,11 +36,11 @@ describe("inside hardening — route wiring", () => {
     );
   });
 
-  it("login rate-limits before verifying the admin key", () => {
+  it("login rate-limits before credential verification", () => {
     const body = login.slice(login.indexOf("export async function POST"));
     assert.ok(
-      body.indexOf("check_login_rate_limit") < body.indexOf("verifyAdminKey(adminKey)"),
-      "throttle must bound key-guessing cost",
+      body.indexOf("check_login_rate_limit") < body.indexOf("signInWithPassword"),
+      "throttle must bound credential-guessing cost",
     );
   });
 
