@@ -23,7 +23,7 @@ async function resolveInvite(
   });
   if (error) {
     if (process.env.NODE_ENV !== "production") {
-      console.error("[invite] resolve error", error.code, error.message);
+      if (String(process.env.NODE_ENV) !== "production") console.error("[invite] resolve failed", error.code);
     }
     return { kind: "invalid" };
   }
