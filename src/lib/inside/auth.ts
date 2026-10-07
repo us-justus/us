@@ -18,17 +18,18 @@ export { INSIDE_COOKIE, clearInsideCookieHeader, cookieAttrs, setInsideCookieHea
  * NEVER import this module from client components. It touches
  * ADMIN_SECRET_KEY, which must never enter the frontend bundle.
  *
- * Session model (all three factors bound together):
+ * Session model (both factors bound together server-side):
  *   1. Supabase Auth session (email/USN/phone + password sign-in).
  *   2. admin_users membership (explicit authorization, checked via the
  *      is_admin() RPC on every verification).
- *   3. ADMIN_SECRET_KEY presentation at login, bound into a signed
- *      `inside_admin` httpOnly cookie: "<userId>.<exp>.<sig>" where
- *      sig = HMAC-SHA256("<userId>.<exp>", ADMIN_SECRET_KEY).
+ *   After both verify, the server mints a signed `inside_admin` httpOnly
+ *   cookie: "<userId>.<exp>.<sig>" where
+ *   sig = HMAC-SHA256("<userId>.<exp>", ADMIN_SECRET_KEY).
  *
- * The cookie proves the key was presented during THIS login ceremony, so a
- * session minted via the normal /login (no key) can never open /inside even
- * for an admin user — and the key alone (no auth session) opens nothing.
+ * The cookie proves THIS login ceremony passed the admin gate, so a
+ * session minted via the normal /login can never open /inside even
+ * for an admin user. ADMIN_SECRET_KEY is strictly server-side: it only
+ * signs the cookie and is never accepted from, nor sent to, clients.
  * The secret itself is never stored, logged, returned, or sent to clients.
  */
 
@@ -46,13 +47,6 @@ function safeEqual(a: string, b: string): boolean {
   const bb = Buffer.from(b, "utf8");
   if (ab.length !== bb.length) return false;
   return timingSafeEqual(ab, bb);
-}
-
-/** Compare a submitted admin key without leaking it via timing or logs. */
-export function verifyAdminKey(submitted: unknown): boolean {
-  const s = secret();
-  if (!s || typeof submitted !== "string" || !submitted) return false;
-  return safeEqual(submitted, s);
 }
 
 function sign(userId: string, exp: number): string {
