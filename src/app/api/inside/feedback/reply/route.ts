@@ -3,6 +3,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { requireInsideAdmin } from "@/lib/inside/auth";
 import { recordInsideAuditEvent } from "@/lib/inside/audit";
 import { verifySameOrigin } from "@/lib/inside/origin";
+import { insideMutationRateLimit } from "@/lib/inside/mutation-rate-limit";
 import { validateFeedbackReply } from "@/lib/feedback/constants";
 import { sendFeedbackReplyEmail } from "@/lib/feedback/reply-email";
 import { isInternalEmail } from "@/lib/auth/internal-email";
@@ -50,6 +51,8 @@ export async function POST(req: Request) {
   }
   const gate = await requireInsideAdmin();
   if (!gate) return NextResponse.json({ error: GENERIC }, { status: 403 });
+  const rate = await insideMutationRateLimit(req, gate.userId);
+  if (!rate.allowed) return NextResponse.json({ error: GENERIC }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds ?? 60) } });
 
   const { feedbackId, replyBody } = (await req.json().catch(() => ({}))) as {
     feedbackId?: unknown;
@@ -95,11 +98,19 @@ export async function POST(req: Request) {
   // never client input, never the internal sign-in identity.
   const { data: vr } = await service
     .from("verification_records")
-    .select("email")
+    .select("email, email_verified_at")
     .eq("user_id", row.user_id)
     .maybeSingle();
   const recipient = (vr as { email?: unknown } | null)?.email;
-  if (!isUsableRecipient(recipient)) {
+  const { data: authAccount } = await service.auth.admin.getUserById(row.user_id);
+  const confirmedAuthEmail = authAccount.user?.email;
+  if (
+    !isUsableRecipient(recipient) ||
+    !vr?.email_verified_at ||
+    !confirmedAuthEmail ||
+    !authAccount.user?.email_confirmed_at ||
+    confirmedAuthEmail.trim().toLowerCase() !== String(recipient).trim().toLowerCase()
+  ) {
     return NextResponse.json(
       { error: "No usable email on file for this student — reply not sent." },
       { status: 422 },
