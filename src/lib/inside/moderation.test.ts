@@ -354,11 +354,12 @@ describe("inside step 3 — validation and response hygiene", () => {
   it("step 1/2 architecture is preserved (no parallel systems)", () => {
     const helper = code(src("src/lib/inside/audit.ts"));
     assert.ok(!helper.includes("STUDENT_BANNED"), "no ad-hoc action names");
-    // Only the resolve compensation path may use service-role (report
-    // status can only move forward through the sanctioned resolver, so
-    // rollback needs the privileged client); moderation compensates
-    // through the same sanctioned writer.
-    assert.ok(!code(src(MODERATE_ROUTE)).includes("createServiceRoleClient"));
+    // Moderation reads protected profile state with the server-only client,
+    // while all writes still use the sanctioned database RPC.
+    const moderateBody = code(src(MODERATE_ROUTE));
+    assert.ok(moderateBody.includes("createServiceRoleClient"));
+    assert.ok(moderateBody.includes("admin_set_student_active"));
+    assert.ok(!moderateBody.includes('.from("profiles").update('));
     const resolveBody = code(src(RESOLVE_ROUTE));
     assert.ok(resolveBody.includes("createServiceRoleClient"));
     // The import line also names it — inspect the usage, not the import.
