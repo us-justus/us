@@ -7,6 +7,7 @@ import { classifyLoginIdentifier } from "@/lib/auth/login-identifier";
 import { destinationForStep } from "@/lib/auth/redirect";
 import { resolveLoginNext } from "@/lib/auth/safe-next";
 import { getOnboardingState } from "@/lib/onboarding/state";
+import { readJsonBounded } from "@/lib/http/read-json-bounded";
 import {
   LOGIN_THROTTLED_MESSAGE,
   getClientIp,
@@ -69,7 +70,9 @@ import {
 const GENERIC = "Incorrect USN or password.";
 
 export async function POST(req: Request) {
-  const { identifier, usn, password, next: requestedNext } = (await req.json().catch(() => ({}))) as {
+  const parsed = await readJsonBounded<Record<string, unknown>>(req, 8192);
+  if (!parsed) return NextResponse.json({ error: GENERIC }, { status: 401 });
+  const { identifier, usn, password, next: requestedNext } = parsed as {
     identifier?: unknown;
     usn?: unknown;
     password?: unknown;
@@ -216,7 +219,7 @@ async function respondWithDestination(
   requestedNext: unknown,
 ) {
   // Reuse the already-authenticated user — never a second getUser().
-  const { data: suspension } = await supabase
+  const { data: suspension } = await service
     .from("profiles")
     .select("is_active, suspension_reason")
     .eq("user_id", user.id)
