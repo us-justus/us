@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 /**
  * GET /api/account/suspension — the caller's own suspension state.
@@ -18,7 +19,7 @@ export async function GET() {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
 
-  const { data, error } = await supabase
+  const { data, error } = await createServiceRoleClient()
     .from("profiles")
     .select("is_active, suspension_reason, suspended_at")
     .eq("user_id", user.id)
