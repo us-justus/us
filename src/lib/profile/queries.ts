@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { User } from "@supabase/supabase-js";
 
 export type OwnProfile = {
@@ -30,7 +31,10 @@ export async function getOwnProfile(knownUser?: User | null) {
   }
   if (!user) return { user: null, profile: null, photos: [] as OwnPhoto[], error: null as string | null };
 
-  const { data: profile, error: profileError } = await supabase
+  let privileged;
+  try { privileged = createServiceRoleClient(); } catch { return { user, profile: null, photos: [], error: "Could not load your profile. Please try again." }; }
+
+  const { data: profile, error: profileError } = await privileged
     .from("profiles")
     .select("id, user_id, nickname, age, year, branch, bio, interests, username, spot")
     .eq("user_id", user.id)
@@ -40,34 +44,28 @@ export async function getOwnProfile(knownUser?: User | null) {
   // callers can render an error state instead of the onboarding CTA.
   if (profileError) {
     // Dev-only diagnostic: user ID + error code/message. Never tokens/secrets.
-    if (process.env.NODE_ENV !== "production") {
-      console.error("[profile] fetch error", profileError.code, profileError.message);
-    }
+    if (process.env.NODE_ENV !== "production") console.error("[profile] fetch error", profileError.code);
     return { user, profile: null, photos: [] as OwnPhoto[], error: "Could not load your profile. Please try again." };
   }
 
   // Dev-only diagnostic: user ID + row-exists boolean. Never tokens/secrets.
-  if (process.env.NODE_ENV !== "production") {
-    console.log(`[profile] user=${user.id} profileExists=${profile !== null}`);
-  }
+  if (process.env.NODE_ENV !== "production") console.log(`[profile] profileExists=${profile !== null}`);
 
   if (!profile) return { user, profile: null, photos: [] as OwnPhoto[], error: null as string | null };
 
-  const { data: photos, error: photosError } = await supabase
+  const { data: photos, error: photosError } = await privileged
     .from("profile_photos")
     .select("id, storage_path, display_order")
     .eq("profile_id", (profile as OwnProfile).id)
     .order("display_order", { ascending: true });
 
-  if (photosError && process.env.NODE_ENV !== "production") {
-    console.error("[profile] photos fetch error", photosError.code, photosError.message);
-  }
+  if (photosError && process.env.NODE_ENV !== "production") console.error("[profile] photos fetch error", photosError.code);
 
   const mapped: OwnPhoto[] = (photos ?? []).map((p) => ({
     id: p.id,
     storage_path: p.storage_path,
     display_order: p.display_order,
-    url: supabase.storage.from("profile-photos").getPublicUrl(p.storage_path).data.publicUrl,
+    url: privileged.storage.from("profile-photos").getPublicUrl(p.storage_path).data.publicUrl,
   }));
 
   return { user, profile: profile as OwnProfile, photos: mapped, error: null as string | null };
