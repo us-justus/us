@@ -4,6 +4,8 @@ import { requireInsideAdmin } from "@/lib/inside/auth";
 import { recordInsideAuditEvent } from "@/lib/inside/audit";
 import { verifySameOrigin } from "@/lib/inside/origin";
 import { SUSPENSION_REASON_MAX, validateSuspensionReason } from "@/lib/auth/suspension";
+import { insideMutationRateLimit } from "@/lib/inside/mutation-rate-limit";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 /**
  * POST /api/inside/students/moderate — suspend / restore a student
@@ -42,6 +44,8 @@ export async function POST(req: Request) {
   }
   const gate = await requireInsideAdmin();
   if (!gate) return NextResponse.json({ error: GENERIC }, { status: 403 });
+  const rate = await insideMutationRateLimit(req, gate.userId);
+  if (!rate.allowed) return NextResponse.json({ error: GENERIC }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds ?? 60) } });
 
   const { userId, action, reason } = (await req.json().catch(() => ({}))) as {
     userId?: unknown;
@@ -74,7 +78,7 @@ export async function POST(req: Request) {
   let priorReason: string | null = null;
   if (wantActive) {
     try {
-      const { data: prior } = await supabase
+      const { data: prior } = await createServiceRoleClient()
         .from("profiles")
         .select("suspension_reason")
         .eq("user_id", userId)
