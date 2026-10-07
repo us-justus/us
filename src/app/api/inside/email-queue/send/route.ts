@@ -8,6 +8,8 @@ import {
   sendWaitlistEmail,
   validateWaitlistEmailContent,
 } from "@/lib/inside/waitlist-email";
+import { perfLog, perfStart } from "@/lib/utils/perf";
+import { insideMutationRateLimit } from "@/lib/inside/mutation-rate-limit";
 
 /**
  * POST /api/inside/email-queue/send — explicit send of the prepared
@@ -41,7 +43,7 @@ const STALE_SENDING_MS = 10 * 60 * 1000;
 /** Backoff before a temporary FAILED row becomes retryable. */
 const TEMPORARY_RETRY_MS = 5 * 60 * 1000;
 /** Upper bound per explicit send (the queue itself is audience-bounded). */
-const SEND_BATCH_LIMIT = 1000;
+const SEND_BATCH_LIMIT = 25;
 
 type QueueRow = {
   id: string;
@@ -99,11 +101,18 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const perf = perfStart();
+  const respond = (body: unknown, init: ResponseInit = {}) => {
+    perfLog("inside.email-queue.send", perf);
+    return NextResponse.json(body, init);
+  };
   if (!verifySameOrigin(req).ok) {
-    return NextResponse.json({ error: GENERIC }, { status: 403 });
+    return respond({ error: GENERIC }, { status: 403 });
   }
   const gate = await requireInsideAdmin();
-  if (!gate) return NextResponse.json({ error: GENERIC }, { status: 403 });
+  if (!gate) return respond({ error: GENERIC }, { status: 403 });
+  const rate = await insideMutationRateLimit(req, gate.userId);
+  if (!rate.allowed) return respond({ error: GENERIC }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds ?? 60) } });
 
   const { subject, message } = (await req.json().catch(() => ({}))) as {
     subject?: unknown;
@@ -111,26 +120,20 @@ export async function POST(req: Request) {
   };
   const contentError = validateWaitlistEmailContent(subject, message);
   if (contentError) {
-    return NextResponse.json({ error: contentError }, { status: 400 });
+    return respond({ error: contentError }, { status: 400 });
   }
   const cleanSubject = (subject as string).trim();
   const cleanMessage = (message as string).trim();
 
   if (!process.env.BREVO_API_KEY || !process.env.BREVO_SENDER_EMAIL) {
-    return NextResponse.json(
-      { error: "Email is not configured — nothing was sent." },
-      { status: 502 },
-    );
+    return respond({ error: "Email is not configured — nothing was sent." }, { status: 502 });
   }
 
   let service: ReturnType<typeof createServiceRoleClient>;
   try {
     service = createServiceRoleClient();
   } catch {
-    return NextResponse.json(
-      { error: "Could not send the email." },
-      { status: 500 },
-    );
+    return respond({ error: "Could not send the email." }, { status: 500 });
   }
 
   const { data: rows, error: listError } = await service
@@ -142,10 +145,7 @@ export async function POST(req: Request) {
     .order("created_at", { ascending: true })
     .limit(SEND_BATCH_LIMIT);
   if (listError) {
-    return NextResponse.json(
-      { error: "Could not send the email." },
-      { status: 500 },
-    );
+    return respond({ error: "Could not send the email." }, { status: 500 });
   }
 
   const now = Date.now();
@@ -296,16 +296,11 @@ export async function POST(req: Request) {
   }
 
   // Fresh durable counts are the source of truth for `remaining`.
-  const { data: states } = await service
+  const { count: remainingCount } = await service
     .from("waitlist_email_queue")
-    .select("status");
-  let remaining = 0;
-  if (Array.isArray(states)) {
-    for (const s of states) {
-      const st = (s as { status?: unknown }).status;
-      if (st === "PENDING" || st === "SENDING") remaining += 1;
-    }
-  }
+    .select("id", { count: "exact", head: true })
+    .in("status", ["PENDING", "SENDING"]);
+  const remaining = remainingCount ?? 0;
 
   // Best-effort (same reasoning as feedback replies): the emails already
   // delivered cannot be unsent, so an audit outage must not turn a
@@ -318,5 +313,5 @@ export async function POST(req: Request) {
     console.error("[inside] waitlist email sent but audit failed");
   }
 
-  return NextResponse.json({ attempted, sent, failed, skipped, remaining });
+  return respond({ attempted, sent, failed, skipped, remaining });
 }
