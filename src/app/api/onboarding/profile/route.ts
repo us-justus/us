@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { validateNickname, validateAge, validateYear, validateBranch, validateBio } from "@/lib/validation/profile";
 import { normalizeUsername, validateUsername } from "@/lib/validation/username";
 import { requireVerifiedEmailForWrite } from "@/lib/onboarding/require-verified-email";
@@ -24,6 +25,7 @@ export async function POST(req: Request) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+  const privileged = createServiceRoleClient();
 
   // Email-required completion guard: a real verified Auth email plus a
   // recorded onboarding email must exist before profile writes. Blocks
@@ -35,14 +37,14 @@ export async function POST(req: Request) {
 
   // Ownership + idempotency: a user with a spot keeps it forever; a username
   // once set is immutable (exact-casing refresh of the same name allowed).
-  const { data: existing, error: lookupError } = await supabase
+  const { data: existing, error: lookupError } = await privileged
     .from("profiles")
     .select("id, username, spot")
     .eq("user_id", user.id)
     .maybeSingle();
   if (lookupError) {
-    if (process.env.NODE_ENV !== "production") {
-      console.error("[profile] lookup error", lookupError.code, lookupError.message);
+    if (String(process.env.NODE_ENV) !== "production") {
+      if (process.env.NODE_ENV !== "production") console.error("[profile] lookup error", lookupError.code);
     }
     return NextResponse.json({ error: "Could not load profile." }, { status: 500 });
   }
@@ -60,7 +62,7 @@ export async function POST(req: Request) {
   // LIKE-escaped (`_` is a valid username char but a LIKE wildcard), and
   // ilike without wildcards is a case-insensitive equality match.
   const likePattern = normalized.replace(/[\\%_]/g, (m) => `\\${m}`);
-  const { data: clash } = await supabase
+  const { data: clash } = await privileged
     .from("profiles")
     .select("id")
     .ilike("username", likePattern)
@@ -80,15 +82,15 @@ export async function POST(req: Request) {
   if (spot === null) {
     const { data: allocated, error: allocError } = await supabase.rpc("allocate_campus_spot");
     if (allocError || typeof allocated !== "number") {
-      if (process.env.NODE_ENV !== "production") {
-        console.error("[profile] spot allocation error", allocError?.code, allocError?.message);
+      if (String(process.env.NODE_ENV) !== "production") {
+        if (process.env.NODE_ENV !== "production") console.error("[profile] spot allocation error", allocError?.code);
       }
       return NextResponse.json({ error: "Could not reserve your spot. Try again." }, { status: 500 });
     }
     spot = allocated;
   }
 
-  const { error } = await supabase.from("profiles").upsert({
+  const { error } = await privileged.from("profiles").upsert({
     user_id: user.id, nickname: String(nickname).trim(), age: Number(age), year: String(year), branch: String(branch), bio: bio ? String(bio).trim() : null, interests: Array.isArray(interests) ? interests.slice(0,8) : [],
     username: normalized, spot,
   }, { onConflict: "user_id" });
