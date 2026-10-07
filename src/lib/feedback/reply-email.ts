@@ -19,6 +19,8 @@ export type FeedbackReplyResult =
   | { kind: "permanent_failure"; detail: string }
   | { kind: "temporary_failure"; detail: string };
 
+export const FEEDBACK_BREVO_TIMEOUT_MS = 10_000;
+
 function sanitizedDetail(
   status: number,
   code: string | null,
@@ -56,10 +58,13 @@ export async function sendFeedbackReplyEmail(args: {
     .replace(/\n/g, "<br>");
 
   let res: Response;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FEEDBACK_BREVO_TIMEOUT_MS);
   try {
     res = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
       headers: { "api-key": apiKey, "content-type": "application/json" },
+      signal: controller.signal,
       body: JSON.stringify({
         sender: { name: senderName, email: senderEmail },
         to: [{ email: args.to }],
@@ -69,8 +74,14 @@ export async function sendFeedbackReplyEmail(args: {
       }),
     });
   } catch (e) {
+    const name = e instanceof Error ? e.name : "";
+    if (name === "AbortError" || name === "TimeoutError") {
+      return { kind: "temporary_failure", detail: "brevo request timed out" };
+    }
     const msg = e instanceof Error ? e.message.slice(0, 120) : "network error";
     return { kind: "temporary_failure", detail: msg };
+  } finally {
+    clearTimeout(timeout);
   }
 
   let bodyCode: string | null = null;
