@@ -100,10 +100,11 @@ describe("3. email can actually be replaced", () => {
     );
   });
 
-  it("email API upserts onto the existing row (replace, never a second row)", async () => {
+  it("email API saves through the narrow trusted RPC (replace, never a second row)", async () => {
     const { readFileSync } = await import("node:fs");
     const src = readFileSync(new URL("../../app/api/onboarding/email/route.ts", import.meta.url), "utf8");
-    assert.ok(src.includes("upsert({ user_id: user.id, email: val"), "email submit must upsert the same row");
+    assert.ok(src.includes('rpc("save_onboarding_email"'), "email submit must use the trusted RPC");
+    assert.ok(src.includes("p_email"), "email submit must pass only the email argument");
   });
 });
 

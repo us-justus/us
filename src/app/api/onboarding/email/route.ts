@@ -83,19 +83,14 @@ export async function POST(req: Request) {
   }
   const err = validateAccountEmail(val);
   if (err) return NextResponse.json({ error: err }, { status: 400 });
-  const { error } = await supabase
-    .from("verification_records")
-    .upsert({ user_id: user.id, email: val, email_skipped: false }, { onConflict: "user_id" });
+  // Direct authenticated upserts to verification_records.email are blocked
+  // by trg_guard_verification_email_identity (20261019000001). The narrow
+  // SECURITY DEFINER RPC below (20261020000001) is the only write path:
+  // caller-owned row via auth.uid(), email + email_skipped only, trust
+  // cleared on address change. email_skipped compatibility lives inside the
+  // RPC (always false); no route-level retry is needed.
+  const { error } = await supabase.rpc("save_onboarding_email", { p_email: val });
   if (error) {
-    if (/email_skipped/i.test(error.message)) {
-      // Pre-migration schema: legacy projection still records the email.
-      const retry = await supabase
-        .from("verification_records")
-        .upsert({ user_id: user.id, email: val }, { onConflict: "user_id" });
-      if (retry.error) return NextResponse.json({ error: "Could not save email." }, { status: 400 });
-      perfLog("onboarding.email", t);
-      return NextResponse.json({ ok: true });
-    }
     return NextResponse.json({ error: "Could not save email." }, { status: 400 });
   }
   perfLog("onboarding.email", t);
