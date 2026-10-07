@@ -27,7 +27,14 @@
       "binding": "WORKER_SELF_REFERENCE",
       "service": "us"
     }
-  ]
+  ],
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "invocation_logs": true,
+      "head_sampling_rate": 1
+    }
+  }
   // NOTE: no R2/KV/D1/R2/images/queues/cron bindings — nothing in the current
   // app requires them. Default OpenNext caching is used (no R2 incremental
   // cache). Add bindings here only when a measured need appears.
