@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { PrelaunchPanel } from "@/components/prelaunch/prelaunch-panel";
 import { getProductSession, guardProductSession } from "@/lib/auth/product-state";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -10,9 +11,10 @@ export default async function AuthenticatedHomePage() {
   const guard = guardProductSession(session);
   if (guard) redirect(guard);
 
+  const service = createServiceRoleClient();
   const supabase = await createClient();
   const [{ data }, { data: waitlistCount }] = await Promise.all([
-    supabase
+    service
       .from("profiles")
       .select("username, spot")
       .eq("user_id", session.user!.id)
