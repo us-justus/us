@@ -62,6 +62,7 @@ function assertServer(): void {
 
 /** Minimum seconds between verification sends for the same user+email. */
 export const RESEND_COOLDOWN_SECONDS = 60;
+export const MAX_VERIFICATION_EMAILS_PER_ACCOUNT_DAY = 5;
 
 export type VerificationRequestResult =
   | { ok: true; deduplicated: boolean }
@@ -90,6 +91,18 @@ export async function requestEmailVerification(
   if (trimmed.length > 254) return { ok: false, error: "Enter a valid email.", code: "invalid" };
   const normalized = normalizeEmail(trimmed);
   if (!isPlausibleEmail(normalized)) return { ok: false, error: "Enter a valid email.", code: "invalid" };
+
+  // Account-wide daily quota prevents bypass by rotating recipient addresses.
+  const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { count: dailyCount, error: quotaError } = await serviceClient
+    .from("email_verification_queue")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", user.id)
+    .gte("created_at", dayAgo);
+  if (quotaError) return { ok: false, error: "Verification is unavailable right now.", code: "unavailable" };
+  if ((dailyCount ?? 0) >= MAX_VERIFICATION_EMAILS_PER_ACCOUNT_DAY) {
+    return { ok: false, error: "Too many verification requests. Try again later.", retryAfterSeconds: 3600, code: "cooldown" };
+  }
 
   const { data: existing } = await serviceClient
     .from("verification_records")
