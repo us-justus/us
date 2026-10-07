@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { ALLOWED_PHOTO_TYPES, MAX_PHOTO_BYTES, MAX_PHOTOS } from "@/lib/validation/profile";
+import { MAX_PHOTO_BYTES, MAX_PHOTOS } from "@/lib/validation/profile";
+import { sniffImageMime } from "@/lib/photos/sniff";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 function extFromType(t: string) {
   if (t === "image/png") return "png";
@@ -14,7 +16,8 @@ export async function GET() {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
-  const { data: profile } = await supabase.from("profiles").select("id").eq("user_id", user.id).maybeSingle();
+  const privileged = createServiceRoleClient();
+  const { data: profile } = await privileged.from("profiles").select("id").eq("user_id", user.id).maybeSingle();
   if (!profile) return NextResponse.json({ photos: [] });
   const { data: photos } = await supabase
     .from("profile_photos")
@@ -34,13 +37,13 @@ export async function POST(req: Request) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
-  const { data: profile } = await supabase.from("profiles").select("id").eq("user_id", user.id).maybeSingle();
+  let privileged: ReturnType<typeof createServiceRoleClient>;
+  try { privileged = createServiceRoleClient(); } catch { return NextResponse.json({ error: "Upload failed." }, { status: 503 }); }
+  const { data: profile } = await privileged.from("profiles").select("id").eq("user_id", user.id).maybeSingle();
   if (!profile) return NextResponse.json({ error: "Create profile first." }, { status: 400 });
   const form = await req.formData().catch(() => null);
   const file = form?.get("file") as File | null;
   if (!file) return NextResponse.json({ error: "No file." }, { status: 400 });
-  if (!(ALLOWED_PHOTO_TYPES as readonly string[]).includes(file.type))
-    return NextResponse.json({ error: "Use JPG, PNG or WEBP." }, { status: 400 });
   if (file.size > MAX_PHOTO_BYTES) return NextResponse.json({ error: "Max 5 MB per photo." }, { status: 400 });
 
   const { data: existingPhotos } = await supabase
@@ -61,11 +64,13 @@ export async function POST(req: Request) {
     }
   }
 
-  const ext = extFromType(file.type);
-  const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   const buf = Buffer.from(await file.arrayBuffer());
-  const { error: upErr } = await supabase.storage.from("profile-photos").upload(path, buf, {
-    contentType: file.type,
+  const mime = sniffImageMime(buf);
+  if (!mime || (file.type && file.type !== mime)) return NextResponse.json({ error: "Use a valid JPG, PNG or WEBP image." }, { status: 400 });
+  const ext = extFromType(mime);
+  const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const { error: upErr } = await privileged.storage.from("profile-photos").upload(path, buf, {
+    contentType: mime,
     upsert: false,
   });
   if (upErr) return NextResponse.json({ error: "Upload failed." }, { status: 400 });
@@ -75,7 +80,7 @@ export async function POST(req: Request) {
     display_order: nextOrder,
   });
   if (dbErr) {
-    await supabase.storage.from("profile-photos").remove([path]);
+    await privileged.storage.from("profile-photos").remove([path]);
     return NextResponse.json({ error: "Could not save photo." }, { status: 400 });
   }
   const { data: photos } = await supabase
@@ -96,6 +101,7 @@ export async function DELETE(req: Request) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+  const privileged = createServiceRoleClient();
   const id = new URL(req.url).searchParams.get("id");
   if (!id) return NextResponse.json({ error: "Missing id." }, { status: 400 });
   const { data: photo } = await supabase
@@ -104,11 +110,11 @@ export async function DELETE(req: Request) {
     .eq("id", id)
     .maybeSingle();
   if (!photo) return NextResponse.json({ error: "Not found." }, { status: 404 });
-  const { data: profile } = await supabase.from("profiles").select("id, user_id").eq("id", photo.profile_id).maybeSingle();
-  if (!profile || profile.user_id !== user.id) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+  const { data: profile } = await privileged.from("profiles").select("id, user_id").eq("id", photo.profile_id).maybeSingle();
+  if (!profile || profile.user_id !== user.id) return NextResponse.json({ error: "Not found." }, { status: 404 });
 
   await supabase.from("profile_photos").delete().eq("id", id);
-  await supabase.storage.from("profile-photos").remove([photo.storage_path]);
+  try { await createServiceRoleClient().storage.from("profile-photos").remove([photo.storage_path]); } catch {}
 
   // Compact display_order to 0..n-1 to avoid gaps
   const { data: remaining } = await supabase
