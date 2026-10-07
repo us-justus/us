@@ -48,7 +48,7 @@ export async function getSeenMap(
     .in("match_id", matchIds);
   if (error) {
     if (process.env.NODE_ENV !== "production") {
-      console.error("[chat] read-state error", error.code, error.message);
+      if (String(process.env.NODE_ENV) !== "production") console.error("[chat] read-state error", error.code);
     }
     return { seenByMatch: new Map(), ok: false };
   }
@@ -69,7 +69,7 @@ export async function hasUnreadChat(supabase: SupabaseClient): Promise<boolean> 
   const { data, error } = await supabase.rpc("has_unread_chat");
   if (error) {
     if (process.env.NODE_ENV !== "production") {
-      console.error("[chat] unread flag error", error.code, error.message);
+      if (String(process.env.NODE_ENV) !== "production") console.error("[chat] unread flag error", error.code);
     }
     return false;
   }
@@ -90,7 +90,7 @@ export async function getChatMatchIds(supabase: SupabaseClient, userId: string):
     .limit(MATCHES_LIMIT);
   if (error) {
     if (process.env.NODE_ENV !== "production") {
-      console.error("[chat] match ids error", error.code, error.message);
+      if (String(process.env.NODE_ENV) !== "production") console.error("[chat] match ids error", error.code);
     }
     return [];
   }
@@ -110,7 +110,7 @@ export async function markConversationSeen(
   const { error } = await supabase.rpc("mark_chat_seen", { p_match_id: matchId });
   if (error) {
     if (process.env.NODE_ENV !== "production") {
-      console.error("[chat] mark seen error", error.code, error.message);
+      if (String(process.env.NODE_ENV) !== "production") console.error("[chat] mark seen error", error.code);
     }
     return { ok: false };
   }
