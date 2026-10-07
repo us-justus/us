@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { normalizeUSN, validateUSN } from "@/lib/verification/usn";
 import { decideUsnMutation, isDuplicateUsnError } from "@/lib/onboarding/usn-mutation";
 import { perfLog, perfStart } from "@/lib/utils/perf";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 export async function POST(req: Request) {
   const t = perfStart();
@@ -15,12 +16,8 @@ export async function POST(req: Request) {
     error: authError,
   } = await supabase.auth.getUser();
   if (authError) {
-    console.error("[onboarding/usn] auth error", {
-      message: authError.message,
-      code: (authError as unknown as { code?: string }).code,
-      status: (authError as unknown as { status?: number }).status,
-    });
     if (process.env.NODE_ENV !== "production") {
+      console.error("[onboarding/usn] auth lookup failed", authError.code);
       return NextResponse.json({ error: "Not authenticated.", details: authError.message }, { status: 401 });
     }
     return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
@@ -30,9 +27,10 @@ export async function POST(req: Request) {
   // USN is immutable once a profile exists: reject any change past that
   // point (identical retry passes through idempotently — e.g. a returning
   // user re-submitting their own USN always succeeds, never 409s).
+  const service = createServiceRoleClient();
   const [{ data: existingVr }, { data: existingProfile }] = await Promise.all([
     supabase.from("verification_records").select("usn").eq("user_id", user.id).maybeSingle(),
-    supabase.from("profiles").select("id").eq("user_id", user.id).maybeSingle(),
+    service.from("profiles").select("id").eq("user_id", user.id).maybeSingle(),
   ]);
   const stored = existingVr?.usn ? normalizeUSN(String(existingVr.usn)) : "";
   const mutation = decideUsnMutation({
@@ -54,13 +52,7 @@ export async function POST(req: Request) {
   );
 
   if (error) {
-    console.error("[onboarding/usn] database error", {
-      message: error.message,
-      code: error.code,
-      details: error.details,
-      hint: error.hint,
-      status: (error as unknown as { status?: number }).status,
-    });
+    if (process.env.NODE_ENV !== "production") console.error("[onboarding/usn] database write failed", error.code);
 
     if (isDuplicateUsnError(error)) {
       return NextResponse.json({ error: "This USN has already been registered." }, { status: 409 });
