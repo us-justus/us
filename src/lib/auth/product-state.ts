@@ -1,5 +1,6 @@
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { getAccountState, type AccountState } from "@/lib/auth/account";
 import { getOnboardingState, stepPath, type OnboardingStep } from "@/lib/onboarding/state";
 
@@ -49,11 +50,12 @@ export async function getProductSession(knownUser?: User | null): Promise<Produc
     return { state: "public", user: null, account: null, step: null, suspended: false };
   }
   const account = getAccountState(user);
+  const privileged = createServiceRoleClient();
   // Reuse the already-authenticated user — never a second getUser().
   // Suspension is independent of onboarding — resolve together.
   const [{ step }, suspension] = await Promise.all([
     getOnboardingState(user),
-    supabase
+    privileged
       .from("profiles")
       .select("is_active")
       .eq("user_id", user.id)
