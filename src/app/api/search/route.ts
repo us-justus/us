@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { getProductSession, guardProductSession } from "@/lib/auth/product-state";
 import { normalizeUsername, USERNAME_MAX } from "@/lib/validation/username";
 import { perfLog, perfStart } from "@/lib/utils/perf";
@@ -40,6 +41,7 @@ export async function GET(req: Request) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+  const privileged = createServiceRoleClient();
 
   // Reuse the known user — no second auth.getUser() on this request.
   const session = await getProductSession(user);
@@ -87,7 +89,7 @@ export async function GET(req: Request) {
   const projection = "user_id, username, spot, nickname, age, year, branch, is_active";
   const { data, error } =
     excluded.size > 0
-      ? await supabase
+      ? await privileged
           .from("profiles")
           .select(projection)
           .eq("is_active", true)
@@ -97,7 +99,7 @@ export async function GET(req: Request) {
           .not("user_id", "in", `(${[...excluded].join(",")})`)
           .order("username", { ascending: true })
           .limit(SEARCH_LIMIT)
-      : await supabase
+      : await privileged
           .from("profiles")
           .select(projection)
           .eq("is_active", true)
@@ -107,8 +109,8 @@ export async function GET(req: Request) {
           .order("username", { ascending: true })
           .limit(SEARCH_LIMIT);
   if (error) {
-    if (process.env.NODE_ENV !== "production") {
-      console.error("[search] query error", error.code, error.message);
+    if (String(process.env.NODE_ENV) !== "production") {
+      if (process.env.NODE_ENV !== "production") console.error("[search] query error", error.code);
     }
     return NextResponse.json({ error: "Search is unavailable right now." }, { status: 500 });
   }
