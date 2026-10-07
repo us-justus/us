@@ -5,6 +5,7 @@ import {
   adminLoginRateLimitKeys,
   loginRateLimitKeys,
   normalizeAdminLoginIdentity,
+  getClientIp,
 } from "./login-rate-limit.ts";
 
 const HEX64 = /^[0-9a-f]{64}$/;
@@ -68,5 +69,21 @@ describe("normalizeAdminLoginIdentity", () => {
     const a = adminLoginRateLimitKeys("9.9.9.9", normalizeAdminLoginIdentity("Admin@X.com"));
     const b = adminLoginRateLimitKeys("9.9.9.9", normalizeAdminLoginIdentity("  admin@x.COM "));
     assert.deepEqual(a, b);
+  });
+});
+
+describe("trusted client IP", () => {
+  it("uses Cloudflare connecting IP and ignores spoofed forwarding headers", () => {
+    const req = new Request("https://example.test", { headers: {
+      "cf-connecting-ip": "203.0.113.8",
+      "x-forwarded-for": "198.51.100.1, 192.0.2.1",
+      "x-real-ip": "192.0.2.9",
+    } });
+    assert.equal(getClientIp(req), "203.0.113.8");
+  });
+
+  it("ignores spoofed forwarded headers when Cloudflare metadata is absent", () => {
+    const req = new Request("https://example.test", { headers: { "x-forwarded-for": "198.51.100.10" } });
+    assert.notEqual(getClientIp(req), "198.51.100.10");
   });
 });
