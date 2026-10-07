@@ -187,8 +187,8 @@ describe("inside audit — login wiring", () => {
   it("records ADMIN_LOGIN_FAILURE on every generic 401 carrying an identifier", () => {
     const body = login();
     const calls = body.match(/await auditFailure\(\)/g) ?? [];
-    // origin, service-role config, admin-key config, bad key, resolver miss,
-    // sign-in failure, missing user, non-admin = 8.
+    // origin, service-role config, server key config, resolver miss,
+    // sign-in failure, missing user, non-admin = 7.
     assert.ok(calls.length >= 6, `expected failure hooks on all 401 paths, found ${calls.length}`);
     assert.ok(body.includes("recordInsideLoginFailure(identityHash)"));
   });
@@ -422,7 +422,9 @@ describe("inside audit — authorization and security", () => {
 describe("inside audit — Step 1 and product regressions", () => {
   it("inside login keeps its Step 1 architecture", () => {
     const body = code(src("src/app/api/inside/login/route.ts"));
-    assert.ok(body.includes("verifyAdminKey"), "admin-key check preserved");
+    assert.ok(!body.includes("adminKey"), "no browser-supplied key may be required");
+    assert.ok(body.includes("isInsideConfigured"), "server-side key config guard preserved");
+    assert.ok(body.includes("mintInsideSession"), "server-signed session preserved");
     assert.ok(body.includes('supabase.rpc("is_admin")'), "is_admin() check preserved");
     assert.ok(body.includes("resolve_login_email"), "USN resolver preserved");
     assert.ok(body.includes("resolve_phone_login_email"), "phone resolver preserved");
