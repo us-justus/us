@@ -2,10 +2,13 @@ import { type EmailOtpType } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { safeNextPath } from "@/lib/auth/safe-next";
 
 function safeNext(raw: string | null): string {
-  if (raw && raw.startsWith("/") && !raw.startsWith("//")) return raw;
-  return "/settings/account";
+  // Auth callback destinations are intentionally narrower than general
+  // login return paths and must remain exact internal paths.
+  if (raw === "/auth/update-password" || raw === "/onboarding/password") return raw;
+  return safeNextPath(raw) ?? "/settings/account";
 }
 
 /**
