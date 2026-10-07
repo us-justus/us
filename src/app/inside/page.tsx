@@ -5,8 +5,9 @@ import { InsideClient } from "./inside-client";
 /**
  * /inside — internal admin entry (INSIDE v1). Never linked from product UI.
  *
- * Server-gated three ways (see src/lib/inside/auth.ts): signed inside
- * cookie (proves the admin key was presented at login) + live Supabase
+ * Server-gated three ways (see src/lib/inside/auth.ts): server-signed
+ * inside cookie (minted only after Supabase authentication + admin_users
+ * membership are verified) + live Supabase
  * session for the same user + current admin_users membership. Unverified
  * visitors get the login screen; verified admins get the dashboard with
  * server-fetched aggregates (no private fields ever reach the browser).
