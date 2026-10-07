@@ -4,6 +4,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { requireInsideAdmin } from "@/lib/inside/auth";
 import { recordInsideAuditEvent } from "@/lib/inside/audit";
 import { verifySameOrigin } from "@/lib/inside/origin";
+import { insideMutationRateLimit } from "@/lib/inside/mutation-rate-limit";
 
 /**
  * POST /api/inside/reports/resolve — resolve a report, optionally with a
@@ -40,6 +41,8 @@ export async function POST(req: Request) {
   }
   const gate = await requireInsideAdmin();
   if (!gate) return NextResponse.json({ error: GENERIC }, { status: 403 });
+  const rate = await insideMutationRateLimit(req, gate.userId);
+  if (!rate.allowed) return NextResponse.json({ error: GENERIC }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds ?? 60) } });
 
   const { reportId, resolution, moderate, reason } = (await req.json().catch(() => ({}))) as {
     reportId?: unknown;
