@@ -52,25 +52,15 @@ function AccountFlow({
   const linkError = params.get("error");
   const justVerified = params.get("verified") === "1";
 
-  // Keep the private onboarding email record in sync with the verified Auth
-  // email (own-row upsert, RLS-safe). Login resolves the auth email fresh
-  // from Auth, so this is display hygiene — never identity.
+  // The server verifies the session and Auth confirmation before it updates
+  // the private onboarding record; the browser never writes trusted email state.
   useEffect(() => {
     if (!justVerified || !account?.email) return;
     let cancelled = false;
     (async () => {
       try {
-        const supabase = createClient();
-        const { data: { user: u } } = await supabase.auth.getUser();
-        if (!u || cancelled || !account.email) return;
-        const full = await supabase
-          .from("verification_records")
-          .upsert({ user_id: u.id, email: account.email, email_skipped: false }, { onConflict: "user_id" });
-        if (full.error && /email_skipped/i.test(full.error.message)) {
-          await supabase
-            .from("verification_records")
-            .upsert({ user_id: u.id, email: account.email }, { onConflict: "user_id" });
-        }
+        if (cancelled) return;
+        await fetch("/api/account/sync-verified-email", { method: "POST" });
       } catch {
         // Best-effort only — verification itself already succeeded.
       }
