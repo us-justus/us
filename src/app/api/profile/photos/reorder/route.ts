@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { MAX_PHOTOS } from "@/lib/validation/profile";
 
 export async function POST(req: Request) {
@@ -18,7 +19,8 @@ export async function POST(req: Request) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
 
-  const { data: profile } = await supabase.from("profiles").select("id, user_id").eq("user_id", user.id).maybeSingle();
+  const privileged = createServiceRoleClient();
+  const { data: profile } = await privileged.from("profiles").select("id, user_id").eq("user_id", user.id).maybeSingle();
   if (!profile) return NextResponse.json({ error: "Profile not found." }, { status: 404 });
 
   const { data: photos } = await supabase.from("profile_photos").select("id, profile_id, storage_path").eq("profile_id", profile.id);
