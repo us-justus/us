@@ -6,7 +6,6 @@ import {
   isInsideConfigured,
   mintInsideSession,
   setInsideCookieHeader,
-  verifyAdminKey,
 } from "@/lib/inside/auth";
 import {
   hashAdminLoginIdentity,
@@ -20,11 +19,12 @@ import {
   getClientIp,
   normalizeAdminLoginIdentity,
 } from "@/lib/auth/login-rate-limit";
+import { readJsonBounded } from "@/lib/http/read-json-bounded";
 
 /**
  * POST /api/inside/login — internal admin login (INSIDE v1).
  *
- * Body: { identifier, password, adminKey } where identifier is ANY ONE of
+ * Body: { identifier, password } where identifier is ANY ONE of
  * email / phone / USN. Uses the existing Supabase Auth architecture — no
  * separate auth system:
  *   - email identifier  → signInWithPassword directly (Supabase verifies).
@@ -35,9 +35,11 @@ import {
  *     product, so this is the smallest new resolver), then signInWithPassword.
  *
  * After authentication: the session's user must be in admin_users
- * (is_admin() RPC). The submitted admin key must match ADMIN_SECRET_KEY
- * (server env only, timing-safe compare, never logged/returned). Success
- * mints a signed httpOnly cookie binding all three factors together.
+ * (is_admin() RPC). Success mints a signed httpOnly cookie binding the
+ * verified session to the admin membership: ADMIN_SECRET_KEY stays
+ * strictly server-side — it only signs the cookie via mintInsideSession()
+ * and is never accepted from, nor returned to, the client. The secret is
+ * never logged/returned.
  *
  * Every credential/authorization failure returns the same generic message so
  * the endpoint never reveals whether an identifier, account, or admin row
@@ -70,10 +72,11 @@ import {
 const GENERIC = "Those details don't open inside.";
 
 export async function POST(req: Request) {
-  const { identifier, password, adminKey } = (await req.json().catch(() => ({}))) as {
+  const parsed = await readJsonBounded<Record<string, unknown>>(req, 8192);
+  if (!parsed) return NextResponse.json({ error: GENERIC }, { status: 401 });
+  const { identifier, password } = parsed as {
     identifier?: unknown;
     password?: unknown;
-    adminKey?: unknown;
   };
 
   const idRaw = typeof identifier === "string" ? identifier.trim() : "";
@@ -84,7 +87,7 @@ export async function POST(req: Request) {
 
   // Audit attribution for failed attempts: hash-only digest of the
   // normalized identifier (same privacy approach as the login-abuse
-  // buckets). Raw identifiers, passwords, keys, and tokens never reach the
+  // buckets). Raw identifiers and passwords never reach the
   // audit log. Best-effort: an audit-storage outage must not change the
   // generic 401 outcome (see src/lib/inside/audit.ts).
   const identityHash = hashAdminLoginIdentity(idRaw);
@@ -96,14 +99,13 @@ export async function POST(req: Request) {
 
   // CSRF layer only — indistinguishable failure; auth below stays authoritative.
   if (!verifySameOrigin(req).ok) {
-    await auditFailure();
     return NextResponse.json({ error: GENERIC }, { status: 401 });
   }
 
   // Cheap pre-auth gate reusing the product limiter: hashed keys only (raw
-  // IP/identifier never stored, password never involved). Fail-open on
-  // limiter error — authentication below still runs fully, so a limiter
-  // outage never means auth success.
+  // IP/identifier never stored, password never involved). Fail closed if the
+  // distributed limiter is unavailable; admin login must not lose its brute
+  // force guard during a database outage.
   const { ipKey, ipIdKey } = adminLoginRateLimitKeys(
     getClientIp(req),
     normalizeAdminLoginIdentity(idRaw),
@@ -123,18 +125,21 @@ export async function POST(req: Request) {
       p_ip_key: ipKey,
       p_ip_usn_key: ipIdKey,
     });
-    if (!error) {
-      const decision = data as { allowed?: boolean; retry_after_seconds?: number } | null;
-      if (decision && decision.allowed === false) {
-        const retry = Number(decision.retry_after_seconds ?? 0);
-        const res = NextResponse.json({ error: LOGIN_THROTTLED_MESSAGE }, { status: 429 });
-        // Include Retry-After only when reliably calculated by the function.
-        if (Number.isFinite(retry) && retry > 0) res.headers.set("Retry-After", String(Math.ceil(retry)));
-        return res;
-      }
+    if (error || !data) {
+      return NextResponse.json({ error: "Inside is unavailable right now." }, { status: 503 });
+    }
+    const decision = data as { allowed?: boolean; retry_after_seconds?: number } | null;
+    if (decision?.allowed !== true && decision?.allowed !== false) {
+      return NextResponse.json({ error: "Inside is unavailable right now." }, { status: 503 });
+    }
+    if (decision.allowed === false) {
+      const retry = Number(decision.retry_after_seconds ?? 0);
+      const res = NextResponse.json({ error: LOGIN_THROTTLED_MESSAGE }, { status: 429 });
+      if (Number.isFinite(retry) && retry > 0) res.headers.set("Retry-After", String(Math.ceil(retry)));
+      return res;
     }
   } catch {
-    // Fail open for the limiter only; continue to real authentication.
+    return NextResponse.json({ error: "Inside is unavailable right now." }, { status: 503 });
   }
 
   if (!isInsideConfigured()) {
@@ -144,19 +149,13 @@ export async function POST(req: Request) {
     await auditFailure();
     return NextResponse.json({ error: GENERIC }, { status: 401 });
   }
-  // Key checked up front so no auth work happens for a wrong key — still the
-  // same generic message, so nothing about accounts is revealed either way.
-  // The secret is never logged.
-  if (!verifyAdminKey(adminKey)) {
-    await auditFailure();
-    return NextResponse.json({ error: GENERIC }, { status: 401 });
-  }
 
   // Credential resolution runs through the server-only service-role client:
   // anon EXECUTE on both resolvers was revoked (login abuse protection), so
-  // the anon session client can no longer call them. The key never leaves
-  // the server. Sign-in below stays on the session client (cookies); the
-  // existing admin-key + is_admin() authorization is unchanged.
+  // the anon session client can no longer call them. Sign-in below stays on
+  // the session client (cookies); the is_admin() authorization is unchanged.
+  // ADMIN_SECRET_KEY is used only server-side to sign the session cookie on
+  // success — it is never read from the request.
   const supabase = await createClient();
   let email: string | null = null;
 
@@ -208,7 +207,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: GENERIC }, { status: 401 });
   }
 
-  // Explicit authorization: secret key alone is never sufficient.
+  // Explicit authorization: the authenticated session alone is never
+  // sufficient — the user must hold a current admin_users membership.
   const { data: admin, error: adminError } = await supabase.rpc("is_admin");
   if (adminError || admin !== true) {
     await supabase.auth.signOut();
