@@ -25,6 +25,20 @@ export async function POST(req: Request) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+
+  // Admin exclusion: admin users must never consume a student waitlist spot
+  // (username, #spot, or claim row). Checked via is_admin() on the session
+  // client (auth.uid()-based, no client-supplied identity), before the
+  // username pre-check and before allocate_campus_spot() so an admin consumes
+  // nothing. Fail closed: an unknown role-check outcome never allocates.
+  const { data: isAdmin, error: adminCheckError } = await supabase.rpc("is_admin");
+  if (adminCheckError || isAdmin === true) {
+    return NextResponse.json(
+      { error: "This account can't create a student profile." },
+      { status: 403 },
+    );
+  }
+
   const privileged = createServiceRoleClient();
 
   // Email-required completion guard: a real verified Auth email plus a
