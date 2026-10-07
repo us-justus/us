@@ -193,6 +193,12 @@ export function PasswordForm() {
       // Same session, same UID — Supabase Auth stores the password hash.
       const { error } = await supabase.auth.updateUser({ password });
       if (error) throw new Error("Could not set password. Please try again.");
+      // Server-owned password-setup proof: record password_set_at ONLY after
+      // the Auth password write succeeds. The RPC takes no password and no
+      // user_id (caller derived from auth.uid()); a failed password write
+      // never reaches this call, so no proof is recorded on failure.
+      const { error: recordError } = await supabase.rpc("record_onboarding_password");
+      if (recordError) throw new Error("Could not set password. Please try again.");
       const { next } = await resolveState().catch(() => ({ next: "/onboarding/profile" as string | null }));
       setPhase("done");
       setTimeout(() => router.push(next ?? "/onboarding/profile"), 700);

@@ -31,14 +31,20 @@ export type OnboardingStep = "usn" | "email" | "password" | "profile" | "photos"
  *
  * - `usn`: no verification row yet (neither path entered).
  * - `email`: no real recorded email yet (either track), OR a legacy skip.
- * - `password`: recorded email exists but the Auth identity is not yet a
- *   real verified permanent account (anonymous, email-change pending,
- *   or legacy internal identity). The password step links the email to the
- *   CURRENT anonymous user (UID preserved, never signUp), verifies it, and
- *   sets the password. No profile/photo grandfathering: even accounts with
- *   a profile owe this gate until the Auth email is real + confirmed.
+ * - `password`: recorded email exists but the account still owes password
+ *   setup — either the Auth identity is not yet a real verified permanent
+ *   account (anonymous, email-change pending, or legacy internal identity),
+ *   OR the email is verified but `password_set_at IS NULL` and no profile
+ *   exists yet. The password step links the email to the CURRENT anonymous
+ *   user (UID preserved, never signUp), verifies it, and sets the password.
+ *   No email-verification grandfathering: even accounts with a profile owe
+ *   the Auth gate until the email is real + confirmed. Password-setup
+ *   grandfathering is profile-scoped only: an existing profile never
+ *   returns to `password` (legacy accounts created before `password_set_at`
+ *   existed keep their tail).
  * - `profile` / `photos` / `complete`: shared tail, reachable ONLY with a
- *   real verified Auth email plus the recorded email.
+ *   real verified Auth email plus the recorded email plus (for new
+ *   accounts) a recorded `password_set_at`.
  *
  * Pass the already-authenticated User whenever the caller has it so this
  * never pays for a second auth.getUser() on one request.
@@ -61,15 +67,36 @@ export async function getOnboardingState(
   };
   // email_skipped is a legacy column. Read it when present so historical
   // rows still parse, but NEVER honor it — skip is not a valid state.
-  type VrRow = { usn: string | null; email: string | null; email_skipped?: boolean | null };
+  // password_set_at is the server-owned password-setup proof (20261021000001).
+  // Pre-migration rows read as NULL (owe the password step when verified
+  // with no profile yet); existing profiles are grandfathered regardless.
+  type VrRow = { usn: string | null; email: string | null; email_skipped?: boolean | null; password_set_at?: string | null };
   let vr: VrRow | null = null;
   const full = await supabase
     .from("verification_records")
-    .select("usn, email, email_skipped")
+    .select("usn, email, email_skipped, password_set_at")
     .eq("user_id", userId)
     .maybeSingle();
   if (!full.error) {
     vr = full.data as unknown as VrRow | null;
+  } else if (/password_set_at/i.test(full.error.message ?? "")) {
+    // Pre-migration schema: retry without the new column (treated as NULL
+    // below — verified users with no profile owe the password step).
+    const legacy = await supabase
+      .from("verification_records")
+      .select("usn, email, email_skipped")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (!legacy.error) {
+      vr = legacy.data as unknown as VrRow | null;
+    } else if (/email_skipped/i.test(legacy.error.message ?? "")) {
+      const ancient = await supabase
+        .from("verification_records")
+        .select("usn, email")
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (!ancient.error) vr = ancient.data as unknown as VrRow | null;
+    }
   } else if (/email_skipped/i.test(full.error.message ?? "")) {
     const legacy = await supabase
       .from("verification_records")
@@ -109,16 +136,26 @@ export async function getOnboardingState(
     return done("password");
   }
   let privileged;
-  try { privileged = createServiceRoleClient(); } catch { return done("profile"); }
+  try { privileged = createServiceRoleClient(); } catch { return done("password"); }
   const { data: profile } = await privileged.from("profiles").select("id").eq("user_id", userId).maybeSingle();
-  if (!profile) {
-    return done("profile");
+  // Grandfather: an existing profile never returns to the password step
+  // (covers accounts completed before password_set_at existed).
+  if (profile) {
+    const { count } = await supabase.from("profile_photos").select("id", { count: "exact", head: true }).eq("profile_id", (profile as { id: string }).id);
+    if (!count || count < 1) {
+      return done("photos");
+    }
+    return done("complete");
   }
-  const { count } = await supabase.from("profile_photos").select("id", { count: "exact", head: true }).eq("profile_id", profile.id);
-  if (!count || count < 1) {
-    return done("photos");
+  // Verified email but no password proof and no profile yet: the account
+  // still owes password setup. This is the authoritative gate that keeps the
+  // verification-link flow (?verified=1) on the password step instead of
+  // bouncing to profile before a password is set. Client flags are never
+  // trusted.
+  if (!vr?.password_set_at) {
+    return done("password");
   }
-  return done("complete");
+  return done("profile");
 }
 
 export function stepPath(step: OnboardingStep): string {
