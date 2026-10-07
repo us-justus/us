@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import {
   FEEDBACK_SUBMIT_PER_HOUR,
   isFeedbackCategory,
@@ -76,9 +77,13 @@ export async function POST(req: Request) {
   // profile. Suspended now → this submission IS an appeal, pinned to the
   // current suspended_at (fallback now() if the timestamp is missing).
   // Never read from the request body — client context is untrusted.
+  let service: ReturnType<typeof createServiceRoleClient>;
+  try { service = createServiceRoleClient(); } catch {
+    return NextResponse.json({ error: "Could not send feedback. Try again." }, { status: 500 });
+  }
   let appealLink: string | null = null;
   try {
-    const { data: prof } = await supabase
+    const { data: prof } = await service
       .from("profiles")
       .select("is_active, suspended_at")
       .eq("user_id", user.id)
@@ -92,7 +97,7 @@ export async function POST(req: Request) {
     }
   } catch {}
 
-  const { data, error } = await supabase
+  const { data, error } = await service
     .from("feedback")
     .insert({
       user_id: user.id,
