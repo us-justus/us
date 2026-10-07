@@ -26,6 +26,7 @@
 
 export const RATE_LIMIT_FALLBACK_SECONDS = 60;
 export const QUOTA_RETRY_SECONDS_DEFAULT = 3600;
+export const BREVO_REQUEST_TIMEOUT_MS = 10_000;
 
 export type BrevoSendResult =
   | { kind: "success"; providerMessageId: string }
@@ -129,10 +130,13 @@ export async function sendVerificationEmail(args: {
   }
 
   let res: Response;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), BREVO_REQUEST_TIMEOUT_MS);
   try {
     res = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
       headers: { "api-key": apiKey, "content-type": "application/json" },
+      signal: controller.signal,
       body: JSON.stringify({
         sender: { name: senderName, email: senderEmail },
         to: [{ email: args.to }],
@@ -143,8 +147,14 @@ export async function sendVerificationEmail(args: {
       }),
     });
   } catch (e) {
+    const name = e instanceof Error ? e.name : "";
+    if (name === "AbortError" || name === "TimeoutError") {
+      return { kind: "temporary_failure", category: "timeout", detail: "brevo request timed out" };
+    }
     const msg = e instanceof Error ? e.message.slice(0, 120) : "network error";
     return { kind: "temporary_failure", category: "network_error", detail: msg };
+  } finally {
+    clearTimeout(timeout);
   }
 
   let bodyCode: string | null = null;
