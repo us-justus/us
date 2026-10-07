@@ -25,16 +25,14 @@ export function InsideClient(
 function InsideLogin() {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
-  const [adminKey, setAdminKey] = useState("");
   const [showPw, setShowPw] = useState(false);
-  const [showKey, setShowKey] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function enter() {
     setError(null);
-    if (!identifier.trim() || !password || !adminKey) {
-      setError("Enter your identifier, password, and admin key.");
+    if (!identifier.trim() || !password) {
+      setError("Enter your identifier and password.");
       return;
     }
     setBusy(true);
@@ -42,7 +40,7 @@ function InsideLogin() {
       const res = await fetch("/api/inside/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ identifier: identifier.trim(), password, adminKey }),
+        body: JSON.stringify({ identifier: identifier.trim(), password }),
       });
       if (!res.ok) throw new Error(LOGIN_ERROR);
       // The server gate re-runs with the fresh signed cookie.
@@ -110,7 +108,7 @@ function InsideLogin() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
-              enterKeyHint="next"
+              enterKeyHint="go"
               className="w-full rounded-2xl border border-line bg-paper px-4 py-3.5 pr-16 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft"
             />
             <button
@@ -120,35 +118,6 @@ function InsideLogin() {
               className="absolute right-2 top-1/2 flex min-h-[44px] min-w-[44px] -translate-y-1/2 items-center justify-center rounded-full text-[12px] uppercase tracking-[0.08em] text-ink-soft transition-colors hover:bg-accent-wash hover:text-accent-deep"
             >
               {showPw ? "hide" : "show"}
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-4">
-          <label
-            htmlFor="inside-key"
-            className="text-[11px] uppercase tracking-[0.14em] text-ink-faint"
-          >
-            admin key
-          </label>
-          <div className="relative mt-2">
-            <input
-              id="inside-key"
-              type={showKey ? "text" : "password"}
-              value={adminKey}
-              onChange={(e) => setAdminKey(e.target.value)}
-              autoComplete="off"
-              spellCheck={false}
-              enterKeyHint="go"
-              className="w-full rounded-2xl border border-line bg-paper px-4 py-3.5 pr-16 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft"
-            />
-            <button
-              type="button"
-              onClick={() => setShowKey((v) => !v)}
-              aria-label={showKey ? "hide admin key" : "show admin key"}
-              className="absolute right-2 top-1/2 flex min-h-[44px] min-w-[44px] -translate-y-1/2 items-center justify-center rounded-full text-[12px] uppercase tracking-[0.08em] text-ink-soft transition-colors hover:bg-accent-wash hover:text-accent-deep"
-            >
-              {showKey ? "hide" : "show"}
             </button>
           </div>
         </div>
