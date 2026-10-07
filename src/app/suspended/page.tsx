@@ -4,7 +4,7 @@ import {
   getProductSession,
   guardProductSession,
 } from "@/lib/auth/product-state";
-import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { stepPath } from "@/lib/onboarding/state";
 
 export const dynamic = "force-dynamic";
@@ -34,7 +34,7 @@ export default async function SuspendedPage() {
     redirect(stepPath(session.step ?? "usn"));
   }
 
-  const supabase = await createClient();
+  const supabase = createServiceRoleClient();
   const { data } = await supabase
     .from("profiles")
     .select("suspension_reason")
