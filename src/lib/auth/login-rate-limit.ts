@@ -19,13 +19,8 @@ import { normalizeUSN, validateUSN } from "../verification/usn.ts";
  *   - LOGIN_RATE_LIMIT_MAX_PER_IP = 100 (substantially tolerant)
  *   - LOGIN_RATE_LIMIT_MAX_PER_IP_USN = 10 (targeted)
  *
- * IP TRUST MODEL: the repo declares no hosting platform, so there is no
- * trustworthy proxy-provided source IP yet. getClientIp() prefers the first
- * entry of `x-forwarded-for`, then `x-real-ip`, else "unknown" (all unknown
- * sources share one conservative bucket). Under the current runtime that
- * header is client-influenceable — the implementation does NOT pretend it is
- * authoritative. Follow-up once hosting is declared: bind extraction to the
- * platform-verified connecting-IP header / proxy allowlist and re-tune.
+ * Production is served by Cloudflare Workers. `CF-Connecting-IP` is set by
+ * Cloudflare at the edge; client supplied X-Forwarded-For is never trusted.
  */
 
 export const LOGIN_RATE_LIMIT_WINDOW_SECONDS = 900;
@@ -36,13 +31,12 @@ export const LOGIN_THROTTLED_MESSAGE = "Too many login attempts. Please try agai
 
 /** Best-effort client IP under the current runtime (see trust model above). */
 export function getClientIp(req: Request): string {
-  const forwarded = req.headers.get("x-forwarded-for");
-  if (forwarded) {
-    const first = forwarded.split(",")[0]?.trim();
-    if (first) return first.slice(0, 128);
-  }
-  const real = req.headers.get("x-real-ip");
-  if (real?.trim()) return real.trim().slice(0, 128);
+  const cf = req.headers.get("cf-connecting-ip")?.trim();
+  if (cf && cf.length <= 128 && /^[0-9a-f:.]+$/i.test(cf)) return cf;
+  // Local development has no Cloudflare edge. Keep it usable while ensuring
+  // prod fails closed to a shared unknown bucket if the trusted header is
+  // absent. Never fall back to forwarded client headers.
+  if (process.env.NODE_ENV !== "production") return "local-development";
   return "unknown";
 }
 
