@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { getAccountState } from "@/lib/auth/account";
 import { displayAccountEmail } from "@/lib/auth/internal-email";
 import { destinationForStep } from "@/lib/auth/redirect";
@@ -21,6 +22,7 @@ export async function GET() {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ signedIn: false as const });
+  const privileged = createServiceRoleClient();
 
   const account = getAccountState(user);
   // Pass the already-authenticated user so getOnboardingState() does not
@@ -54,7 +56,7 @@ export async function GET() {
   // photo URL only — never private fields, never the full photo set. Resolved
   // inside this same per-navigation fetch so the nav adds zero extra requests.
   const avatarQuery = (async () => {
-    const { data: prof } = await supabase
+    const { data: prof } = await privileged
       .from("profiles")
       .select("id")
       .eq("user_id", user.id)
@@ -90,7 +92,7 @@ export async function GET() {
   // (the product guard re-checks server-side regardless).
   let suspended = false;
   try {
-    const { data: prof } = await supabase
+    const { data: prof } = await privileged
       .from("profiles")
       .select("is_active")
       .eq("user_id", user.id)
