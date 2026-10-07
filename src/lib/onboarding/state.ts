@@ -1,5 +1,6 @@
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { getAccountState, hasRealVerifiedEmail } from "@/lib/auth/account";
 import { isInternalEmail } from "@/lib/auth/internal-email";
 import { decideOnboardingTrack } from "@/lib/onboarding/track-decision";
@@ -107,7 +108,9 @@ export async function getOnboardingState(
     void getAccountState(user);
     return done("password");
   }
-  const { data: profile } = await supabase.from("profiles").select("id").eq("user_id", userId).maybeSingle();
+  let privileged;
+  try { privileged = createServiceRoleClient(); } catch { return done("profile"); }
+  const { data: profile } = await privileged.from("profiles").select("id").eq("user_id", userId).maybeSingle();
   if (!profile) {
     return done("profile");
   }
