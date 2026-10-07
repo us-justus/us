@@ -4,6 +4,7 @@ import { ProfilePhotoCarousel } from "@/components/profile/profile-photo-carouse
 import type { OwnPhoto } from "@/lib/profile/queries";
 import { getProductSession, guardProductSession } from "@/lib/auth/product-state";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,8 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
   // LIKE-escape (`_` is legal in usernames but a LIKE wildcard); ilike
   // without wildcards is a case-insensitive equality match.
   const likePattern = handle.replace(/[\\%_]/g, (m) => `\\${m}`);
-  const { data: row } = await supabase
+  const service = createServiceRoleClient();
+  const { data: row } = await service
     .from("profiles")
     .select("id, user_id, username, spot, nickname, age, year, branch, bio, interests, is_active")
     .ilike("username", likePattern)
@@ -79,7 +81,7 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
     notFound();
   }
 
-  const { data: photos } = await supabase
+  const { data: photos } = await service
     .from("profile_photos")
     .select("id, storage_path, display_order")
     .eq("profile_id", profile.id)
@@ -95,7 +97,7 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
     id: p.id,
     storage_path: p.storage_path,
     display_order: p.display_order,
-    url: supabase.storage.from("profile-photos").getPublicUrl(p.storage_path).data.publicUrl,
+    url: service.storage.from("profile-photos").getPublicUrl(p.storage_path).data.publicUrl,
   }));
 
   return (
