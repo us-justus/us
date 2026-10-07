@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import {
   validateNickname,
   validateAge,
@@ -14,8 +15,9 @@ export async function GET() {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+  const privileged = createServiceRoleClient();
 
-  const { data: profile, error } = await supabase
+  const { data: profile, error } = await privileged
     .from("profiles")
     .select("id, nickname, age, year, branch, bio, interests, username, spot")
     .eq("user_id", user.id)
@@ -24,21 +26,17 @@ export async function GET() {
   // Database failure is distinct from "no profile row": 500, not 200-null.
   // Dev-only diagnostic logs user ID + error code/message. Never tokens/secrets.
   if (error) {
-    if (process.env.NODE_ENV !== "production") {
-      console.error("[profile] fetch error", error.code, error.message);
-    }
+      if (String(process.env.NODE_ENV) !== "production") console.error("[profile] fetch error", error.code);
     return NextResponse.json({ error: "Could not fetch profile." }, { status: 500 });
   }
 
   // Dev-only diagnostic: user ID + row-exists boolean. Never tokens/secrets.
-  if (process.env.NODE_ENV !== "production") {
-    console.log(`[profile] user=${user.id} profileExists=${profile !== null}`);
-  }
+    if (String(process.env.NODE_ENV) !== "production") console.log(`[profile] profileExists=${profile !== null}`);
 
   // 200 + null profile = authenticated but no profile row (complete onboarding).
   if (!profile) return NextResponse.json({ profile: null, photos: [] });
 
-  const { data: photos } = await supabase
+  const { data: photos } = await privileged
     .from("profile_photos")
     .select("id, storage_path, display_order")
     .eq("profile_id", profile.id)
@@ -48,7 +46,7 @@ export async function GET() {
     id: p.id,
     storage_path: p.storage_path,
     display_order: p.display_order,
-    url: supabase.storage.from("profile-photos").getPublicUrl(p.storage_path).data.publicUrl,
+    url: privileged.storage.from("profile-photos").getPublicUrl(p.storage_path).data.publicUrl,
   }));
 
   // Only expose public fields — never USN/email/auth ID
@@ -101,9 +99,10 @@ export async function PATCH(req: Request) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+  const privileged = createServiceRoleClient();
 
   // Verify ownership server-side via user_id = auth.uid()
-  const { data: existing, error: lookupError } = await supabase
+  const { data: existing, error: lookupError } = await privileged
     .from("profiles")
     .select("id")
     .eq("user_id", user.id)
@@ -111,16 +110,16 @@ export async function PATCH(req: Request) {
   // A lookup failure must not masquerade as "no profile" (which is 404).
   if (lookupError) {
     if (process.env.NODE_ENV !== "production") {
-      console.error("[profile] lookup error", lookupError.code, lookupError.message);
+      if (String(process.env.NODE_ENV) !== "production") console.error("[profile] lookup error", lookupError.code);
     }
     return NextResponse.json({ error: "Could not load profile." }, { status: 500 });
   }
   if (process.env.NODE_ENV !== "production") {
-    console.log(`[profile] user=${user.id} profileExists=${existing !== null}`);
+    if (String(process.env.NODE_ENV) !== "production") console.log(`[profile] profileExists=${existing !== null}`);
   }
   if (!existing) return NextResponse.json({ error: "Profile not found. Complete onboarding first." }, { status: 404 });
 
-  const { error } = await supabase
+  const { error } = await privileged
     .from("profiles")
     .update({
       nickname: String(nickname).trim(),
