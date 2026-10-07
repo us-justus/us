@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { requireInsideAdmin } from "@/lib/inside/auth";
 import { verifySameOrigin } from "@/lib/inside/origin";
+import { insideMutationRateLimit } from "@/lib/inside/mutation-rate-limit";
 
 const GENERIC = "Not available.";
 
@@ -119,6 +120,8 @@ export async function POST(req: Request) {
   }
   const gate = await requireInsideAdmin();
   if (!gate) return NextResponse.json({ error: GENERIC }, { status: 403 });
+  const rate = await insideMutationRateLimit(req, gate.userId);
+  if (!rate.allowed) return NextResponse.json({ error: GENERIC }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds ?? 60) } });
 
   const supabase = await createClient();
   const { data, error } = await supabase.rpc(
