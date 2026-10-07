@@ -3,6 +3,9 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { requestEmailVerification } from "@/lib/email-verification/worker";
 import { perfLog, perfStart } from "@/lib/utils/perf";
+import { readJsonBounded } from "@/lib/http/read-json-bounded";
+import { createHash } from "node:crypto";
+import { getClientIp } from "@/lib/auth/login-rate-limit";
 
 /**
  * Staging email-ownership intake (vertical slice).
@@ -16,7 +19,8 @@ import { perfLog, perfStart } from "@/lib/utils/perf";
  */
 export async function POST(req: Request) {
   const t = perfStart();
-  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+  const body = await readJsonBounded<Record<string, unknown>>(req, 4096);
+  if (!body) return NextResponse.json({ error: "Enter a valid email." }, { status: 400 });
   const email = typeof body?.email === "string" ? body.email : "";
 
   const session = await createClient();
@@ -25,6 +29,19 @@ export async function POST(req: Request) {
     service = createServiceRoleClient();
   } catch {
     return NextResponse.json({ error: "Verification is unavailable right now." }, { status: 503 });
+  }
+
+  const ipDigest = createHash("sha256").update(getClientIp(req)).digest("hex");
+  const emailDigest = createHash("sha256").update(email.trim().toLowerCase()).digest("hex");
+  const { data: limit, error: limitError } = await service.rpc("check_login_rate_limit", {
+    p_ip_key: `verification-ip:${ipDigest}`,
+    p_ip_usn_key: `verification-ip-email:${ipDigest}:${emailDigest}`,
+  });
+  if (limitError) return NextResponse.json({ error: "Verification is unavailable right now." }, { status: 503 });
+  const decision = limit as { allowed?: boolean; retry_after_seconds?: number } | null;
+  if (decision?.allowed === false) {
+    const retry = Math.max(1, Number(decision.retry_after_seconds) || 60);
+    return NextResponse.json({ error: "Too many verification requests. Try again later." }, { status: 429, headers: { "Retry-After": String(retry) } });
   }
 
   // Reuses the single auth.getUser() for this request — the worker derives
