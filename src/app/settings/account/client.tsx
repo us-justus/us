@@ -40,6 +40,11 @@ function AccountFlow({
   const [emailErr, setEmailErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Reconciliation observability: true when the post-verify sync of the
+  // confirmed Auth email into verification_records failed. Rendered as a
+  // retry notice — never silent, never blocking (verification itself
+  // already succeeded; reloading retries since ?verified=1 persists).
+  const [syncFailed, setSyncFailed] = useState(false);
 
   // Just-verified password step (first password for the converted account).
   const [password, setPassword] = useState("");
@@ -54,16 +59,24 @@ function AccountFlow({
 
   // The server verifies the session and Auth confirmation before it updates
   // the private onboarding record; the browser never writes trusted email state.
+  // Reconciliation is best-effort for navigation (verification itself already
+  // succeeded) but never silent: a failed sync sets a visible retry notice
+  // instead of disappearing, so a stale verification_records row cannot go
+  // unnoticed. Reloading retries — ?verified=1 persists across reload.
   useEffect(() => {
     if (!justVerified || !account?.email) return;
     let cancelled = false;
     (async () => {
+      let failed = false;
       try {
         if (cancelled) return;
-        await fetch("/api/account/sync-verified-email", { method: "POST" });
+        const res = await fetch("/api/account/sync-verified-email", { method: "POST" });
+        failed = !res.ok;
       } catch {
-        // Best-effort only — verification itself already succeeded.
+        failed = true;
       }
+      // Sync outcome fetched on mount — server truth, not derived render state.
+      if (failed && !cancelled) setSyncFailed(true);
     })();
     return () => {
       cancelled = true;
@@ -190,6 +203,11 @@ function AccountFlow({
         <div className="rounded-2xl border border-accent-soft bg-accent-wash px-4 py-3">
           <p className="text-[13px] text-accent-deep">Email verified — set a password to finish.</p>
         </div>
+        {syncFailed && (
+          <div className="mt-4">
+            <FieldError msg="Verified, but we couldn't link your email record. Reload to retry — nothing is lost." />
+          </div>
+        )}
         <div className="mt-6">
           <p className="font-display text-[22px] tracking-[-0.02em]">set your password.</p>
           <p className="mt-2 text-[13px] leading-6 text-ink-soft max-w-[38ch]">
