@@ -255,3 +255,157 @@ describe("login entry wiring tripwires", () => {
     assert.ok(!loginPageSrc.includes("signInAnonymously"), "login must never sign in anonymously");
   });
 });
+
+/**
+ * Live-incident lifecycle regression (Oct 2026): `/login` mounted, rendered
+ * briefly, then router.replace()d to `/onboarding/email` after ~1s in a real
+ * Safari session — despite the pure `decideLoginEntry("anonymous") === "form"`
+ * unit tests passing.
+ *
+ * Root cause class: the tests below previously exercised ONLY the pure helper
+ * and substring tripwires, never the LoginFlow → SignedInContinue boundary.
+ * The resume component (`SignedInContinue`) called `router.replace(dest)` with
+ * `dest` taken straight from the payload's `next` field on mount authority
+ * alone — it never re-validated `account.kind` at the navigation site itself.
+ *
+ * These tests pin the FULL entry lifecycle composition the page now executes:
+ *
+ *   gate (LoginFlow):  snapshot = toLoginServerSnapshot(res.ok, payload);
+ *                       mount SignedInContinue iff decideLoginEntry(snapshot)
+ *                         === "continue", else render the credential form.
+ *   nav-site (SignedInContinue): re-project the exact navigated-from payload
+ *                       and call router.replace() ONLY when the re-check also
+ *                       says "continue"; otherwise report back (onNotResumable)
+ *                       so the page renders the form with zero navigation.
+ */
+type AccountStatePayload = {
+  signedIn?: unknown;
+  account?: { kind?: unknown } | null;
+  suspended?: unknown;
+  next?: unknown;
+  onboardingStep?: unknown;
+};
+
+/** Mirror of the LoginFlow mount gate in src/app/login/page.tsx. */
+function gateMountDecision(ok: boolean, payload: AccountStatePayload | null): "form" | "continue" {
+  return decideLoginEntry(toLoginServerSnapshot(ok, payload)) === "continue" ? "continue" : "form";
+}
+
+/**
+ * Mirror of the SignedInContinue navigation-site re-verification in
+ * src/app/login/page.tsx. Returns the destination router.replace() would be
+ * called with, or null when it must NOT navigate (form fallback instead).
+ */
+function navSiteDestination(
+  ok: boolean,
+  payload: AccountStatePayload | null,
+): string | null {
+  if (payload?.suspended === true) return "/suspended";
+  if (decideLoginEntry(toLoginServerSnapshot(ok, payload)) !== "continue") return null;
+  const next: unknown = payload?.next;
+  return typeof next === "string" ? next : "/onboarding";
+}
+
+describe("login entry lifecycle (gate + navigation site)", () => {
+  // Exact production payload shape from the incident: an anonymous onboarding
+  // identity at the email step. /api/account/state reports signedIn:true for
+  // anonymous identities, with the server-decided next pointing at the step.
+  const ANONYMOUS_EMAIL_STEP: AccountStatePayload = {
+    signedIn: true,
+    account: { kind: "anonymous" },
+    onboardingStep: "email",
+    next: "/onboarding/email",
+  };
+
+  it("LIFECYCLE 1: anonymous at email step renders the form; router.replace never fires", () => {
+    // Gate: no SignedInContinue mount.
+    assert.equal(gateMountDecision(true, ANONYMOUS_EMAIL_STEP), "form");
+    // Nav-site: even if mounted with this payload, no destination exists —
+    // the component reports back and the page renders the form.
+    assert.equal(navSiteDestination(true, ANONYMOUS_EMAIL_STEP), null);
+    // Guest notice accompanies the form for this exact state.
+    assert.equal(
+      showLoginGuestNotice(toLoginServerSnapshot(true, ANONYMOUS_EMAIL_STEP)),
+      true,
+    );
+  });
+
+  it("LIFECYCLE 2: permanent-verified complete account keeps resume to /home", () => {
+    const payload: AccountStatePayload = {
+      signedIn: true,
+      account: { kind: "permanent-verified" },
+      onboardingStep: "complete",
+      next: "/home",
+    };
+    assert.equal(gateMountDecision(true, payload), "continue");
+    assert.equal(navSiteDestination(true, payload), "/home");
+  });
+
+  it("LIFECYCLE 3: permanent-incomplete account keeps resume to its step", () => {
+    const payload: AccountStatePayload = {
+      signedIn: true,
+      account: { kind: "permanent-unverified" },
+      onboardingStep: "profile",
+      next: "/onboarding/profile",
+    };
+    assert.equal(gateMountDecision(true, payload), "continue");
+    assert.equal(navSiteDestination(true, payload), "/onboarding/profile");
+  });
+
+  it("LIFECYCLE 4: no session renders the form; nothing mounts, nothing navigates", () => {
+    assert.equal(gateMountDecision(true, { signedIn: false }), "form");
+    assert.equal(navSiteDestination(true, { signedIn: false }), null);
+    assert.equal(gateMountDecision(true, null), "form");
+    assert.equal(navSiteDestination(true, null), null);
+  });
+
+  it("LIFECYCLE 5: failed account-state resolution fails open to the form", () => {
+    assert.equal(gateMountDecision(false, ANONYMOUS_EMAIL_STEP), "form");
+    assert.equal(navSiteDestination(false, ANONYMOUS_EMAIL_STEP), null);
+    assert.equal(gateMountDecision(false, null), "form");
+    assert.equal(navSiteDestination(false, null), null);
+  });
+
+  it("LIFECYCLE 6: missing/unrecognized kind fails open to the form", () => {
+    for (const payload of [
+      { signedIn: true, account: null, onboardingStep: "email", next: "/onboarding/email" },
+      { signedIn: true, onboardingStep: "email", next: "/onboarding/email" },
+      { signedIn: true, account: {}, onboardingStep: "email", next: "/onboarding/email" },
+      { signedIn: true, account: { kind: 42 }, onboardingStep: "email", next: "/onboarding/email" },
+    ] as AccountStatePayload[]) {
+      assert.equal(gateMountDecision(true, payload), "form", JSON.stringify(payload));
+      assert.equal(navSiteDestination(true, payload), null, JSON.stringify(payload));
+    }
+  });
+});
+
+describe("login navigation-site wiring tripwires", () => {
+  it("resume component re-validates the account kind before router.replace", () => {
+    // The guard must exist and must precede the navigation call lexically.
+    const guardIdx = loginPageSrc.indexOf('decideLoginEntry(snapshot) !== "continue"');
+    const navIdx = loginPageSrc.indexOf("router.replace(dest)");
+    assert.ok(guardIdx !== -1, "SignedInContinue must re-check decideLoginEntry at the navigation site");
+    assert.ok(navIdx !== -1, "resume navigation preserved");
+    assert.ok(guardIdx < navIdx, "kind re-check must precede router.replace(dest)");
+    assert.ok(
+      loginPageSrc.includes("toLoginServerSnapshot(ok, j)"),
+      "nav-site must re-project the exact navigated-from payload",
+    );
+  });
+
+  it("kind mismatch falls back to the credential form with zero navigation", () => {
+    assert.ok(loginPageSrc.includes("onNotResumable"), "mismatch must report back to the entry gate");
+    assert.ok(
+      loginPageSrc.includes("onNotResumable(snapshot)"),
+      "mismatch must hand the snapshot back so the form renders",
+    );
+    // The mismatch path returns before any router.replace in the same effect:
+    // between the guard and the navigation there is no other replace call.
+    const guardIdx = loginPageSrc.indexOf('decideLoginEntry(snapshot) !== "continue"');
+    const navIdx = loginPageSrc.indexOf("router.replace(dest)");
+    const between = loginPageSrc.slice(guardIdx, navIdx);
+    assert.ok(!between.includes("router.replace"), "no navigation may fire on the mismatch path");
+    assert.ok(!between.includes("router.push"), "no navigation may fire on the mismatch path");
+    assert.ok(!between.includes("window.location"), "no navigation may fire on the mismatch path");
+  });
+});

@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
@@ -114,6 +114,14 @@ function LoginFlow() {
   const [resetErr, setResetErr] = useState<string | null>(null);
   const [resetBusy, setResetBusy] = useState(false);
 
+  // Fallback when the resume branch reports its own payload as not resumable
+  // (navigation-site re-verification inside SignedInContinue): render the
+  // credential form with no navigation. Stable identity so the resume effect
+  // does not refire; the component unmounts on fallback, so this cannot loop.
+  const handleNotResumable = useCallback((snapshot: LoginServerSnapshot | null) => {
+    setEntry({ state: "form", guest: showLoginGuestNotice(snapshot), snapshot });
+  }, []);
+
   async function signIn() {
     setError(null);
     // Identifier shape is classified server-side (USN vs email) — the client
@@ -207,8 +215,11 @@ function LoginFlow() {
   // failed resolutions fall through to the credential form: signing in
   // replaces the anonymous session with the permanent one, so the form is
   // always safe to show and must never auto-navigate to onboarding.
+  // If the resume branch ever reports its own payload as not resumable
+  // (navigation-site re-verification inside SignedInContinue), fall back to
+  // the form with no navigation — the component unmounts, so this cannot loop.
   if (status === "ready" && user && entry?.state === "continue") {
-    return <SignedInContinue preloaded={entry.preloaded} />;
+    return <SignedInContinue preloaded={entry.preloaded} onNotResumable={handleNotResumable} />;
   }
   const showGuestNotice =
     status === "ready" && !!user && entry?.state === "form" && entry.guest === true;
@@ -376,8 +387,23 @@ function LoginFlow() {
  * absent sessions, and failed resolutions see the form instead, never this
  * component. Accepts the gate's already-fetched snapshot so the resume
  * branch performs exactly one /api/account/state request per login entry.
+ *
+ * Navigation-site re-verification: the mount gate alone is not trusted here.
+ * Before ANY router.replace, this component re-projects the exact payload it
+ * is about to navigate from through toLoginServerSnapshot()/decideLoginEntry()
+ * and refuses to navigate for an anonymous, absent, or unknown account kind —
+ * it reports back via onNotResumable so LoginFlow renders the credential form
+ * instead. There is therefore no code path capable of router.replace()ing an
+ * anonymous holder to /onboarding/email from this page, even if this
+ * component ever mounts with a stale or mismatched snapshot.
  */
-function SignedInContinue({ preloaded }: { preloaded?: AccountStatePayload | null }) {
+function SignedInContinue({
+  preloaded,
+  onNotResumable,
+}: {
+  preloaded?: AccountStatePayload | null;
+  onNotResumable: (snapshot: LoginServerSnapshot | null) => void;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [failed, setFailed] = useState(false);
@@ -387,8 +413,14 @@ function SignedInContinue({ preloaded }: { preloaded?: AccountStatePayload | nul
     (async () => {
       try {
         let j: AccountStatePayload | null = preloaded ?? null;
+        // Whether the navigated-from payload came from a verified HTTP
+        // response. The gate only mounts this branch after a res.ok payload
+        // decided "continue", so a passed-through body counts as verified;
+        // the refetch path records its own status below.
+        let ok = j !== null;
         if (!j) {
           const res = await fetch("/api/account/state", { cache: "no-store" });
+          ok = res.ok;
           j = (await res.json().catch(() => null)) as AccountStatePayload | null;
         }
         if (cancelled) return;
@@ -396,6 +428,14 @@ function SignedInContinue({ preloaded }: { preloaded?: AccountStatePayload | nul
         // screen explains why and links the appeal flow.
         if (j?.suspended === true) {
           router.replace("/suspended");
+          return;
+        }
+        // Independent kind re-check at the navigation site: anonymous, absent,
+        // unknown, or failed resolutions must never router.replace() — not to
+        // /onboarding/email, not anywhere. Fall back to the credential form.
+        const snapshot = toLoginServerSnapshot(ok, j);
+        if (decideLoginEntry(snapshot) !== "continue") {
+          onNotResumable(snapshot);
           return;
         }
         const accountNext: unknown = j?.next;
@@ -415,7 +455,7 @@ function SignedInContinue({ preloaded }: { preloaded?: AccountStatePayload | nul
     return () => {
       cancelled = true;
     };
-  }, [router, searchParams, preloaded]);
+  }, [router, searchParams, preloaded, onNotResumable]);
 
   if (failed) {
     return (
