@@ -62,6 +62,8 @@ conflict, SPEC.md wins — flag the conflict, do not silently pick one.
   dependent steps sequential.
 - Test every change at 360px with keyboard, safe areas, loading/error states,
   and reduced motion before finishing.
+- Verify critical live routes after every production deploy (`pnpm
+  release:smoke`): deployment success != application health (SPEC.md §12.1).
 
 ## DO NOT
 
