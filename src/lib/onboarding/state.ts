@@ -42,9 +42,16 @@ export type OnboardingStep = "usn" | "email" | "password" | "profile" | "photos"
  *   grandfathering is profile-scoped only: an existing profile never
  *   returns to `password` (legacy accounts created before `password_set_at`
  *   existed keep their tail).
- * - `profile` / `photos` / `complete`: shared tail, reachable ONLY with a
- *   real verified Auth email plus the recorded email plus (for new
- *   accounts) a recorded `password_set_at`.
+  * - `profile` / `photos` / `complete`: shared tail, reachable ONLY with a
+  *   real verified Auth email plus the recorded email plus (for new
+  *   accounts) a recorded `password_set_at`.
+  * - `complete` additionally requires a permanent campus spot
+  *   (`profiles.spot IS NOT NULL`), minted server-side at the completion
+  *   boundary by finalize_onboarding_completion() after the first durable
+  *   photo row commits. A profile with photos but a NULL spot is NOT fully
+  *   complete: it resolves to `photos` (retryable finalization — the next
+  *   valid photos GET/POST converges idempotently) so a successful photo
+  *   can never strand a user without a spot.
  *
  * Pass the already-authenticated User whenever the caller has it so this
  * never pays for a second auth.getUser() on one request.
@@ -146,12 +153,22 @@ export async function getOnboardingState(
   }
   let privileged;
   try { privileged = createServiceRoleClient(); } catch { return done("password"); }
-  const { data: profile } = await privileged.from("profiles").select("id").eq("user_id", userId).maybeSingle();
+  const { data: profile } = await privileged.from("profiles").select("id, spot").eq("user_id", userId).maybeSingle();
   // Grandfather: an existing profile never returns to the password step
   // (covers accounts completed before password_set_at existed).
   if (profile) {
-    const { count } = await supabase.from("profile_photos").select("id", { count: "exact", head: true }).eq("profile_id", (profile as { id: string }).id);
+    const row = profile as { id: string; spot: number | null };
+    const { count } = await supabase.from("profile_photos").select("id", { count: "exact", head: true }).eq("profile_id", row.id);
     if (!count || count < 1) {
+      return done("photos");
+    }
+    // Completion owns a spot: profile + photo but spot NULL means server-side
+    // finalization is still pending (photo committed, spot not yet minted).
+    // Resolve to the existing `photos` step — no new route — so the next
+    // valid photos GET/POST retries finalization idempotently and the user
+    // reaches /home once the spot exists. Deleting the last photo regresses
+    // here too, but the earned spot is never released.
+    if (row.spot == null) {
       return done("photos");
     }
     return done("complete");
