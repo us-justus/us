@@ -12,8 +12,11 @@ import { readFile } from "node:fs/promises";
  *
  * LAYERS (both server-side; never client/UI hiding):
  *   1. Route guard: POST /api/onboarding/profile checks is_admin() on the
- *      session client before the username pre-check and before allocation.
- *      Fail closed: an unknown role-check outcome never allocates.
+ *      session client before the username pre-check and before the profile
+ *      upsert. Fail closed: an unknown role-check outcome never writes.
+ *      (Profile creation no longer allocates: the permanent spot is minted
+ *      at the completion boundary by finalize_onboarding_completion(), which
+ *      carries the same admin refusal as its own defense-in-depth layer.)
  *   2. Allocator guard: allocate_campus_spot() refuses admin callers
  *      (is_admin(), 42501), closing the check-then-allocate race and any
  *      future direct allocator caller.
@@ -33,36 +36,43 @@ const priorMigrationUrl = new URL(
 );
 
 describe("admin spot exclusion: route guard", () => {
-  it("checks is_admin() on the session client before allocation", async () => {
+  it("checks is_admin() on the session client before the profile upsert", async () => {
     const src = await readFile(routeUrl, "utf8");
     assert.ok(
       src.includes('supabase.rpc("is_admin")'),
       "route must check is_admin() via the session client (auth.uid-based, no client identity)",
     );
     const guardAt = src.indexOf('supabase.rpc("is_admin")');
-    const allocAt = src.indexOf('rpc("allocate_campus_spot")');
     const upsertAt = src.indexOf('.from("profiles").upsert(');
-    assert.ok(allocAt > 0 && upsertAt > 0, "allocation + upsert paths must exist");
+    assert.ok(upsertAt > 0, "profile upsert path must exist");
     assert.ok(
-      guardAt < allocAt && guardAt < upsertAt,
-      "admin check must precede both spot allocation and the profile upsert",
+      guardAt < upsertAt,
+      "admin check must precede the profile upsert",
     );
   });
 
-  it("denies admins without allocating (fail closed)", async () => {
+  it("denies admins without writing (fail closed)", async () => {
     const src = await readFile(routeUrl, "utf8");
     const guardBlock = src.slice(
       src.indexOf('supabase.rpc("is_admin")'),
-      src.indexOf('rpc("allocate_campus_spot")'),
+      src.indexOf('.from("profiles").upsert('),
     );
     assert.match(guardBlock, /status:\s*403/, "admin denial must be 403");
     assert.ok(
       guardBlock.includes("adminCheckError") || guardBlock.includes("adminError"),
-      "an unknown role-check outcome (RPC error) must also deny, never allocate",
+      "an unknown role-check outcome (RPC error) must also deny, never write",
+    );
+  });
+
+  it("never allocates at profile creation (completion boundary owns spots)", async () => {
+    const src = await readFile(routeUrl, "utf8");
+    assert.ok(
+      !src.includes('rpc("allocate_campus_spot")'),
+      "profile creation must not call the allocator — spots are minted at the completion boundary",
     );
     assert.ok(
-      !guardBlock.includes("allocate_campus_spot"),
-      "the denial path must not touch the allocator",
+      src.includes("finalize_onboarding_completion()"),
+      "profile route must document the completion-boundary owner",
     );
   });
 
@@ -73,12 +83,12 @@ describe("admin spot exclusion: route guard", () => {
       "verified-email gate must remain for students",
     );
     assert.ok(
-      src.includes('rpc("allocate_campus_spot")'),
-      "students must still allocate through the atomic allocator",
+      src.includes('.from("profiles").upsert('),
+      "student profile upsert must remain the single profile writer",
     );
     assert.ok(
-      src.includes('.from("profiles").upsert('),
-      "student profile upsert must remain the single writer",
+      src.includes("prev?.spot ?? null"),
+      "existing spots must be preserved exactly, new profiles written with spot NULL",
     );
   });
 });
