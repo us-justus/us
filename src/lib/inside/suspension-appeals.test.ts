@@ -199,7 +199,7 @@ describe("suspension amendment — login + central guard enforcement", () => {
     const gates = body.match(/is_active === false/g) ?? [];
     assert.equal(gates.length, 1, "one shared suspension gate for both login paths");
     const gateAt = body.indexOf("is_active === false");
-    const destAt = body.indexOf("getOnboardingState(user)");
+    const destAt = body.indexOf("getOnboardingState(user,");
     assert.ok(gateAt >= 0 && destAt > gateAt, "no normal destination may resolve for a suspended account");
   });
 
@@ -209,7 +209,7 @@ describe("suspension amendment — login + central guard enforcement", () => {
     // The suspended branch keeps the session (the appeal path needs auth);
     // sign-outs elsewhere are the pre-existing mismatch defenses.
     const gateAt = body.indexOf("is_active === false");
-    const tailAt = body.indexOf("getOnboardingState(user)", gateAt);
+    const tailAt = body.indexOf("getOnboardingState(user,", gateAt);
     const branch = body.slice(gateAt, tailAt);
     assert.ok(!branch.includes("signOut"), "suspended branch must not sign out (appeals need auth)");
   });
