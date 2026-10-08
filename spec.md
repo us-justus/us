@@ -324,6 +324,22 @@ onboarding, login, and account semantics are unchanged.
   that may establish a session. Pages use `useAnonymousSession()`; pages that
   must never create a session (`/login`, `/settings`, `/auth/*`) use
   `useExistingSession()`.
+- Login-entry invariant: an anonymous Supabase session is an onboarding
+  identity, never a sign-in. `/login` MUST render its credential form
+  whenever the server-decided account kind (`GET /api/account/state` →
+  `account.kind`) is `anonymous` or there is no session — regardless of
+  browser session presence or `user.is_anonymous`. Resume navigation on
+  `/login` is permitted only for a server-confirmed non-anonymous account,
+  routed by the server-derived onboarding step. Raw `user.is_anonymous` must
+  never be the login-entry navigation authority. WHY: `/api/account/state`
+  intentionally reports `signedIn: true` for anonymous Auth identities (they
+  are valid onboarding sessions), so consumers MUST inspect `account.kind`
+  before treating an existing session as a returning account — otherwise
+  anonymous holders are diverted to onboarding (`/login` →
+  `/onboarding/email`) without ever seeing the credential form. Pure helper
+  `decideLoginEntry()` (`src/lib/auth/login-entry-decision.ts`); `/login`
+  resolves the kind once per entry and reuses the snapshot for resume (no
+  second fetch); unknown/failed resolutions fail open to the form.
 - `supabase.auth.getSession()` reads local storage only (no network);
   `supabase.auth.getUser()` costs a network round-trip. Never call `getUser()`
   when `getSession()` already shows there is no local session — go straight
