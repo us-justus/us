@@ -48,12 +48,21 @@ export type OnboardingStep = "usn" | "email" | "password" | "profile" | "photos"
  *
  * Pass the already-authenticated User whenever the caller has it so this
  * never pays for a second auth.getUser() on one request.
+ *
+ * Fresh-device contract: callers that just established a NEW session in this
+ * request (notably POST /api/auth/login after signInWithPassword) MUST pass
+ * that authenticated client as `client`. A freshly-minted client reads only
+ * the incoming request cookies, so on a cookie-less (fresh-device) request
+ * it would query as anon, see zero verification_records rows under RLS, and
+ * wrongly resolve to `usn`. Passing the sign-in client keeps every DB read
+ * on the authenticated identity of this request.
  */
 export async function getOnboardingState(
   knownUser?: User | null,
+  client?: Awaited<ReturnType<typeof createClient>>,
 ): Promise<{ user: { id: string } | null; step: OnboardingStep }> {
   const t = perfStart();
-  const supabase = await createClient();
+  const supabase = client ?? (await createClient());
   let user: User | null = knownUser ?? null;
   if (!user) {
     const { data: { user: u } } = await supabase.auth.getUser();
