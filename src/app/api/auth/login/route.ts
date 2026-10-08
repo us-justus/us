@@ -238,7 +238,11 @@ async function respondWithDestination(
       { status: 403 },
     );
   }
-  const [{ step }] = await Promise.all([getOnboardingState(user)]);
+  const [{ step }] = await Promise.all([getOnboardingState(user, supabase)]);
+  // NOTE: `supabase` above is the client that performed signInWithPassword.
+  // It must be reused here: a fresh cookie-derived client would still see
+  // the pre-login (cookie-less on a fresh device) request and read
+  // verification_records as anon → wrong `usn` destination.
   const fallback = destinationForStep(step);
   try {
     await service.rpc("clear_login_rate_limit", { p_ip_usn_key: targetedKey });
