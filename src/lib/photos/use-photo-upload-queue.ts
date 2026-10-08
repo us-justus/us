@@ -41,6 +41,14 @@ export type QueuedPhoto = {
 export function usePhotoUploadQueue(opts: {
   endpoint: string;
   onUploaded: (photos: never[]) => void;
+  /**
+   * Optional server-owned completion state. The onboarding photos endpoint
+   * reports the permanent-spot outcome alongside the photo list
+   * ({spot, spotPending}); when present it is forwarded here so the page
+   * can reflect pending finalization without a new UX step. Endpoints that
+   * never finalize (profile edit) simply omit this callback.
+   */
+  onSpotState?: (s: { spot: number | null; spotPending: boolean }) => void;
 }) {
   const [items, setItems] = useState<QueuedPhoto[]>([]);
   const itemsRef = useRef<QueuedPhoto[]>([]);
@@ -91,6 +99,16 @@ export function usePhotoUploadQueue(opts: {
           const j = await res.json().catch(() => null);
           if (!res.ok) throw new Error((j as { error?: string } | null)?.error || "Upload failed");
           optsRef.current.onUploaded(((j as { photos?: never[] } | null)?.photos ?? []) as never[]);
+          // Forward completion state when the endpoint reports it (onboarding
+          // photos: spot minted at the completion boundary, or pending when
+          // finalization must be retried by re-entry). Never blocks uploads.
+          if (j && typeof j === "object" && ("spot" in j || "spotPending" in j)) {
+            const jj = j as { spot?: unknown; spotPending?: unknown };
+            optsRef.current.onSpotState?.({
+              spot: typeof jj.spot === "number" ? jj.spot : null,
+              spotPending: jj.spotPending === true,
+            });
+          }
           URL.revokeObjectURL(next.previewUrl);
           itemsRef.current = itemsRef.current.filter((i) => i.localId !== next.localId);
           sync();
