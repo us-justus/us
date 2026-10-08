@@ -26,11 +26,14 @@ export async function POST(req: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
 
-  // Admin exclusion: admin users must never consume a student waitlist spot
-  // (username, #spot, or claim row). Checked via is_admin() on the session
-  // client (auth.uid()-based, no client-supplied identity), before the
-  // username pre-check and before allocate_campus_spot() so an admin consumes
-  // nothing. Fail closed: an unknown role-check outcome never allocates.
+  // Admin exclusion: admin users must never create a student profile or
+  // consume a student waitlist spot (username, #spot, or claim row). Checked
+  // via is_admin() on the session client (auth.uid()-based, no
+  // client-supplied identity), before the username pre-check and before the
+  // profile upsert. Fail closed: an unknown role-check outcome never writes.
+  // Spot allocation itself lives at the completion boundary
+  // (finalize_onboarding_completion(), called after the first durable photo
+  // commits), which refuses admins independently as defense in depth.
   const { data: isAdmin, error: adminCheckError } = await supabase.rpc("is_admin");
   if (adminCheckError || isAdmin === true) {
     return NextResponse.json(
@@ -71,7 +74,7 @@ export async function POST(req: Request) {
   }
 
   // Friendly pre-check (indexed equality lookup, never COUNT(*)) so an
-  // obviously-taken name fails BEFORE a spot is consumed. Races remain
+  // obviously-taken name fails BEFORE the profile is written. Races remain
   // possible — the unique index below is authoritative. The pattern is
   // LIKE-escaped (`_` is a valid username char but a LIKE wildcard), and
   // ilike without wildcards is a case-insensitive equality match.
@@ -90,28 +93,24 @@ export async function POST(req: Request) {
     );
   }
 
-  // Idempotent #spot: reuse when present, else allocate exactly one via the
-  // existing atomic allocator (never COUNT(*), never client-generated).
-  let spot: number | null = prev?.spot ?? null;
-  if (spot === null) {
-    const { data: allocated, error: allocError } = await supabase.rpc("allocate_campus_spot");
-    if (allocError || typeof allocated !== "number") {
-      if (String(process.env.NODE_ENV) !== "production") {
-        if (process.env.NODE_ENV !== "production") console.error("[profile] spot allocation error", allocError?.code);
-      }
-      return NextResponse.json({ error: "Could not reserve your spot. Try again." }, { status: 500 });
-    }
-    spot = allocated;
-  }
+  // #spot is NOT allocated here. The permanent campus spot is an
+  // entry/completion number, minted only at the completion boundary by
+  // finalize_onboarding_completion() after the first durable photo row
+  // commits — never at profile creation, never COUNT(*), never
+  // client-generated. A first-time profile is written with spot NULL (legal:
+  // profiles_spot_positive + partial-unique index both tolerate NULL); an
+  // existing spot is preserved exactly and never cleared or replaced, so
+  // retries and grandfathered holders converge to the same value.
+  const spot: number | null = prev?.spot ?? null;
 
   const { error } = await privileged.from("profiles").upsert({
     user_id: user.id, nickname: String(nickname).trim(), age: Number(age), year: String(year), branch: String(branch), bio: bio ? String(bio).trim() : null, interests: Array.isArray(interests) ? interests.slice(0,8) : [],
     username: normalized, spot,
   }, { onConflict: "user_id" });
   if (error) {
-    // Unique-index violation = lost race on the same name. Clean 409; the
-    // consumed spot number becomes a harmless gap (spots stay unique and
-    // are never reassigned — no renumbering, no reuse).
+    // Unique-index violation = lost race on the same name. Clean 409 — no
+    // spot number was consumed here (allocation lives at the completion
+    // boundary), so there is no gap to account for and nothing to reclaim.
     if (error.code === "23505") {
       return NextResponse.json(
         { error: "That username is taken — try another.", field: "username" },
