@@ -1,0 +1,38 @@
+-- Restore server-side verification_records access.
+--
+-- CONTEXT: production probes returned `permission denied for table
+-- verification_records` for the service_role Data API client, while sibling
+-- tables (profiles, profile_photos) work. The project uses explicit
+-- least-privilege grants (see 20250916000006_grant_v1_data_api_privileges,
+-- 20261019000001_security_remediation, and the 20261023000001 precedent for
+-- profile_photos), and verification_records was never granted to
+-- service_role — so every server-side service-role path touching that table
+-- fails in production.
+--
+-- AFFECTED SERVER PATHS (all service-role, all currently 500/denied live):
+--   - POST /api/account/sync-verified-email (upsert of the confirmed Auth
+--     email + email_verified_at): the intended healer for Auth-confirmed /
+--     vr-email-empty rows. Its failure is swallowed client-side, so stale
+--     rows stay stale and getOnboardingState() keeps resolving `email`.
+--   - requestEmailVerification() intake (select + upsert) backing
+--     POST /api/verification/request.
+--   - /api/inside/feedback/reply + /api/inside/email-queue/send recipient
+--     reads (select).
+--
+-- SCOPE (minimal, additive only):
+--   - GRANT SELECT, INSERT, UPDATE on public.verification_records TO
+--     service_role. No DELETE: no existing server path deletes these rows.
+--   - No grant change for public/anon/authenticated. No RLS change, no
+--     policy change, no ownership change, no auth configuration change.
+--     RLS remains enforced for every client role; service_role stays the
+--     server-only key (never NEXT_PUBLIC_, never in the browser bundle).
+--   - Direct authenticated writes stay blocked by the existing guard
+--     triggers (trg_guard_verification_email_identity,
+--     trg_guard_email_verified_at, trg_guard_password_set_at); the narrow
+--     SECURITY DEFINER RPCs (save_onboarding_email,
+--     record_onboarding_password, token mint/consume) are unchanged.
+--
+-- ROLLBACK: revoke select, insert, update on table
+-- public.verification_records from service_role;
+
+grant select, insert, update on table public.verification_records to service_role;
