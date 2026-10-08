@@ -14,9 +14,15 @@ export function PhotosForm() {
   const router = useRouter();
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // Pending server-owned spot finalization (photo committed, spot not yet
+  // minted). Quiet caption only — no new step, no extra button: the next
+  // valid photos GET/POST converges idempotently, and /home's guard sends
+  // the user back here until the spot exists.
+  const [spotPending, setSpotPending] = useState(false);
   const { pending, enqueueReady, retry, removePending } = usePhotoUploadQueue({
     endpoint: "/api/onboarding/photos",
     onUploaded: (next: Photo[]) => setPhotos(next),
+    onSpotState: (s) => setSpotPending(s.spotPending),
   });
   // Files waiting to be framed. Each opens the crop editor in turn; nothing
   // uploads until the user confirms the crop and preview (SELECT → crop →
@@ -30,7 +36,7 @@ export function PhotosForm() {
   const occupied = photos.length + pending.length + cropQueue.length;
   const full = occupied >= MAX_PHOTOS;
 
-  useEffect(() => { fetch("/api/onboarding/photos").then(r=>r.json()).then((j: unknown)=>{ const photos = (j as { photos?: unknown } | null)?.photos; if(Array.isArray(photos)) setPhotos(photos as Photo[]); }); }, []);
+  useEffect(() => { fetch("/api/onboarding/photos").then(r=>r.json()).then((j: unknown)=>{ const photos = (j as { photos?: unknown } | null)?.photos; if(Array.isArray(photos)) setPhotos(photos as Photo[]); const pending = (j as { spotPending?: unknown } | null)?.spotPending; setSpotPending(pending === true); }); }, []);
 
   async function select(e: React.ChangeEvent<HTMLInputElement>) {
     const files = [...(e.target.files ?? [])];
@@ -100,6 +106,9 @@ export function PhotosForm() {
         <div className="mt-4"><FieldError msg={pending.find(q => q.status === "failed")?.error ?? "Upload failed."} /></div>
       )}
       <p className="mt-4 text-[11px] text-ink-faint">{photos.length}/{MAX_PHOTOS} · JPG, PNG or WEBP · max 5 MB</p>
+      {spotPending && photos.length > 0 && (
+        <p className="mt-2 text-[11px] text-ink-faint">reserving your spot… it lands in a moment — you can stay here or come back.</p>
+      )}
       <Button disabled={photos.length < 1} onClick={() => router.push("/home")} className="mt-6 w-full rounded-full">enter us →</Button>
       {activeCrop && activeCropKey && (
         <PhotoCropDialog
