@@ -158,6 +158,14 @@
 - [ ] Load review complete
 - [ ] Production environment verified
 
+## Q. Production Release (required sequence — spec.md §12.1)
+- [ ] `pnpm release:build` (frozen-lockfile install → tests → tsc → lint → OpenNext build)
+- [ ] Validation green (no skips)
+- [ ] Upload / traffic cutover (record the live Worker version ID)
+- [ ] `pnpm release:smoke` against LIVE production → PASS = healthy
+- [ ] On FAIL: record version, do NOT edit auth/DB/secrets first (spec.md §12.1); manual rollback if necessary (`pnpm release:rollback` prints the command)
+- [ ] Smoke again after any rollback
+
 ## P. Optional email (STEP 3C)
 - [x] Email optional in onboarding (skip path, internal sign-in identity + password)
 - [x] Skipped-email password conversion (POST /api/onboarding/password attaches confirmed internal identity, same UID)
