@@ -8,16 +8,74 @@ import { perfLog, perfStart } from "@/lib/utils/perf";
 
 function extFromType(t: string) { if (t==="image/png") return "png"; if (t==="image/webp") return "webp"; return "jpg"; }
 
+type FinalizeResult = { spot: number | null; spotPending: boolean };
+
+function parseFinalize(data: unknown): FinalizeResult {
+  if (typeof data === "number" && Number.isInteger(data) && data > 0) {
+    return { spot: data, spotPending: false };
+  }
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    const spot = (data as { spot?: unknown }).spot;
+    if (typeof spot === "number" && Number.isInteger(spot) && spot > 0) {
+      return { spot, spotPending: false };
+    }
+  }
+  return { spot: null, spotPending: true };
+}
+
+/**
+ * Server-owned completion finalization (short-circuited).
+ *
+ * The permanent campus spot is minted only at the completion boundary —
+ * after at least one durable photo row exists — via the idempotent
+ * finalize_onboarding_completion() RPC (existing spot/claim reused, never a
+ * second allocation). When the profile already holds a spot this performs
+ * one indexed read and never touches the allocator, so steady-state
+ * holders (including all pre-change users) pay no allocator call.
+ */
+async function tryFinalizeSpot(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  privileged: ReturnType<typeof createServiceRoleClient>,
+  userId: string,
+): Promise<FinalizeResult> {
+  const { data: row } = await privileged
+    .from("profiles")
+    .select("spot")
+    .eq("user_id", userId)
+    .maybeSingle();
+  const current = row as { spot: number | null } | null;
+  if (current?.spot != null) return { spot: current.spot, spotPending: false };
+  try {
+    const { data, error } = await supabase.rpc("finalize_onboarding_completion");
+    if (error) {
+      if (String(process.env.NODE_ENV) !== "production") console.error("[photos] finalize error", error.code);
+      return { spot: current?.spot ?? null, spotPending: true };
+    }
+    return parseFinalize(data);
+  } catch {
+    return { spot: current?.spot ?? null, spotPending: true };
+  }
+}
+
 export async function GET() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   const privileged = createServiceRoleClient();
   const { data: profile } = await privileged.from("profiles").select("id").eq("user_id", user.id).maybeSingle();
-  if (!profile) return NextResponse.json({ photos: [] });
+  if (!profile) return NextResponse.json({ photos: [], spot: null, spotPending: false });
   const { data: photos } = await supabase.from("profile_photos").select("id, storage_path, display_order").eq("profile_id", profile.id).order("display_order");
   const mapped = (photos||[]).map(p=>({ ...p, url: supabase.storage.from("profile-photos").getPublicUrl(p.storage_path).data.publicUrl }));
-  return NextResponse.json({ photos: mapped });
+  // Re-entry convergence: a photo that committed while finalization never
+  // ran (browser closed, lost response, transient allocator failure)
+  // finalizes here, idempotently, before the client decides where to go.
+  // Short-circuited when the spot already exists — no allocator call.
+  let spot: number | null = null;
+  let spotPending = false;
+  if (mapped.length > 0) {
+    ({ spot, spotPending } = await tryFinalizeSpot(supabase, privileged, user.id));
+  }
+  return NextResponse.json({ photos: mapped, spot, spotPending });
 }
 
 export async function POST(req: Request) {
@@ -65,7 +123,13 @@ export async function POST(req: Request) {
   const { data: photos } = await supabase.from("profile_photos").select("id, storage_path, display_order").eq("profile_id", profile.id).order("display_order");
   const mapped = (photos||[]).map(p=>({ ...p, url: supabase.storage.from("profile-photos").getPublicUrl(p.storage_path).data.publicUrl }));
   perfLog("photo.upload", t);
-  return NextResponse.json({ photos: mapped });
+  // Completion finalization runs ONLY after the photo row has durably
+  // committed above — never before validation, storage, or DB insertion.
+  // Finalization failure preserves the photo: the response stays 200 with
+  // spotPending so the next valid re-entry (GET/POST) retries idempotently
+  // instead of the client re-uploading a duplicate photo.
+  const { spot, spotPending } = await tryFinalizeSpot(supabase, privileged, user.id);
+  return NextResponse.json({ photos: mapped, spot, spotPending });
 }
 
 export async function DELETE(req: Request) {
