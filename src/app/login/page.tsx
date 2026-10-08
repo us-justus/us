@@ -5,6 +5,12 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { useExistingSession } from "@/lib/auth/use-existing-session";
+import {
+  decideLoginEntry,
+  showLoginGuestNotice,
+  toLoginServerSnapshot,
+  type LoginServerSnapshot,
+} from "@/lib/auth/login-entry-decision";
 import { validateAccountEmail } from "@/lib/auth/account";
 import { safeNextPath } from "@/lib/auth/safe-next";
 import { FieldError } from "@/components/onboarding/shell";
@@ -33,9 +39,68 @@ import { FieldError } from "@/components/onboarding/shell";
  */
 const GENERIC = "Incorrect USN or password.";
 
+/**
+ * Raw `/api/account/state` payload shape as consumed by the login entry
+ * gate and the resume branch. `account.kind` is the navigation authority:
+ * only a server-confirmed non-anonymous kind may resume; anonymous (or
+ * absent) kinds render the credential form. `signedIn: true` alone proves
+ * nothing — the route intentionally reports it for anonymous onboarding
+ * identities too.
+ */
+type AccountStatePayload = {
+  signedIn?: unknown;
+  account?: { kind?: unknown } | null;
+  suspended?: unknown;
+  next?: unknown;
+  onboardingStep?: unknown;
+};
+
 function LoginFlow() {
   const searchParams = useSearchParams();
   const { status, user } = useExistingSession();
+
+  // Server-authoritative entry resolution. The browser session alone cannot
+  // decide this: an anonymous onboarding session must still see the form,
+  // and the raw browser anonymity bit can disagree with the server
+  // (stale/missing `is_anonymous` on a cached session user). So when a
+  // browser user exists, the server kind is resolved once here; the resume
+  // branch below reuses the same snapshot (no second fetch). Signed-out
+  // devices skip the fetch entirely and render the form immediately.
+  const [entry, setEntry] = useState<
+    | { state: "checking" }
+    | { state: "form"; guest: boolean; snapshot: LoginServerSnapshot | null }
+    | { state: "continue"; preloaded: AccountStatePayload }
+    | null
+  >(null);
+
+  useEffect(() => {
+    if (status !== "ready" || !user) return;
+    let cancelled = false;
+    // Entry resolution is server truth fetched on mount, not derived render
+    // state — disable cascading-render warning.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setEntry({ state: "checking" });
+    (async () => {
+      try {
+        const res = await fetch("/api/account/state", { cache: "no-store" });
+        const j = (await res.json().catch(() => null)) as AccountStatePayload | null;
+        if (cancelled) return;
+        const snapshot = toLoginServerSnapshot(res.ok, j);
+        if (decideLoginEntry(snapshot) === "continue") {
+          setEntry({ state: "continue", preloaded: (j ?? {}) as AccountStatePayload });
+        } else {
+          setEntry({ state: "form", guest: showLoginGuestNotice(snapshot), snapshot });
+        }
+      } catch {
+        // Fail open: the credential form always works (sign-in re-authenticates
+        // server-side), so a failed resolution must never block or redirect.
+        if (!cancelled) setEntry({ state: "form", guest: false, snapshot: null });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [status, user]);
 
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
@@ -129,20 +194,28 @@ function LoginFlow() {
     return <p className="mt-8 text-[13px] text-ink-soft">checking your session…</p>;
   }
 
-  // Already signed in with a PERMANENT account: route by product state
-  // (single server source). Anonymous sessions are onboarding identities, not
-  // login states — an anonymous holder must still see the credential form,
-  // since sign-in replaces the anonymous session with the permanent one.
-  // Gating on `user` alone hid the form on every device that had ever
-  // started onboarding (no password field rendered at all).
-  const isAnonymous = (user as { is_anonymous?: boolean } | null)?.is_anonymous === true;
-  if (status === "ready" && user && !isAnonymous) {
-    return <SignedInContinue />;
+  // A browser user exists but the server kind is still resolving: hold the
+  // same loading copy. Never flash the form for permanent accounts, and
+  // never flash the resume branch for anonymous ones.
+  if (status === "ready" && user && (!entry || entry.state === "checking")) {
+    return <p className="mt-8 text-[13px] text-ink-soft">checking your session…</p>;
   }
+
+  // Resume navigation is permitted ONLY for a server-confirmed non-anonymous
+  // account (resolved in the entry gate above from
+  // GET /api/account/state → account.kind). Anonymous, absent, unknown, or
+  // failed resolutions fall through to the credential form: signing in
+  // replaces the anonymous session with the permanent one, so the form is
+  // always safe to show and must never auto-navigate to onboarding.
+  if (status === "ready" && user && entry?.state === "continue") {
+    return <SignedInContinue preloaded={entry.preloaded} />;
+  }
+  const showGuestNotice =
+    status === "ready" && !!user && entry?.state === "form" && entry.guest === true;
 
   return (
     <div className="mt-8">
-      {status === "ready" && isAnonymous && (
+      {showGuestNotice && (
         <p className="mb-5 rounded-2xl border border-line bg-paper-2 px-4 py-3 text-[13px] leading-5 text-ink-soft">
           This device holds a guest session. Signing in switches to your account.
         </p>
@@ -298,10 +371,13 @@ function LoginFlow() {
 /**
  * Permanent-account visitor on /login: forward once to the server-decided
  * destination (complete → /home, otherwise the onboarding step). Renders
- * no credential form. Anonymous sessions never reach this component — they
- * see the form (see LoginFlow above).
+ * no credential form. Only mounted for a server-confirmed non-anonymous
+ * account (see the LoginFlow entry gate above) — anonymous sessions,
+ * absent sessions, and failed resolutions see the form instead, never this
+ * component. Accepts the gate's already-fetched snapshot so the resume
+ * branch performs exactly one /api/account/state request per login entry.
  */
-function SignedInContinue() {
+function SignedInContinue({ preloaded }: { preloaded?: AccountStatePayload | null }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [failed, setFailed] = useState(false);
@@ -310,12 +386,11 @@ function SignedInContinue() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/api/account/state", { cache: "no-store" });
-        const j = (await res.json().catch(() => null)) as {
-          suspended?: unknown;
-          next?: unknown;
-          onboardingStep?: unknown;
-        } | null;
+        let j: AccountStatePayload | null = preloaded ?? null;
+        if (!j) {
+          const res = await fetch("/api/account/state", { cache: "no-store" });
+          j = (await res.json().catch(() => null)) as AccountStatePayload | null;
+        }
         if (cancelled) return;
         // Suspended sessions never continue into the product: the dedicated
         // screen explains why and links the appeal flow.
@@ -340,7 +415,7 @@ function SignedInContinue() {
     return () => {
       cancelled = true;
     };
-  }, [router, searchParams]);
+  }, [router, searchParams, preloaded]);
 
   if (failed) {
     return (
