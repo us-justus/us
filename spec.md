@@ -510,8 +510,10 @@ LAN (dev) and re-label with measured numbers when available.
 
 # 12. Cloudflare Deployment Principles
 
-Cloudflare is planned, not yet implemented. Do not add Cloudflare-specific
-code without a measured reason. Assessment from the audit:
+Cloudflare Workers (via OpenNext) is the production runtime. Do not add
+Cloudflare-specific code without a measured reason. Assessment from the
+audit (still governs what belongs at the edge; §12.1 governs how deploys
+stay healthy):
 
 - GOOD EDGE CANDIDATES: static asset caching/CDN, image resizing/derivation
   (thumbnails + responsive variants at the edge), rate limiting, bot rules.
@@ -524,6 +526,47 @@ code without a measured reason. Assessment from the audit:
   execution), SMS/phone flows (out of V1 scope), local session reads.
 - Cloudflare does not fix sequential waterfalls or oversized images. Apply
   §6 and §7 first; re-measure; only then evaluate edge moves.
+
+## 12.1 Deployment success is not application health — IMPLEMENTED (Oct 2026 /inside 500)
+
+A successful Cloudflare deployment (build clean, worker uploaded, traffic
+at 100%) does NOT prove the application works. `GET /inside` returned HTTP
+500 (Next.js redacted Server Components error) on a deploy whose only
+source change was presentational invite UI, while typecheck, lint, unit
+tests, local preview, and sibling live routes were all green — and a clean
+rebuild + redeploy of the SAME commit restored it with no code, secret,
+database, or auth change. The deployed server bundle, not the source, was
+at fault; its exact inner trigger was unrecoverable from redacted logs.
+
+Rules (mandatory for every production release):
+
+- After every production deploy, smoke-test the LIVE deployment over HTTP
+  (`node scripts/smoke-prod.mjs`, wired as `pnpm release:smoke`):
+  `GET /` → 200, `GET /login` → 200, `GET /inside` → 200 containing the
+  admin-login UI (`inside.` + `identifier`), `GET /api/account/state` →
+  200, unauthenticated `GET /api/inside/health` → 403. Any 5xx is a hard
+  failure. No admin credentials, no `ADMIN_SECRET_KEY`, no writes.
+  (`/api/inside/*` passing proves the gate loads — it does NOT prove the
+  `/inside` page renders. The page check is the load-bearing one.)
+- Release success = live smoke PASS. Worker-upload success, version
+  creation, and traffic cutover are never release success on their own.
+- Release sequence: `pnpm release:build` (frozen-lockfile install →
+  tests → tsc → lint → OpenNext build) → validation → upload/cutover →
+  `pnpm release:smoke` → PASS = healthy; FAIL = record the live version
+  ID and roll back manually (`pnpm release:rollback` prints the exact
+  command; the operator confirms the target) → smoke again after rollback.
+- On smoke FAIL, do not start by editing auth, secrets, admin_users, or
+  the database. First re-verify determinism (clean tree, frozen lockfile,
+  recorded toolchain in `package.json`) and rebuild + redeploy the same
+  commit. Rollback restores code, never secret values.
+- Determinism floor: `packageManager` + `engines.node` are recorded in
+  `package.json`; releases install with `--frozen-lockfile` (verified on
+  pnpm 11.21.0 — project `.npmrc` was empirically found NOT to enforce it,
+  so enforcement lives in the release script flag, not in config). Never
+  upgrade the toolchain as part of a release.
+- Stale deployment documentation is itself a reliability defect: this
+  section previously claimed Cloudflare was "planned, not yet implemented"
+  while production was already live.
 
 ---
 
@@ -811,11 +854,16 @@ persistent messages
   granted to `authenticated` for the function only. No new allocator, no
   new privileged function, no RLS change in STEP 2.
 - Assignment wiring: `POST /api/onboarding/profile` persists username +
-  profile fields + spot in one request. Idempotent — `spot IS NOT NULL`
-  is reused, otherwise exactly one `allocate_campus_spot()` call. A retry
-  after failure reuses the existing spot; a `23505` username race costs at
-  most a harmless gap number (spots are unique, never reassigned, never
-  renumbered).
+  profile fields with `spot NULL` — profile creation never allocates, never
+  touches `campus_spot_claims` or the allocator counter, so abandoned
+  profile-only users consume no spot. The permanent spot is minted only at
+  the completion boundary: after the first durable `profile_photos` row
+  commits, `POST`/`GET /api/onboarding/photos` invokes the idempotent
+  `finalize_onboarding_completion()`, which reuses the existing spot/claim
+  when one exists and otherwise allocates exactly one number via
+  `allocate_campus_spot()` (NULL → spot guarded write). A retry reuses the
+  existing spot; a `23505` username race at profile time costs no number
+  (spots are unique, never reassigned, never renumbered, never reclaimed).
 - Surfaced minimally: pre-launch panel on `/` (`@username` + `#spot`,
   current eligible waiting-student count, locked-feature messaging) and one
   identity line on `/profile`. The count is the live aggregate of active
@@ -952,6 +1000,43 @@ persistent messages
   while PRE_LAUNCH (redirect loop via the launch guard); rendering a
   minimal identity panel there was the smallest correct pre-launch
   experience. Post-launch redirect behavior is unchanged.
+
+### Spot-completion learning (allocation follows durable completion, never creation)
+
+- `#spot` is an entry/completion number, not a profile-creation number:
+  allocate only after the owned profile row AND the first durable
+  `profile_photos` row both exist for the requesting user — the same tail
+  `getOnboardingState()` uses for `complete` and `get_waitlist_count()`
+  uses for waiting. Profile-only rows must not consume sequence numbers,
+  because abandonment turns queue order into gaps.
+- Completion requires durable profile + first durable photo + permanent
+  spot. A profile with photos but a NULL spot is not fully complete: it
+  resolves to the existing `photos` step (retryable finalization, no new
+  route) until the spot exists, so a successful photo can never strand a
+  completed user without a spot.
+- Waiting remains independent from spot ownership: waiting is the
+  active + >=1-photo aggregate (`get_waitlist_count()`), ownership is the
+  per-user permanent number. Suspension flips waiting, never ownership; no
+  spot predicate was added to any waiting, email-audience, or admin count.
+- Allocation is idempotent and retry-safe: `finalize_onboarding_completion()`
+  returns the existing spot/claim before touching the allocator, concurrent
+  finalizes collapse to one number (claim `ON CONFLICT DO NOTHING` +
+  NULL->spot guarded update + re-select), and natural re-entry (photo POST
+  success, photos GET while spotless) retries without a client "finish"
+  button. The photo itself is never rolled back to save a number.
+- Existing spots are permanent: never renumbered, reassigned, reclaimed, or
+  reset. Gaps remain the accepted price of uniqueness + permanence; the
+  allocator counter is monotonic and profile-creation 409s no longer cost a
+  number because creation no longer allocates.
+- Allocator changes require a data-safety proof: no reset of `next_spot`,
+  no backfill touching existing `spot` values, admin callers still refused
+  (route 403 + `is_admin()` 42501 in both allocator functions), and the
+  `guard_profile_security_fields()` NULL->set-with-claim rule intact.
+- Production lesson: do not move spot allocation by merely moving a
+  client-side call site. The completion boundary must be server-owned and
+  retry-safe — verify + allocate + persist in one transaction, short-circuit
+  when the spot exists, and converge on re-entry — so a successful photo
+  cannot permanently leave a completed user without a spot.
 
 ### STEP 2 status (vs. the STEP 2 brief)
 
@@ -1370,6 +1455,23 @@ withheld). Student login route untouched (additive-only helper change).
   verified). Route-level properties that need a request context are
   guarded by static source tests (Origin wiring, GENERIC-always-401,
   no secret interpolation in logs) until a live harness exists.
+
+### INSIDE production-incident learning (Oct 2026 /inside 500 after deploy)
+
+- Deploy timing is not causation: the deploy that broke `GET /inside`
+  contained only presentational invite-UI changes
+  (`src/app/invite/[token]/page.tsx`, no shared imports), and the same
+  commit served `/inside` correctly after a clean rebuild + redeploy.
+  Verify cross-route impact through imports and live behavior, never
+  through deploy adjacency.
+- When a critical route fails immediately after deployment while the same
+  commit works locally (`next dev`, OpenNext preview, `next start`) and
+  sibling live routes are healthy, do NOT modify auth, database,
+  admin_users, secrets, or the admin gate first. Suspect the deployed
+  artifact/runtime: confirm the live version ID, compare live static-asset
+  hashes against a clean local build, check worker logs for that route,
+  and prefer a clean rebuild + redeploy of the same commit before any code
+  change. See the release + smoke discipline in §12.1.
 
 ### SLICE 2 status (first-year / email-first onboarding) — IMPLEMENTED
 
