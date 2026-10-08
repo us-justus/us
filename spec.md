@@ -349,6 +349,24 @@ Browser → Next.js → Supabase, so every redundant hop adds a full RTT.
   `profiles` lookup when email was skipped).
 - Never call `auth.getUser()` twice on one request. `GET /api/account/state`
   passes its already-authenticated user into `getOnboardingState(user)`.
+- Post-login server-side state resolution must reuse the authenticated
+  identity AND the authenticated Supabase client/session from the sign-in
+  operation — never reconstruct authentication from the pre-login request
+  cookies within the same login request. Concretely, `POST /api/auth/login`
+  passes the client that performed `signInWithPassword()` into
+  `getOnboardingState(user, supabase)` (`getOnboardingState` accepts an
+  optional injected client; all other callers keep the cookie-derived
+  default). Failure mode (fixed 2026-10-08, regression:
+  `src/lib/auth/login-fresh-device.test.ts`): resolving state on a second,
+  freshly-created cookie client (Client B) sees only the incoming request
+  cookies. On a fresh device there are none, so Client B reads
+  `verification_records` as anon → RLS yields zero rows without error →
+  `vr === null` → track decision `fresh` → step `usn` → `/onboarding/usn`
+  for an existing complete account — while the same login on the original
+  device works because its request still carries the old session cookies.
+  Passing the `user` alone is not sufficient: the user object fixes identity
+  for pure checks but every DB read still authenticates as the client's
+  session.
 - `GET /api/account/state` has one ambient owner: SiteChrome resolves it once
   per authenticated navigation for the header/nav snapshot (`status`, `unread`,
   `primaryAvatarUrl`, `chatUnread`). Product pages never re-resolve it for
