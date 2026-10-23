@@ -13,11 +13,13 @@ import { framingKeyForFile, type PhotoFraming } from "@/lib/photos/framing";
 import {
   BRANCHES,
   YEARS,
+  GENDERS,
   MAX_PHOTOS,
   validateNickname,
   validateAge,
   validateYear,
   validateBranch,
+  validateGender,
   validateBio,
   validatePhotoFile,
 } from "@/lib/validation/profile";
@@ -41,6 +43,7 @@ export default function EditProfileClient() {
   const [age, setAge] = useState("");
   const [year, setYear] = useState("");
   const [branch, setBranch] = useState("");
+  const [gender, setGender] = useState("");
   const [bio, setBio] = useState("");
   const [interests, setInterests] = useState("");
 
@@ -71,6 +74,7 @@ export default function EditProfileClient() {
       age !== initial.age ||
       year !== initial.year ||
       branch !== initial.branch ||
+      gender !== initial.gender ||
       bio !== initial.bio ||
       interests !== initial.interests);
 
@@ -108,11 +112,20 @@ export default function EditProfileClient() {
         router.replace("/onboarding/profile");
         return;
       }
-      const p = j.profile as { nickname: string; age: number; year: string; branch: string; bio: string | null; interests: string[] };
+      const p = j.profile as {
+  nickname: string;
+  age: number;
+  year: string;
+  branch: string;
+  gender: string | null;
+  bio: string | null;
+  interests: string[];
+};
       setNickname(p.nickname);
       setAge(String(p.age));
       setYear(p.year);
       setBranch(p.branch);
+      setGender(p.gender ?? "");
       setBio(p.bio ?? "");
       setInterests((p.interests ?? []).join(", "));
       const photos: unknown = j.photos;
@@ -122,6 +135,7 @@ export default function EditProfileClient() {
         age: String(p.age),
         year: p.year,
         branch: p.branch,
+        gender: p.gender ?? "",
         bio: p.bio ?? "",
         interests: (p.interests ?? []).join(", "),
       });
@@ -160,6 +174,8 @@ export default function EditProfileClient() {
     if (yErr) fe.year = yErr;
     const bErr = validateBranch(branch);
     if (bErr) fe.branch = bErr;
+    const genderErr = validateGender(gender);
+    if (genderErr) fe.gender = genderErr;
     const bioErr = validateBio(bio);
     if (bioErr) fe.bio = bioErr;
     setFieldErr(fe);
@@ -177,6 +193,7 @@ export default function EditProfileClient() {
           age: aNum,
           year,
           branch,
+          gender,
           bio: bio.trim() || null,
           interests: interests
             .split(",")
@@ -564,7 +581,24 @@ export default function EditProfileClient() {
             </select>
             {fieldErr.branch && <FieldError msg={fieldErr.branch} />}
           </div>
-
+<div className="space-y-2">
+  <label className="text-[11px] tracking-[0.14em] uppercase text-ink-faint">
+    gender
+  </label>
+  <select
+    value={gender}
+    onChange={(e) => setGender(e.target.value)}
+   className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base text-ink outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent-soft"
+  >
+    <option value="">Select gender</option>
+    {GENDERS.map((g) => (
+      <option key={g} value={g}>
+        {g}
+      </option>
+    ))}
+  </select>
+  {fieldErr.gender && <FieldError msg={fieldErr.gender} />}
+</div>
           <div>
             <label className="text-[11px] tracking-[0.14em] uppercase text-ink-faint">
               bio <span className="normal-case tracking-normal lowercase text-ink-faint">— optional</span>
