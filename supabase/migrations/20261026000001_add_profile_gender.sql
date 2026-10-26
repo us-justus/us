@@ -11,11 +11,11 @@ alter table public.profiles
   add constraint profiles_gender_allowed
   check (
     gender is null
-    or gender in ('Male', 'Female', 'Prefer not to say')
+    or gender in ('Male', 'Female')
   );
 
 comment on column public.profiles.gender is
-  'Optional user-selected profile gender. NULL means the user has not selected an option.';
+  'Public user-selected profile gender: Male or Female. NULL means not selected (legacy profiles).';
 
 -- Keep the discoverable projection explicit: gender is visible, while
 -- auth IDs, USNs, email addresses, and moderation fields remain excluded.
@@ -35,6 +35,8 @@ from public.profiles
 where is_active is true
   and username is not null;
 
--- Preserve the existing restricted access model.
+-- This projection has no block/product-state predicates. Do not grant it to
+-- client roles: direct PostgREST reads would bypass the guarded search and
+-- public-profile routes. Public display is served through those server paths.
 revoke all on table public.discoverable_profiles from public, anon, authenticated;
-grant select on table public.discoverable_profiles to authenticated;
+grant select on table public.discoverable_profiles to service_role;

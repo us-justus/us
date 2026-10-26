@@ -84,10 +84,16 @@ describe("security remediation boundaries", () => {
       genderMigration,
       /add column if not exists gender text null/i,
     );
-    assert.match(
-      genderMigration,
-      /gender in \('Male', 'Female', 'Prefer not to say'\)/i,
-    );
+    const genderCheck =
+      genderMigration.match(
+        /add constraint profiles_gender_allowed[\s\S]*?check\s*\(([\s\S]*?)\);/i,
+      )?.[1] ?? "";
+    const genderLiterals = [...genderCheck.matchAll(/'([^']*)'/g)]
+      .map((match) => match[1] ?? "")
+      .sort();
+    assert.match(genderCheck, /gender is null/i);
+    assert.deepEqual(genderLiterals, ["Female", "Male"]);
+    assert.doesNotMatch(genderMigration, /Prefer not to say/i);
     assert.match(
       genderMigration,
       /select[\s\S]*?interests,\s*gender\s+from public\.profiles/i,
@@ -96,15 +102,19 @@ describe("security remediation boundaries", () => {
       genderMigration,
       /revoke all on table public\.discoverable_profiles from public, anon, authenticated/i,
     );
+    assert.doesNotMatch(
+      genderMigration,
+      /grant select on table public\.discoverable_profiles to (authenticated|anon)/i,
+    );
     assert.match(
       genderMigration,
-      /grant select on table public\.discoverable_profiles to authenticated/i,
+      /grant select on table public\.discoverable_profiles to service_role/i,
     );
 
-   const genderProjection =
-  genderMigration.match(
-    /create or replace view public\.discoverable_profiles[\s\S]*?select\s+([\s\S]*?)\s+from public\.profiles/i,
-  )?.[1] ?? "";
+    const genderProjection =
+      genderMigration.match(
+        /create or replace view public\.discoverable_profiles[\s\S]*?select\s+([\s\S]*?)\s+from public\.profiles/i,
+      )?.[1] ?? "";
 
     assert.match(genderProjection, /\bgender\b/i);
     assert.doesNotMatch(

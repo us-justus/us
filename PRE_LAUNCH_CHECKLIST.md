@@ -98,6 +98,10 @@
 - [ ] Search remains available
 - [ ] Existing pre-launch users retain identity
 - [ ] #spot remains permanent
+- [ ] Before enabling matching, prompt completed users with NULL gender to select Male or Female.
+- [ ] Do not re-run onboarding or modify existing user data.
+- [ ] Verify server-side matching access is gated until gender is set.
+  (see spec.md §14.10 — existing completed users at matching time)
 
 ## K. Performance
 - [ ] Physical iPhone test

@@ -143,6 +143,7 @@ A profile contains:
 - Age
 - Year
 - Branch
+- Gender (public; exactly Male or Female when selected)
 - Profile photos
 - Optional short bio/interests
 
@@ -227,7 +228,9 @@ physical device over LAN. Do not present a target as a measured result.
 
 ## 4.4 Privacy separation is fundamental
 
-Public profile data: nickname, age, year, branch, photos, bio, interests.
+Public profile data: nickname, age, year, branch, gender, photos, bio,
+interests. Gender is public by explicit disclosure in onboarding and profile
+editing.
 
 Private verification data: USN, email, Supabase auth/user ID, verification
 metadata. Private data must never appear in profile cards, discovery
@@ -888,14 +891,29 @@ persistent messages
   (redirecting to /discover would loop back via the launch guard);
   once launched it redirects to /discover as before.
 
-## 14.8 Profile/photos — IMPLEMENTED (existing behavior preserved)
+## 14.8 Profile/photos — IMPLEMENTED (gender added)
 
-- Unchanged: nickname/age/year/branch/bio/interests + `profile_photos`
-  with server MIME/size limits. No image-compression behavior changed.
-- STEP 2 extension only: `GET /api/profile` and `getOwnProfile()` also
-  return `username`/`spot` (public identity fields — never USN/email/auth
-  ID); `PATCH /api/profile` still edits legacy fields only and rejects
-  `username`/`spot` keys.
+- Profile fields: nickname/age/year/branch/gender/bio/interests +
+  `profile_photos` with server MIME/size limits. No image-compression
+  behavior changed.
+- Gender is collected during new-user profile onboarding and limited to
+  exactly `Male` or `Female`. The database column stays nullable so existing
+  profiles with `gender = NULL` remain valid; the SQL check permits only
+  `NULL`, `Male`, or `Female`. There is no `Prefer not to say` option.
+- Gender is intentionally public: `/u/[username]` and `/api/search` display
+  it, with an explicit disclosure beside the onboarding and profile-edit
+  selectors.
+- `GET /api/profile` returns the signed-in user's own profile fields,
+  including username/spot and gender. `PATCH /api/profile` updates gender
+  only when the key is explicitly supplied and the value is exactly `Male` or
+  `Female`; when omitted, the stored value (including `NULL`) is preserved.
+  It still rejects `username`/`spot` keys.
+- Legacy completed users with `gender = NULL` stay complete and can edit
+  unrelated fields without selecting a gender.
+- Migration `20261026000001_add_profile_gender.sql` must be applied before
+  code that reads or writes gender. The `public.discoverable_profiles` view is
+  service-role-only; client reads stay on the guarded search and public-profile
+  routes.
 
 ## 14.9 Likes/passes — IMPLEMENTED (existing schema + PRE_LAUNCH lock)
 
@@ -908,6 +926,30 @@ persistent messages
   trigger; match lifecycle stays like → mutual like → MATCH → chat.
   Messages link `match_id` + `sender_id → auth.users.id` (never username,
   email, USN). Chat UI + realtime are NOT YET IMPLEMENTED (post-launch slice).
+
+### Existing completed users at matching time
+
+- Existing completed users are never forced through onboarding again;
+  usernames, #spots, profiles, photos, likes, and matches stay as they are.
+- Existing completed profiles with `gender = NULL` remain complete and can
+  edit unrelated profile fields without supplying a gender. New onboarding
+  requires exactly `Male` or `Female`; profile edits accept them but never
+  coerce or infer a value. The only selectable values are `Male` and
+  `Female`; there is no `Prefer not to say` option.
+- When Discover/matching launches, prompt completed users whose gender is
+  still `NULL` to select `Male` or `Female` before matching is enabled. That
+  prompt is not part of this change, and it must not modify existing data or
+  re-run onboarding.
+- Gender and discovery preferences are never inferred from names, photos,
+  USN, or any other profile data. `NULL` means unanswered.
+- The future prompt must be backed by a real server-side launch gate in the
+  future matching implementation; client-side UI alone is insufficient.
+  Server-side matching access stays denied until the required gender is set.
+  (This gate is a prerequisite of the future matching implementation, not the
+  removed launch system, which no longer exists.)
+- Discovery preferences (`interested_in` / who the user wants to meet) and
+  matching logic are out of scope for this change. No matching preferences
+  ship now.
 
 ## 14.11 Persistent chat history — DESIGNED
 
@@ -928,8 +970,10 @@ persistent messages
   launch. Self excluded server-side via `auth.uid()`; blocks in either
   direction and `is_active = false` rows excluded.
 - Response projects public fields only (`username`, `spot`, `nickname`,
-  `age`, `year`, `branch`) — `user_id` resolved internally and stripped.
-  Never USN/email/phone/auth ID/verification metadata. No `SELECT *`.
+  `age`, `year`, `branch`, `gender`) — `user_id` resolved internally and
+  stripped. Gender is public by explicit disclosure and may be `NULL` for
+  legacy profiles. Never USN/email/phone/auth ID/verification metadata. No
+  `SELECT *`.
 - UI: `/search` (pre-launch + post-launch nav, debounced 250ms, stale
   responses ignored, idle/searching/results/empty/error states, 44px
   targets, mobile-first) → minimal public `/u/[username]` (server-resolved,

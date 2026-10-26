@@ -19,7 +19,7 @@ import {
   validateAge,
   validateYear,
   validateBranch,
-  validateGender,
+  decideGenderEdit,
   validateBio,
   validatePhotoFile,
 } from "@/lib/validation/profile";
@@ -174,8 +174,8 @@ export default function EditProfileClient() {
     if (yErr) fe.year = yErr;
     const bErr = validateBranch(branch);
     if (bErr) fe.branch = bErr;
-    const genderErr = validateGender(gender);
-    if (genderErr) fe.gender = genderErr;
+    const genderEdit = decideGenderEdit(initial?.gender ?? "", gender);
+    if (genderEdit.action === "invalid") fe.gender = genderEdit.error;
     const bioErr = validateBio(bio);
     if (bioErr) fe.bio = bioErr;
     setFieldErr(fe);
@@ -185,22 +185,25 @@ export default function EditProfileClient() {
     setError(null);
     setSuccess(false);
     try {
+      const payload: Record<string, unknown> = {
+        nickname: nickname.trim(),
+        age: aNum,
+        year,
+        branch,
+        bio: bio.trim() || null,
+        interests: interests
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .slice(0, 8),
+      };
+
+      if (genderEdit.action === "set") payload.gender = genderEdit.value;
+
       const res = await fetch("/api/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          nickname: nickname.trim(),
-          age: aNum,
-          year,
-          branch,
-          gender,
-          bio: bio.trim() || null,
-          interests: interests
-            .split(",")
-            .map((s) => s.trim())
-            .filter(Boolean)
-            .slice(0, 8),
-        }),
+        body: JSON.stringify(payload),
       });
       const j = (await res.json().catch(() => ({}))) as { error?: unknown; field?: unknown };
       if (!res.ok) {
@@ -216,6 +219,10 @@ export default function EditProfileClient() {
         age: String(aNum),
         year,
         branch,
+        gender:
+          genderEdit.action === "set"
+            ? genderEdit.value
+            : (initial?.gender ?? ""),
         bio: bio.trim(),
         interests: interests
           .split(",")
@@ -581,24 +588,45 @@ export default function EditProfileClient() {
             </select>
             {fieldErr.branch && <FieldError msg={fieldErr.branch} />}
           </div>
-<div className="space-y-2">
-  <label className="text-[11px] tracking-[0.14em] uppercase text-ink-faint">
-    gender
-  </label>
-  <select
-    value={gender}
-    onChange={(e) => setGender(e.target.value)}
-   className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base text-ink outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent-soft"
-  >
-    <option value="">Select gender</option>
-    {GENDERS.map((g) => (
-      <option key={g} value={g}>
-        {g}
-      </option>
-    ))}
-  </select>
-  {fieldErr.gender && <FieldError msg={fieldErr.gender} />}
-</div>
+          <div>
+            <label
+              htmlFor="gender"
+              className="text-[11px] tracking-[0.14em] uppercase text-ink-faint"
+            >
+              gender
+            </label>
+            <select
+              id="gender"
+              value={gender}
+              onChange={(e) => setGender(e.target.value)}
+              aria-invalid={Boolean(fieldErr.gender)}
+              aria-describedby={
+                fieldErr.gender
+                  ? "gender-visibility gender-error"
+                  : "gender-visibility"
+              }
+              className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base text-ink outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent-soft"
+            >
+              <option value="">select</option>
+              {GENDERS.map((g) => (
+                <option key={g} value={g}>
+                  {g}
+                </option>
+              ))}
+            </select>
+            <p
+              id="gender-visibility"
+              className="mt-1 text-[11px] leading-4 text-ink-soft"
+            >
+              Your gender is public: it appears on your public profile and in
+              search results.
+            </p>
+            {fieldErr.gender && (
+              <div id="gender-error">
+                <FieldError msg={fieldErr.gender} />
+              </div>
+            )}
+          </div>
           <div>
             <label className="text-[11px] tracking-[0.14em] uppercase text-ink-faint">
               bio <span className="normal-case tracking-normal lowercase text-ink-faint">— optional</span>

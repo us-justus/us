@@ -1,4 +1,3 @@
-
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
@@ -8,7 +7,8 @@ import {
   validateYear,
   validateBranch,
   validateBio,
-  validateGender,
+  GENDER_ERROR,
+  isGender,
 } from "@/lib/validation/profile";
 import { normalizeUsername, validateUsername } from "@/lib/validation/username";
 import { requireVerifiedEmailForWrite } from "@/lib/onboarding/require-verified-email";
@@ -40,9 +40,11 @@ export async function POST(req: Request) {
   const bioErr = validateBio(String(bio || ""));
   if (bioErr) return NextResponse.json({ error: bioErr }, { status: 400 });
 
-  const gErr = validateGender(String(gender ?? ""));
-  if (gErr) {
-    return NextResponse.json({ error: gErr, field: "gender" }, { status: 400 });
+  if (!isGender(gender)) {
+    return NextResponse.json(
+      { error: GENDER_ERROR, field: "gender" },
+      { status: 400 },
+    );
   }
 
   // Username uses one shared rule for client and server. The database unique
@@ -149,7 +151,7 @@ export async function POST(req: Request) {
       branch: String(branch),
       bio: bio ? String(bio).trim() : null,
       interests: Array.isArray(interests) ? interests.slice(0, 8) : [],
-      gender: String(gender),
+      gender,
       username: normalized,
       spot,
     },

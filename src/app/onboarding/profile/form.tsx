@@ -245,15 +245,23 @@ export function ProfileForm() {
       </div>
 
       <div>
-        <label className="text-[11px] tracking-[0.14em] uppercase text-ink-faint">
+        <label
+          htmlFor="gender"
+          className="text-[11px] tracking-[0.14em] uppercase text-ink-faint"
+        >
           gender
         </label>
         <select
+          id="gender"
           value={gender}
           onChange={(e) => setGender(e.target.value)}
           required
           aria-invalid={Boolean(fieldErr.gender)}
-          aria-describedby={fieldErr.gender ? "gender-error" : undefined}
+          aria-describedby={
+            fieldErr.gender
+              ? "gender-visibility gender-error"
+              : "gender-visibility"
+          }
           className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base text-ink outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent-soft"
         >
           <option value="">select</option>
@@ -263,6 +271,13 @@ export function ProfileForm() {
             </option>
           ))}
         </select>
+        <p
+          id="gender-visibility"
+          className="mt-1 text-[11px] leading-4 text-ink-soft"
+        >
+          Your gender is public: it appears on your public profile and in
+          search results.
+        </p>
         {fieldErr.gender && (
           <div id="gender-error">
             <FieldError msg={fieldErr.gender} />

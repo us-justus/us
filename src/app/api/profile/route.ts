@@ -7,7 +7,7 @@ import {
   validateYear,
   validateBranch,
   validateBio,
-  validateGender,
+  parseGenderPatch,
 } from "@/lib/validation/profile";
 
 export async function GET() {
@@ -69,7 +69,7 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const { nickname, age, year, branch, gender, bio, interests, username, spot } = body;
+  const { nickname, age, year, branch, bio, interests, username, spot } = body;
 
   // Username and spot are immutable here; onboarding is their sole writer.
   if (username !== undefined || spot !== undefined) {
@@ -94,8 +94,15 @@ export async function PATCH(req: Request) {
   const bErr = validateBranch(String(branch ?? ""));
   if (bErr) return NextResponse.json({ error: bErr, field: "branch" }, { status: 400 });
 
-  const gErr = validateGender(String(gender ?? ""));
-  if (gErr) return NextResponse.json({ error: gErr, field: "gender" }, { status: 400 });
+  // Omitted gender preserves the stored value (including NULL for legacy
+  // profiles); an explicit value must be exact. Never coerce untrusted input.
+  const genderPatch = parseGenderPatch(body);
+  if (!genderPatch.ok) {
+    return NextResponse.json(
+      { error: genderPatch.error, field: "gender" },
+      { status: 400 },
+    );
+  }
 
   const bioErr = validateBio(String(bio ?? ""));
   if (bioErr) return NextResponse.json({ error: bioErr, field: "bio" }, { status: 400 });
@@ -151,17 +158,22 @@ export async function PATCH(req: Request) {
     );
   }
 
+  const update: Record<string, unknown> = {
+    nickname: String(nickname).trim(),
+    age: Number(age),
+    year: String(year),
+    branch: String(branch),
+    bio: bio ? String(bio).trim() : null,
+    interests: normalizedInterests,
+  };
+
+  if (genderPatch.gender !== undefined) {
+    update.gender = genderPatch.gender;
+  }
+
   const { error } = await privileged
     .from("profiles")
-    .update({
-      nickname: String(nickname).trim(),
-      age: Number(age),
-      year: String(year),
-      branch: String(branch),
-      gender: String(gender),
-      bio: bio ? String(bio).trim() : null,
-      interests: normalizedInterests,
-    })
+    .update(update)
     .eq("user_id", user.id);
 
   if (error) {
