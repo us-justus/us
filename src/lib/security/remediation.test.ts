@@ -86,7 +86,7 @@ describe("security remediation boundaries", () => {
     );
     assert.match(
       genderMigration,
-      /gender in \('Male', 'Female', 'Prefer not to say'\)/i,
+      /gender in \('Male', 'Female'\)/i,
     );
     assert.match(
       genderMigration,

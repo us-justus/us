@@ -11,7 +11,7 @@ alter table public.profiles
   add constraint profiles_gender_allowed
   check (
     gender is null
-    or gender in ('Male', 'Female', 'Prefer not to say')
+    or gender in ('Male', 'Female')
   );
 
 comment on column public.profiles.gender is

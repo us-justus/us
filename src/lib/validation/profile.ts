@@ -1,7 +1,7 @@
 
 export const YEARS = ["1st", "2nd", "3rd", "4th"] as const;
 export const BRANCHES = ["CSE", "ISE", "ECE", "EEE", "ME", "CE", "AIML", "Other"] as const;
-export const GENDERS = ["Male", "Female", "Prefer not to say"] as const;
+export const GENDERS = ["Male", "Female"] as const;
 
 export type Year = (typeof YEARS)[number];
 export type Branch = (typeof BRANCHES)[number];
