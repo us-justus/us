@@ -13,11 +13,13 @@ import { framingKeyForFile, type PhotoFraming } from "@/lib/photos/framing";
 import {
   BRANCHES,
   YEARS,
+  GENDERS,
   MAX_PHOTOS,
   validateNickname,
   validateAge,
   validateYear,
   validateBranch,
+  decideGenderEdit,
   validateBio,
   validatePhotoFile,
 } from "@/lib/validation/profile";
@@ -41,6 +43,7 @@ export default function EditProfileClient() {
   const [age, setAge] = useState("");
   const [year, setYear] = useState("");
   const [branch, setBranch] = useState("");
+  const [gender, setGender] = useState("");
   const [bio, setBio] = useState("");
   const [interests, setInterests] = useState("");
 
@@ -71,6 +74,7 @@ export default function EditProfileClient() {
       age !== initial.age ||
       year !== initial.year ||
       branch !== initial.branch ||
+      gender !== initial.gender ||
       bio !== initial.bio ||
       interests !== initial.interests);
 
@@ -108,11 +112,20 @@ export default function EditProfileClient() {
         router.replace("/onboarding/profile");
         return;
       }
-      const p = j.profile as { nickname: string; age: number; year: string; branch: string; bio: string | null; interests: string[] };
+      const p = j.profile as {
+  nickname: string;
+  age: number;
+  year: string;
+  branch: string;
+  gender: string | null;
+  bio: string | null;
+  interests: string[];
+};
       setNickname(p.nickname);
       setAge(String(p.age));
       setYear(p.year);
       setBranch(p.branch);
+      setGender(p.gender ?? "");
       setBio(p.bio ?? "");
       setInterests((p.interests ?? []).join(", "));
       const photos: unknown = j.photos;
@@ -122,6 +135,7 @@ export default function EditProfileClient() {
         age: String(p.age),
         year: p.year,
         branch: p.branch,
+        gender: p.gender ?? "",
         bio: p.bio ?? "",
         interests: (p.interests ?? []).join(", "),
       });
@@ -160,6 +174,8 @@ export default function EditProfileClient() {
     if (yErr) fe.year = yErr;
     const bErr = validateBranch(branch);
     if (bErr) fe.branch = bErr;
+    const genderEdit = decideGenderEdit(initial?.gender ?? "", gender);
+    if (genderEdit.action === "invalid") fe.gender = genderEdit.error;
     const bioErr = validateBio(bio);
     if (bioErr) fe.bio = bioErr;
     setFieldErr(fe);
@@ -169,21 +185,25 @@ export default function EditProfileClient() {
     setError(null);
     setSuccess(false);
     try {
+      const payload: Record<string, unknown> = {
+        nickname: nickname.trim(),
+        age: aNum,
+        year,
+        branch,
+        bio: bio.trim() || null,
+        interests: interests
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .slice(0, 8),
+      };
+
+      if (genderEdit.action === "set") payload.gender = genderEdit.value;
+
       const res = await fetch("/api/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          nickname: nickname.trim(),
-          age: aNum,
-          year,
-          branch,
-          bio: bio.trim() || null,
-          interests: interests
-            .split(",")
-            .map((s) => s.trim())
-            .filter(Boolean)
-            .slice(0, 8),
-        }),
+        body: JSON.stringify(payload),
       });
       const j = (await res.json().catch(() => ({}))) as { error?: unknown; field?: unknown };
       if (!res.ok) {
@@ -199,6 +219,10 @@ export default function EditProfileClient() {
         age: String(aNum),
         year,
         branch,
+        gender:
+          genderEdit.action === "set"
+            ? genderEdit.value
+            : (initial?.gender ?? ""),
         bio: bio.trim(),
         interests: interests
           .split(",")
@@ -564,7 +588,45 @@ export default function EditProfileClient() {
             </select>
             {fieldErr.branch && <FieldError msg={fieldErr.branch} />}
           </div>
-
+          <div>
+            <label
+              htmlFor="gender"
+              className="text-[11px] tracking-[0.14em] uppercase text-ink-faint"
+            >
+              gender
+            </label>
+            <select
+              id="gender"
+              value={gender}
+              onChange={(e) => setGender(e.target.value)}
+              aria-invalid={Boolean(fieldErr.gender)}
+              aria-describedby={
+                fieldErr.gender
+                  ? "gender-visibility gender-error"
+                  : "gender-visibility"
+              }
+              className="mt-2 w-full rounded-2xl border border-line bg-paper px-4 py-3.5 text-base text-ink outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent-soft"
+            >
+              <option value="">select</option>
+              {GENDERS.map((g) => (
+                <option key={g} value={g}>
+                  {g}
+                </option>
+              ))}
+            </select>
+            <p
+              id="gender-visibility"
+              className="mt-1 text-[11px] leading-4 text-ink-soft"
+            >
+              Your gender is public: it appears on your public profile and in
+              search results.
+            </p>
+            {fieldErr.gender && (
+              <div id="gender-error">
+                <FieldError msg={fieldErr.gender} />
+              </div>
+            )}
+          </div>
           <div>
             <label className="text-[11px] tracking-[0.14em] uppercase text-ink-faint">
               bio <span className="normal-case tracking-normal lowercase text-ink-faint">— optional</span>

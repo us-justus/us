@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 /**
  * Static regression guards for `/inside` Step 2 (immutable admin audit log).
@@ -10,7 +11,7 @@ import { join } from "node:path";
  * table lives in the database, so live insert/RLS behaviors are verified
  * against staging/localhost in the manual checklist. These tests guard the
  * properties that MUST hold in source: the migration's RLS/grant model,
- * the controlled action set, actor derivation, secret hygiene, event
+ * the controlled action set, actor derivation, secret hygiene,event
  * wiring order, fail-closed moderation compensation, and Step 1 regressions.
  */
 
@@ -256,23 +257,28 @@ describe("inside audit — launch removal (no launch actions, no launch route)",
       "prelaunch_version",
     ];
     const offenders: string[] = [];
+
     const walk = (dir: URL) => {
-      for (const entry of readdirSync(dir)) {
-        const full = join(dir.pathname, entry);
+      const base = fileURLToPath(dir);
+
+      for (const entry of readdirSync(base)) {
+        const full = join(base, entry);
         const st = statSync(full);
+
         if (st.isDirectory()) {
-          walk(new URL(`file://${full}/`));
+          walk(pathToFileURL(full));
         } else if (/\.(ts|tsx)$/.test(entry) && !entry.endsWith(".test.ts")) {
           const body = readFileSync(full, "utf8");
           for (const b of banned) {
             if (body.includes(b)) {
-              offenders.push(`${full.split("/us/")[1]}: ${b}`);
+              offenders.push(`${full.split(/[\\/]+us[\\/]+/)[1] ?? full}: ${b}`);
               break;
             }
           }
         }
       }
     };
+
     walk(new URL("../../../src/", import.meta.url));
     assert.deepEqual(offenders, [], "runtime code must not reference launch state");
   });
@@ -347,7 +353,10 @@ describe("inside audit — launch removal (no launch actions, no launch route)",
     // active table so the strict CHECK can be added; permanent events are
     // never touched and no launch row is renamed into another action.
     assert.ok(body.includes("not exists"), "backfill must skip already-archived rows");
-    assert.ok(body.includes("delete from public.inside_audit_events"), "must clear launch rows from the active table");
+    assert.ok(
+      body.includes("delete from public.inside_audit_events"),
+      "must clear launch rows from the active table",
+    );
     const delAt = body.indexOf("delete from public.inside_audit_events");
     const delBlock = body.slice(delAt, delAt + 400);
     for (const a of ["LAUNCH_ENABLED", "LAUNCH_DISABLED", "LAUNCH_VERSION_CHANGED"]) {
@@ -387,7 +396,12 @@ describe("inside audit — authorization and security", () => {
     ]) {
       const body = code(src(rel));
       assert.ok(!body.includes("actor_user_id"), `no actor field in ${rel}`);
-      assert.ok(!/recordInside\w+\([^)]*userId[^)]*\)/i.test(body.replace("recordInsideLoginSuccess(user.id)", "")), `no caller-supplied actor in ${rel}`);
+      assert.ok(
+        !/recordInside\w+\([^)]*userId[^)]*\)/i.test(
+          body.replace("recordInsideLoginSuccess(user.id)", ""),
+        ),
+        `no caller-supplied actor in ${rel}`,
+      );
     }
   });
 

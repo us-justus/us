@@ -11,11 +11,37 @@ begin
   if has_table_privilege('anon', 'public.profiles', 'SELECT') then
     raise exception 'anon unexpectedly has direct profiles SELECT';
   end if;
-  if not has_table_privilege('authenticated', 'public.discoverable_profiles', 'SELECT') then
-    raise exception 'authenticated cannot read the safe discoverable projection';
+  if has_table_privilege('authenticated', 'public.discoverable_profiles', 'SELECT') then
+    raise exception 'authenticated can read a projection that bypasses product guards';
   end if;
   if has_table_privilege('anon', 'public.discoverable_profiles', 'SELECT') then
     raise exception 'anon can enumerate discoverable profiles';
+  end if;
+  if not has_table_privilege('service_role', 'public.discoverable_profiles', 'SELECT') then
+    raise exception 'service_role cannot read the server-only discoverable projection';
+  end if;
+  -- The constraint may render as IN (...) or = ANY (ARRAY[...]). Extract the
+  -- complete set of quoted literals so an added value fails this assertion,
+  -- not just a missing expected value.
+  if not exists (
+    select 1
+    from pg_catalog.pg_constraint c
+    join pg_catalog.pg_class t on t.oid = c.conrelid
+    join pg_catalog.pg_namespace n on n.oid = t.relnamespace
+    where n.nspname = 'public'
+      and t.relname = 'profiles'
+      and c.conname = 'profiles_gender_allowed'
+      and pg_get_constraintdef(c.oid) ilike '%gender is null%'
+      and (
+        select array_agg(captures.match[1] order by captures.match[1])
+        from pg_catalog.regexp_matches(
+          pg_get_constraintdef(c.oid),
+          '''([^'']*)''',
+          'g'
+        ) as captures(match)
+      ) = array['Female', 'Male']
+  ) then
+    raise exception 'profiles_gender_allowed must allow exactly Male/Female (or NULL)';
   end if;
   if has_table_privilege('authenticated', 'public.matches', 'INSERT') then
     raise exception 'authenticated can directly insert matches';

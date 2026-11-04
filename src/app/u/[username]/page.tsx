@@ -9,35 +9,43 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 export const dynamic = "force-dynamic";
 
 /**
- * Minimal public profile (STEP 3B).
+ * Minimal public profile.
  *
- * `/u/[username]` — the URL carries the username only, never an auth ID or
- * USN. The username → internal profile resolution happens server-side
- * (case-insensitive equality via the existing `idx_profiles_username_lower`
- * index); only public fields render. Blocked in either direction, inactive,
- * or missing → notFound. Product-guarded like /search.
+ * The URL carries the username only, never an auth ID or USN.
+ * Internal profile resolution happens server-side. Only public fields render.
+ * Blocked in either direction, inactive, or missing profiles return notFound.
  */
-export default async function PublicProfilePage({ params }: { params: Promise<{ username: string }> }) {
+export default async function PublicProfilePage({
+  params,
+}: {
+  params: Promise<{ username: string }>;
+}) {
   const session = await getProductSession();
   const guard = guardProductSession(session);
+
   if (guard) {
     redirect(guard);
   }
+
   const me = session.user!.id;
   const { username: rawParam } = await params;
   const handle = decodeURIComponent(rawParam).trim().replace(/^@/, "");
+
   if (!/^[A-Za-z0-9_]{3,30}$/.test(handle)) {
     notFound();
   }
 
   const supabase = await createClient();
-  // LIKE-escape (`_` is legal in usernames but a LIKE wildcard); ilike
-  // without wildcards is a case-insensitive equality match.
+
+  // Escape LIKE wildcards; usernames are matched case-insensitively.
   const likePattern = handle.replace(/[\\%_]/g, (m) => `\\${m}`);
   const service = createServiceRoleClient();
+
   const { data: row } = await service
     .from("profiles")
-    .select("id, user_id, username, spot, nickname, age, year, branch, bio, interests, is_active")
+    .select(
+      "id, user_id, username, spot, nickname, age, year, branch, gender, bio, interests, is_active",
+    )
     .ilike("username", likePattern)
     .eq("is_active", true)
     .maybeSingle();
@@ -51,6 +59,7 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
     age: number;
     year: string;
     branch: string;
+    gender: string | null;
     bio: string | null;
     interests: string[] | null;
   } | null;
@@ -59,8 +68,7 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
     notFound();
   }
 
-  // Blocked in either direction → not discoverable. Independent queries,
-  // resolved together.
+  // A block in either direction makes the profile undiscoverable.
   const [blockedRes, blockedByRes] = await Promise.all([
     supabase
       .from("blocks")
@@ -77,6 +85,7 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
       .limit(1)
       .maybeSingle(),
   ]);
+
   if (blockedRes.data || blockedByRes.data) {
     notFound();
   }
@@ -87,10 +96,6 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
     .eq("profile_id", profile.id)
     .order("display_order", { ascending: true });
 
-  // Reuse the /profile presentation layer directly: same ordering
-  // (display_order ASC), same framing (aspect + object-position live in the
-  // shared carousel — never recalculated here), same carousel + enlarged
-  // viewer. No second crop pipeline, no object-position math.
   const carouselPhotos: OwnPhoto[] = (
     (photos ?? []) as { id: string; storage_path: string; display_order: number }[]
   ).map((p) => ({
@@ -107,31 +112,45 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
           <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
           campus profile
         </p>
+
         <h1 className="mt-2 font-display text-[30px] sm:text-[34px] tracking-[-0.03em] leading-none">
           @{profile.username}
         </h1>
+
         <p className="mt-2 text-[13px] tracking-[0.04em] text-ink-soft">
           {profile.nickname}, {profile.age} · {profile.branch} · {profile.year} year
         </p>
-        {profile.spot !== null && (
-          <p className="mt-1 text-[13px] tracking-[0.04em] text-ink-soft">spot #{profile.spot}</p>
+
+        {profile.gender && (
+          <p className="mt-1 text-[13px] tracking-[0.04em] text-ink-soft">
+            {profile.gender}
+          </p>
         )}
 
-        {carouselPhotos.length ? (
+        {profile.spot !== null && (
+          <p className="mt-1 text-[13px] tracking-[0.04em] text-ink-soft">
+            spot #{profile.spot}
+          </p>
+        )}
+
+        {carouselPhotos.length > 0 && (
           <div className="mt-8">
             <ProfilePhotoCarousel photos={carouselPhotos} name={profile.nickname} />
           </div>
-        ) : null}
+        )}
 
-        {profile.bio && <p className="mt-6 text-[14px] leading-7 text-ink">{profile.bio}</p>}
+        {profile.bio && (
+          <p className="mt-6 text-[14px] leading-7 text-ink">{profile.bio}</p>
+        )}
+
         {profile.interests && profile.interests.length > 0 && (
           <div className="mt-4 flex flex-wrap gap-2">
-            {profile.interests.map((t) => (
+            {profile.interests.map((interest) => (
               <span
-                key={t}
+                key={interest}
                 className="rounded-full border border-line bg-paper-2 px-3 py-1.5 text-[12px] text-ink-soft"
               >
-                {t}
+                {interest}
               </span>
             ))}
           </div>
@@ -140,6 +159,7 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
         <p className="mt-8 text-center text-[11px] leading-4 text-ink-faint">
           matching opens at launch — for now, just names and faces.
         </p>
+
         <Link
           href="/search"
           className="mt-4 inline-flex min-h-[44px] w-full items-center justify-center rounded-full border border-line bg-paper px-8 py-[14px] text-[12px] tracking-[0.14em] uppercase font-medium text-ink-soft transition-colors hover:bg-accent-wash hover:border-accent-soft hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"

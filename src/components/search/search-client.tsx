@@ -1,3 +1,4 @@
+
 "use client";
 
 import Link from "next/link";
@@ -29,9 +30,8 @@ export function SearchClient() {
 
   function handleChange(value: string) {
     setQuery(value);
-    // Below the minimum length no request may fire: reset synchronously in
-    // the event handler (never in the effect below). Cancel any in-flight
-    // request so it is never downloaded just to be discarded.
+
+    // Below the minimum length no request may fire.
     if (value.trim().replace(/^@/, "").length < MIN_QUERY) {
       abortRef.current?.abort();
       abortRef.current = null;
@@ -44,38 +44,56 @@ export function SearchClient() {
   useEffect(() => {
     const q = query.trim();
     if (q.replace(/^@/, "").length < MIN_QUERY) return;
+
     const handle = setTimeout(() => {
       const mySeq = ++seq.current;
       setStatus("searching");
+
       // Abort the previous in-flight search before starting a new one.
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
-      fetch(`/api/search?q=${encodeURIComponent(q)}`, { cache: "no-store", signal: controller.signal })
+
+      fetch(`/api/search?q=${encodeURIComponent(q)}`, {
+        cache: "no-store",
+        signal: controller.signal,
+      })
         .then(async (res) => {
           if (mySeq !== seq.current) return;
+
           if (!res.ok) {
             setStatus("error");
             return;
           }
-          const j = (await res.json().catch(() => null)) as { results?: SearchResult[] } | null;
+
+          const j = (await res.json().catch(() => null)) as
+            | { results?: SearchResult[] }
+            | null;
+
           if (mySeq !== seq.current) return;
+
           const rows = Array.isArray(j?.results) ? j.results : [];
           setResults(rows);
           setStatus(rows.length > 0 ? "results" : "empty");
         })
         .catch((err: unknown) => {
-          // Aborts are expected (superseded query or unmount) — never a
-          // visible search error.
-          if (typeof err === "object" && err !== null && "name" in err && (err as { name?: unknown }).name === "AbortError") return;
+          // Aborts are expected when a query is superseded or the component unmounts.
+          if (
+            typeof err === "object" &&
+            err !== null &&
+            "name" in err &&
+            (err as { name?: unknown }).name === "AbortError"
+          ) {
+            return;
+          }
+
           if (mySeq !== seq.current) return;
           setStatus("error");
         });
     }, DEBOUNCE_MS);
+
     return () => {
       clearTimeout(handle);
-      // A new query beginning (or unmount) cancels the previous download
-      // immediately instead of downloading it just to discard it.
       abortRef.current?.abort();
       abortRef.current = null;
     };
@@ -89,6 +107,7 @@ export function SearchClient() {
       >
         find by username
       </label>
+
       <input
         id="campus-search"
         type="search"
@@ -108,17 +127,24 @@ export function SearchClient() {
             type at least {MIN_QUERY} letters — your campus, by name.
           </p>
         )}
+
         {status === "searching" && (
-          <p className="text-[13px] leading-6 text-ink-faint">searching…</p>
+          <p className="text-[13px] leading-6 text-ink-faint">
+            searching…
+          </p>
         )}
+
         {status === "empty" && (
           <div>
-            <p className="font-display text-[22px] tracking-[-0.02em] text-ink">no one found.</p>
+            <p className="font-display text-[22px] tracking-[-0.02em] text-ink">
+              no one found.
+            </p>
             <p className="mt-2 text-[13px] leading-6 text-ink-faint">
               check the spelling — usernames are exact, letter for letter.
             </p>
           </div>
         )}
+
         {status === "error" && (
           <div className="rounded-[16px] border border-accent-soft bg-accent-wash px-5 py-4">
             <p className="text-[13px] leading-6 text-accent-deep">
@@ -133,10 +159,14 @@ export function SearchClient() {
             </button>
           </div>
         )}
+
         {status === "results" && (
           <ul className="flex flex-col" aria-label="search results">
             {results.map((r) => (
-              <li key={r.username.toLowerCase()} className="border-b border-line last:border-0">
+              <li
+                key={r.username.toLowerCase()}
+                className="border-b border-line last:border-0"
+              >
                 <Link
                   href={`/u/${encodeURIComponent(r.username)}`}
                   prefetch={false}
@@ -146,12 +176,18 @@ export function SearchClient() {
                     <span className="block truncate text-[15px] tracking-[0.02em] text-ink transition-colors group-hover:text-accent-deep">
                       @{r.username}
                     </span>
+
                     <span className="mt-0.5 block text-[12px] tracking-[0.04em] text-ink-faint">
                       {r.nickname} · {r.branch} · {r.year} year
+                      {r.gender ? ` · ${r.gender}` : null}
                       {r.spot !== null ? ` · spot #${r.spot}` : null}
                     </span>
                   </span>
-                  <span aria-hidden className="shrink-0 text-[13px] text-ink-faint">
+
+                  <span
+                    aria-hidden
+                    className="shrink-0 text-[13px] text-ink-faint"
+                  >
                     →
                   </span>
                 </Link>
