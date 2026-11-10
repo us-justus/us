@@ -1,0 +1,44 @@
+-- Feedback: restore the service-role read/update privileges the server needs.
+--
+-- CONTEXT: production `POST /api/feedback` returned 500 for every
+-- authenticated submission, and `public.feedback` is still empty. The route
+-- writes through the server-only service-role client with
+-- `INSERT ... RETURNING id` (PostgREST `return=representation`), and
+-- PostgreSQL requires SELECT privilege on the returned columns whenever a
+-- statement uses RETURNING. This project grants DML explicitly — the default
+-- ACL for new public tables gives the Data API roles only
+-- TRUNCATE/REFERENCES/TRIGGER/MAINTAIN (see 20261019000001_security_
+-- remediation) — and 20261019000001 granted only INSERT on public.feedback to
+-- service_role. Every insert therefore aborted with `permission denied for
+-- table feedback` (SQLSTATE 42501) before any row was written, and the route
+-- surfaced its generic 500.
+--
+-- The same gap breaks the admin reply path, which also runs on service_role:
+--   - row lookup (`SELECT id, user_id, category, status`) is denied;
+--   - the post-Brevo persist (`UPDATE admin_reply, replied_at, replied_by,
+--     brevo_message_id`) is denied.
+--
+-- SCOPE (minimal, additive only, column-level):
+--   - SELECT (id, user_id, category, status): exactly the columns the two
+--     routes read — `INSERT ... RETURNING id`, the reply lookup projection,
+--     and the `WHERE id` filters (PostgreSQL requires SELECT on columns read
+--     by WHERE). No other column is exposed to the service-role Data API.
+--   - UPDATE (admin_reply, replied_at, replied_by, brevo_message_id): exactly
+--     the columns the reply route persists after Brevo accepts the message.
+--   - No DELETE. No table-level SELECT/UPDATE. No grant to public/anon/
+--     authenticated. No RLS change, no policy change, no table/structure
+--     change, no data change. service_role remains the server-only key
+--     (never NEXT_PUBLIC_, never in the browser bundle) and still bypasses
+--     RLS by design, so these grants do not widen any client-role surface.
+--
+-- OUT OF SCOPE (pre-existing, unchanged): the resolve route's audit-failure
+-- compensation (`update status/resolved_at/resolved_by` via service_role)
+-- still lacks column privileges. It only runs when the audit insert fails and
+-- its error is already swallowed; granting it is a separate decision.
+--
+-- ROLLBACK:
+--   revoke select (id, user_id, category, status) on table public.feedback from service_role;
+--   revoke update (admin_reply, replied_at, replied_by, brevo_message_id) on table public.feedback from service_role;
+
+grant select (id, user_id, category, status) on table public.feedback to service_role;
+grant update (admin_reply, replied_at, replied_by, brevo_message_id) on table public.feedback to service_role;
