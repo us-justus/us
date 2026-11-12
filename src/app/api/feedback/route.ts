@@ -30,6 +30,15 @@ import {
  * enforces the boundary; the projection below keeps it explicit.
  */
 
+/**
+ * Database/runtime error codes are safe to log: short static identifiers
+ * (e.g. "42501"). Never log messages, ids, or feedback content.
+ */
+function errorCode(err: unknown): string {
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === "string" && code ? code : "unknown";
+}
+
 export async function POST(req: Request) {
   const supabase = await createClient();
   const {
@@ -61,6 +70,7 @@ export async function POST(req: Request) {
     .eq("user_id", user.id)
     .gte("created_at", hourAgo);
   if (countError) {
+    console.error("[feedback] throttle check failed", countError.code);
     return NextResponse.json(
       { error: "Could not send feedback. Try again." },
       { status: 500 },
@@ -97,28 +107,40 @@ export async function POST(req: Request) {
     }
   } catch {}
 
-  const { data, error } = await service
-    .from("feedback")
-    .insert({
-      user_id: user.id,
-      category: body.category,
-      message,
-      // Server-derived appeal link: the author's CURRENT suspension state.
-      // Any client "appeal"/"suspension_related" field is ignored — the
-      // profile is the authority, so ordinary users can never set this.
-      ...(appealLink
-        ? { suspension_related: true, related_suspension_at: appealLink }
-        : {}),
-    })
-    .select("id")
-    .single();
-  if (error || !data) {
+  try {
+    const { data, error } = await service
+      .from("feedback")
+      .insert({
+        user_id: user.id,
+        category: body.category,
+        message,
+        // Server-derived appeal link: the author's CURRENT suspension state.
+        // Any client "appeal"/"suspension_related" field is ignored — the
+        // profile is the authority, so ordinary users can never set this.
+        ...(appealLink
+          ? { suspension_related: true, related_suspension_at: appealLink }
+          : {}),
+      })
+      .select("id")
+      .single();
+    if (error || !data) {
+      // Postgres/PostgREST error code only (e.g. 42501 for denied privileges).
+      // The user-facing message stays generic; nothing identifying is logged.
+      console.error("[feedback] submit failed", error?.code ?? "empty");
+      return NextResponse.json(
+        { error: "Could not send feedback. Try again." },
+        { status: 500 },
+      );
+    }
+    return NextResponse.json({ ok: true, id: (data as { id: string }).id });
+  } catch (err) {
+    // Unexpected client/runtime failure: same generic response, code only.
+    console.error("[feedback] submit threw", errorCode(err));
     return NextResponse.json(
       { error: "Could not send feedback. Try again." },
       { status: 500 },
     );
   }
-  return NextResponse.json({ ok: true, id: (data as { id: string }).id });
 }
 
 export async function GET() {

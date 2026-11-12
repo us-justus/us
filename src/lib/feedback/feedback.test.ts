@@ -43,6 +43,17 @@ const SUBMIT_ROUTE = "src/app/api/feedback/route.ts";
 const LIST_ROUTE = "src/app/api/inside/feedback/route.ts";
 const REPLY_ROUTE = "src/app/api/inside/feedback/reply/route.ts";
 const RESOLVE_ROUTE = "src/app/api/inside/feedback/resolve/route.ts";
+const GRANTS_MIG = "supabase/migrations/20261027000001_feedback_service_role_grants.sql";
+
+/** Comma-separated SQL column list → sorted names. */
+function columnsOf(body: string, statement: RegExp): string[] {
+  const list = body.match(statement)?.[1] ?? "";
+  return list
+    .split(",")
+    .map((c) => c.trim())
+    .filter(Boolean)
+    .sort();
+}
 
 describe("feedback — migration exists and models a minimal workflow", () => {
   it("migration file exists", () => {
@@ -180,6 +191,80 @@ describe("feedback — migration exists and models a minimal workflow", () => {
   });
 });
 
+describe("feedback — service-role grants (production 42501 regression)", () => {
+  it("grants SELECT only on the columns the routes read (INSERT ... RETURNING)", () => {
+    assert.ok(existsSync(new URL(GRANTS_MIG, ROOT)), "grants migration must exist");
+    assert.deepEqual(
+      columnsOf(
+        code(src(GRANTS_MIG)),
+        /grant select \(([^)]*)\) on table public\.feedback to service_role/i,
+      ),
+      // id: INSERT ... RETURNING id + WHERE id; the rest: reply lookup.
+      ["category", "id", "status", "user_id"],
+    );
+  });
+
+  it("grants UPDATE only on the columns the reply route persists", () => {
+    assert.deepEqual(
+      columnsOf(
+        code(src(GRANTS_MIG)),
+        /grant update \(([^)]*)\) on table public\.feedback to service_role/i,
+      ),
+      ["admin_reply", "brevo_message_id", "replied_at", "replied_by"],
+    );
+  });
+
+  it("keeps existing INSERT and widens no client role, RLS, or schema", () => {
+    const body = code(src(GRANTS_MIG));
+    // No table-level DML grant (column-scoped only) and nothing for clients.
+    assert.ok(
+      !/grant\s+(select|update|insert|all)\s+on\s+table\s+public\.feedback\b/i.test(body),
+      "no table-level grant may be added",
+    );
+    assert.ok(!/grant[^;]*to\s+(anon|authenticated|public)\b/i.test(body), "no client-role grant");
+    assert.ok(
+      !/(create|alter|drop)\s+(table|policy|view|trigger|function|index)/i.test(body),
+      "no schema or RLS change",
+    );
+    assert.ok(!/\b(row level security|insert into|delete from)\b/i.test(body), "no RLS or data change");
+    // The submit route still inserts; only reads/updates were missing.
+    assert.ok(!/revoke[^;]*insert[^;]*from service_role/i.test(body), "INSERT must stay granted");
+  });
+
+  it("covers every column the submit and reply routes actually touch", () => {
+    const submit = code(src(SUBMIT_ROUTE));
+    const reply = code(src(REPLY_ROUTE));
+    const grants = code(src(GRANTS_MIG));
+    const selectCols = columnsOf(
+      grants,
+      /grant select \(([^)]*)\) on table public\.feedback to service_role/i,
+    );
+    const updateCols = columnsOf(
+      grants,
+      /grant update \(([^)]*)\) on table public\.feedback to service_role/i,
+    );
+
+    // Submit: INSERT ... RETURNING "id".
+    assert.match(submit, /\.insert\(\{[\s\S]*?\}\)\s*\.select\("id"\)\s*\.single\(\)/);
+    assert.ok(selectCols.includes("id"), "RETURNING id needs column SELECT");
+
+    // Reply lookup projection must be fully covered for both RETURNING and WHERE.
+    const lookup = reply.match(/\.select\("([^"]+)"\)/)?.[1] ?? "";
+    assert.ok(lookup.includes("user_id"), "reply lookup projection must be found");
+    for (const col of lookup.split(",").map((c) => c.trim())) {
+      assert.ok(selectCols.includes(col), `reply lookup reads ungranted column ${col}`);
+    }
+    // Reply persist payload must be fully covered by the column UPDATE grant.
+    const persistAt = reply.indexOf(".update({");
+    assert.ok(persistAt >= 0);
+    const persist = reply.slice(persistAt, reply.indexOf("})", persistAt));
+    for (const col of ["admin_reply", "replied_at", "replied_by", "brevo_message_id"]) {
+      assert.ok(persist.includes(col), `reply persist must record ${col}`);
+      assert.ok(updateCols.includes(col), `reply persist writes ungranted column ${col}`);
+    }
+  });
+});
+
 describe("feedback — student submission (validation, identity, throttle)", () => {
   it("route files exist", () => {
     assert.ok(existsSync(new URL(SUBMIT_ROUTE, ROOT)), "student route must exist");
@@ -220,6 +305,39 @@ describe("feedback — student submission (validation, identity, throttle)", () 
     assert.ok(!/error\.message/.test(body), "must not leak database errors");
   });
 
+  it("logs only database error codes, never messages or user data", () => {
+    const body = code(src(SUBMIT_ROUTE));
+    assert.ok(
+      body.includes('console.error("[feedback] submit failed", error?.code ?? "empty")'),
+      "insert failure must log the error code only",
+    );
+    assert.ok(
+      body.includes('console.error("[feedback] throttle check failed", countError.code)'),
+      "throttle failure must log the error code only",
+    );
+    assert.ok(
+      body.includes('console.error("[feedback] submit threw", errorCode(err))'),
+      "unexpected failures must log a sanitized code only",
+    );
+    assert.ok(!/console\.(log|error|warn|info)\([^)]*\.message/.test(body), "never log messages");
+    assert.ok(!/console\.(log|error|warn|info)\([^)]*user\.id/.test(body), "never log identifiers");
+    assert.ok(
+      !/console\.(log|error|warn|info)\([^)]*\b(message|content|feedbackText)\b/.test(body),
+      "never log feedback content",
+    );
+  });
+
+  it("answers unexpected exceptions with the same generic 500", () => {
+    const body = code(src(SUBMIT_ROUTE));
+    const catchBlock = body.slice(body.indexOf("} catch (err) {"));
+    assert.ok(catchBlock.length > 0, "insert path must be guarded");
+    assert.ok(
+      catchBlock.includes("Could not send feedback. Try again.") &&
+        catchBlock.includes("status: 500"),
+      "unexpected failures must not leak a server error page",
+    );
+  });
+
   it("own history exposes no admin-only fields", () => {
     const body = code(src(SUBMIT_ROUTE));
     const getAt = body.indexOf("export async function GET()");
@@ -249,6 +367,15 @@ describe("feedback — admin authorization (non-admin/anon cannot)", () => {
       assert.ok(body.includes("status: 403"), `${rel} must refuse with 403`);
     });
   }
+
+  it("reply refuses non-admins before any privileged client is created", () => {
+    const body = code(src(REPLY_ROUTE));
+    const gateAt = body.indexOf("requireInsideAdmin()");
+    const serviceAt = body.indexOf("createServiceRoleClient()");
+    assert.ok(gateAt >= 0, "admin gate required");
+    assert.ok(serviceAt > gateAt, "no service-role client before the admin gate");
+    assert.ok(body.includes("status: 403"), "non-admins get 403");
+  });
 
   it("state-changing routes enforce the Origin check", () => {
     for (const rel of [REPLY_ROUTE, RESOLVE_ROUTE]) {

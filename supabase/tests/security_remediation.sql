@@ -50,6 +50,32 @@ begin
     or has_column_privilege('authenticated', 'public.feedback', 'suspension_related', 'INSERT') then
     raise exception 'authenticated can forge feedback moderation state';
   end if;
+  -- Service-role feedback paths (20261027000001): submit needs INSERT and
+  -- SELECT on the columns of `INSERT ... RETURNING id`; the admin reply needs
+  -- SELECT for its lookup and UPDATE for its persist. Missing these denied
+  -- every production submission (42501) while INSERT alone looked sufficient.
+  if not has_table_privilege('service_role', 'public.feedback', 'INSERT') then
+    raise exception 'service_role cannot submit feedback';
+  end if;
+  if not has_column_privilege('service_role', 'public.feedback', 'id', 'SELECT')
+    or not has_column_privilege('service_role', 'public.feedback', 'user_id', 'SELECT')
+    or not has_column_privilege('service_role', 'public.feedback', 'category', 'SELECT')
+    or not has_column_privilege('service_role', 'public.feedback', 'status', 'SELECT') then
+    raise exception 'service_role cannot read the columns its feedback routes select';
+  end if;
+  if not has_column_privilege('service_role', 'public.feedback', 'admin_reply', 'UPDATE')
+    or not has_column_privilege('service_role', 'public.feedback', 'replied_at', 'UPDATE')
+    or not has_column_privilege('service_role', 'public.feedback', 'replied_by', 'UPDATE')
+    or not has_column_privilege('service_role', 'public.feedback', 'brevo_message_id', 'UPDATE') then
+    raise exception 'service_role cannot persist the admin feedback reply';
+  end if;
+  -- RLS stays the client boundary: no UPDATE/DELETE policy exists for any role.
+  if exists (
+    select 1 from pg_catalog.pg_policies
+    where schemaname = 'public' and tablename = 'feedback' and cmd in ('UPDATE', 'DELETE')
+  ) then
+    raise exception 'feedback must keep no client UPDATE/DELETE policy';
+  end if;
   if has_function_privilege('anon', 'public.allocate_campus_spot()', 'EXECUTE') then
     raise exception 'anon can execute campus spot allocator';
   end if;
