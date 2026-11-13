@@ -6,16 +6,23 @@ name: deploy-staging
 # so it cannot resolve the top-level Worker name.
 #
 # Fail-closed gates, in order:
-#   1. input is a full 40-char commit SHA
+#   0. the run was dispatched from main (any other ref is skipped outright)
+#   1. input is a single full 40-char commit SHA
 #   2. the checked-out commit is exactly that SHA
 #   3. the commit is an ancestor of origin/main
-#   4. every CI check / commit status on that SHA is finished and green
-#   5. all staging variables + credentials exist, and the Supabase URL is the
-#      staging project (never production)
+#   4. every CI check / commit status on that SHA is finished and green, and
+#      the repository-owned `validate` check (ci.yml) actually ran
+#   5. all staging variables + credentials exist, the Supabase URL is exactly
+#      the staging project (never production), and STAGING_BASE_URL is an
+#      allowed staging host
 #   6. validation (tests, tsc, lint) passes and the OpenNext build succeeds
 #   7. the `us-staging` Worker already carries the secrets it needs at runtime
 #      (Wrangler deletes dashboard plaintext vars on deploy; secrets are kept)
-#   8. the live Worker answers the existing smoke suite
+#   8. the live Worker answers the existing smoke suite, re-validating the URL
+#
+# GitHub `staging` environment requirements (see docs/staging-deployment.md):
+# deployment branch policy = main only, plus required reviewers for the
+# explicit approval before anything reaches the Cloudflare account.
 
 on:
   workflow_dispatch:
@@ -37,6 +44,10 @@ concurrency:
 jobs:
   deploy:
     name: us-staging
+    # Staging only ever deploys main. A dispatch from any other ref is skipped
+    # before the job starts, so no step runs and no environment secret is
+    # materialised.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: staging # staging-scoped variables + secrets only
     timeout-minutes: 40
@@ -49,8 +60,17 @@ jobs:
         run: |
           set -euo pipefail
           sha="$(printf '%s' "${INPUT_SHA:-}" | tr '[:upper:]' '[:lower:]')"
-          if ! printf '%s' "$sha" | grep -Eq '^[0-9a-f]{40}$'; then
-            echo "::error::input 'sha' must be a full 40-character commit SHA"
+          # Whole-string match: any character outside [0-9a-f] — including a
+          # newline from a multi-line paste — fails. This also keeps a hostile
+          # input from injecting extra lines into $GITHUB_OUTPUT.
+          case "$sha" in
+            "" | *[!0-9a-f]*)
+              echo "::error::input 'sha' must be a single full 40-character commit SHA"
+              exit 1
+              ;;
+          esac
+          if [ "${#sha}" -ne 40 ]; then
+            echo "::error::input 'sha' must be a full 40-character commit SHA (got ${#sha} characters)"
             exit 1
           fi
           echo "sha=$sha" >>"$GITHUB_OUTPUT"
@@ -139,18 +159,21 @@ jobs:
             esac
           done <<<"$commit_statuses"
 
-          # Optional allowlist of check names, e.g. "validate,Workers Builds: us".
-          required="$(printf '%s' "${REQUIRED_CHECKS:-}" | tr -d '[:space:]')"
-          if [ -n "$required" ]; then
-            IFS=',' read -r -a wanted <<<"$required"
-            for want in "${wanted[@]}"; do
-              [ -n "$want" ] || continue
-              if ! printf '%s\n' "$check_runs" | cut -f1 | grep -Fxq -- "$want"; then
-                echo "::error::required check '$want' did not run on $TARGET_SHA"
-                failed=1
-              fi
-            done
-          fi
+          # Required check names, comma- or newline-separated, e.g.
+          # "validate,Workers Builds: us". Split on separators only and trim
+          # each item — never whitespace-strip, because check names contain
+          # spaces. Defaults to the repository-owned `validate` job (ci.yml) so
+          # the gate never depends on a third-party integration publishing
+          # check runs for this repo.
+          required="${REQUIRED_CHECKS:-validate}"
+          while IFS= read -r want; do
+            want="$(printf '%s' "$want" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+            [ -n "$want" ] || continue
+            if ! printf '%s\n' "$check_runs" | cut -f1 | grep -Fxq -- "$want"; then
+              echo "::error::required check '$want' did not run on $TARGET_SHA"
+              failed=1
+            fi
+          done < <(printf '%s\n' "$required" | tr ',' '\n')
 
           if [ "$failed" -ne 0 ]; then
             exit 1
@@ -178,14 +201,16 @@ jobs:
           fi
 
           # The Supabase project is inlined into the build, so this is the only
-          # place that can keep staging off the production database.
-          case "$SUPABASE_URL" in
-            *ietruyukgqwkmsyfvxxi*) ;;
-            *)
-              echo "::error::NEXT_PUBLIC_SUPABASE_URL is not the staging project (ietruyukgqwkmsyfvxxi)"
-              exit 1
-              ;;
-          esac
+          # place that can keep staging off the production database. Compare the
+          # exact origin: substring matching would accept lookalikes such as
+          # https://ietruyukgqwkmsyfvxxi.supabase.co.evil.com.
+          if [ "$SUPABASE_URL" != "https://ietruyukgqwkmsyfvxxi.supabase.co" ]; then
+            echo "::error::NEXT_PUBLIC_SUPABASE_URL must be exactly https://ietruyukgqwkmsyfvxxi.supabase.co (the staging project)"
+            exit 1
+          fi
+
+          # Exact-host staging URL guard; the smoke step re-runs it after deploy.
+          bash scripts/check-staging-url.sh "$STAGING_BASE_URL"
 
       - uses: pnpm/action-setup@v4 # packageManager: pnpm@11.21.0
       - uses: actions/setup-node@v4
@@ -250,12 +275,9 @@ jobs:
           STAGING_BASE_URL: ${{ vars.STAGING_BASE_URL }}
         run: |
           set -euo pipefail
-          case "$STAGING_BASE_URL" in
-            *us-justus.in*)
-              echo "::error::STAGING_BASE_URL points at production; refusing to smoke-test the wrong Worker"
-              exit 1
-              ;;
-          esac
+          # Re-validated here on purpose: this step must not inherit trust from
+          # the earlier config guard. Empty or production values are rejected.
+          bash scripts/check-staging-url.sh "${STAGING_BASE_URL:-}"
           {
             echo "- worker: us-staging"
             echo "- url: $STAGING_BASE_URL"
