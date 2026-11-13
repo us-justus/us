@@ -569,20 +569,50 @@ Rules (mandatory for every production release):
   `/inside` page renders. The page check is the load-bearing one.)
 - Release success = live smoke PASS. Worker-upload success, version
   creation, and traffic cutover are never release success on their own.
-- Release sequence: `pnpm release:build` (frozen-lockfile install →
-  tests → tsc → lint → OpenNext build) → validation → upload/cutover →
-  `pnpm release:smoke` → PASS = healthy; FAIL = record the live version
-  ID and roll back manually (`pnpm release:rollback` prints the exact
-  command; the operator confirms the target) → smoke again after rollback.
+- Release sequence: staging first — deploy the exact commit to the staging
+  Worker (staging Supabase credentials) and pass the same smoke checks;
+  then `pnpm release:build` (frozen-lockfile install → tests → Next type
+  generation → tsc → lint → OpenNext build) → upload/cutover → record the
+  commit SHA + Worker version ID → `pnpm release:smoke` → PASS = healthy;
+  FAIL = record the live version ID and roll back manually
+  (`pnpm release:rollback` prints the exact command; the operator confirms
+  the target) → smoke again after rollback.
 - On smoke FAIL, do not start by editing auth, secrets, admin_users, or
   the database. First re-verify determinism (clean tree, frozen lockfile,
   recorded toolchain in `package.json`) and rebuild + redeploy the same
   commit. Rollback restores code, never secret values.
-- Determinism floor: `packageManager` + `engines.node` are recorded in
-  `package.json`; releases install with `--frozen-lockfile` (verified on
-  pnpm 11.21.0 — project `.npmrc` was empirically found NOT to enforce it,
-  so enforcement lives in the release script flag, not in config). Never
+- Determinism floor: `packageManager` (pnpm 11.21.0) is the only pnpm
+  selector in the repository. Node is pinned exactly in `.nvmrc` +
+  `.node-version` and mirrored by `engines.node` (24.22.1, the Cloudflare
+  build-image default). Every install is `pnpm install --frozen-lockfile`
+  (verified on pnpm 11.21.0 — project `.npmrc` was empirically found NOT to
+  enforce it, so enforcement lives in the release script flag and CI, not in
+  config). Any `pnpm-workspace.yaml` resolution config (`overrides`, etc.)
+  must land in the SAME commit as the regenerated `pnpm-lock.yaml`, or a
+  frozen install fails with `ERR_PNPM_LOCKFILE_CONFIG_MISMATCH`. Never
   upgrade the toolchain as part of a release.
+- Turbopack's persistent build cache is OFF by design:
+  `experimental.turbopackFileSystemCacheForBuild: false` in
+  `next.config.ts`. Next 16.3+ persists Turbopack's database under
+  `.next/cache/turbopack`, and Cloudflare Workers Builds caches
+  `.next/cache` project-wide. A partially restored cache (a `.meta` whose
+  referenced `.sst` is missing) makes Turbopack panic with
+  `TurbopackInternalError` / `Failed to lookup task ids` instead of treating
+  it as a cache miss, which fails the deploy until someone clears the cache.
+  Builds are ~20s clean, so reliability beats the cache. A build must always
+  succeed with `.next` deleted; CI asserts no `.next/cache/turbopack`
+  directory is ever written and that repeated builds emit no Turbopack error.
+- Pre-merge gate: `.github/workflows/ci.yml` runs frozen install →
+  `next typegen` → `tsc --noEmit` → lint → `test:inside` → OpenNext build,
+  then two consecutive rebuilds, on every PR to `main` and every push to
+  `main`. Branch protection must require this check — a merge that cannot
+  build must not be mergeable.
+- Deploy the exact verified commit once: Cloudflare build command is
+  `pnpm exec opennextjs-cloudflare build`, deploy command is
+  `pnpm exec opennextjs-cloudflare deploy` (one install, one build, one
+  deploy — install runs with `SKIP_DEPENDENCY_INSTALL=1` so Cloudflare's
+  automatic install cannot race it). Never deploy a commit other than the
+  one that passed CI and staging; never run two production deploys at once.
 - Stale deployment documentation is itself a reliability defect: this
   section previously claimed Cloudflare was "planned, not yet implemented"
   while production was already live.
