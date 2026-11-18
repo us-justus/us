@@ -1,7 +1,7 @@
 # Staging verification runbook
 
-Status: **implemented but not yet active.** The two staging workflows only
-become live once this file and `.github/workflows/` are on `main`, because
+Status: **implemented but not yet active.** The staging workflows only become
+live once this file and `.github/workflows/` are on `main`, because
 `workflow_run` resolves its workflow definition from the default branch. Until
 then, nothing here can deploy.
 
@@ -97,6 +97,12 @@ Protection rules:
    Leave it unset to let candidate deploys run unattended.
 
 ### Cloudflare Worker `us-staging` runtime configuration
+
+The Worker must already exist before the first pipeline run: the deploy
+preflight deliberately refuses an unknown Worker (it cannot verify that the
+runtime configuration is present). Create it once in the Cloudflare dashboard,
+or with a one-off manual `wrangler deploy --env staging` from this repository,
+then set the secrets below.
 
 `wrangler deploy` treats the config file as the source of truth for **vars**:
 dashboard plaintext variables are deleted when the config declares none.

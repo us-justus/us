@@ -35,10 +35,13 @@
       "head_sampling_rate": 1
     }
   },
-  // Staging Worker. Deploy with: `opennextjs-cloudflare deploy --env staging`
-  // (.github/workflows/deploy-staging.yml). Without `--env`, Wrangler resolves
-  // the top-level environment above (`us`) exactly as before, so the production
-  // path — Cloudflare Workers Builds — is unchanged.
+  // Staging Worker. Deploy with `bash scripts/deploy-staging.sh`, which always
+  // passes `--env staging` (.github/workflows/deploy-staging.yml). Do NOT use
+  // `opennextjs-cloudflare deploy` from the privileged workflow: it builds
+  // first, which would execute PR-controlled code with staging credentials.
+  // Without `--env`, Wrangler resolves the top-level environment above (`us`)
+  // exactly as before, so the production path — Cloudflare Workers Builds — is
+  // unchanged.
   //
   // `services` is a NON-INHERITABLE key, so it must be re-declared here. The
   // self-reference must point at `us-staging`; inheriting the top-level `us`
