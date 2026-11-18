@@ -24,6 +24,15 @@ const nextConfig: NextConfig = {
   experimental: {
     // Keep the motion runtime out of the shared chunk where possible.
     optimizePackageImports: ["motion"],
+    // Next.js 16.3+ persists Turbopack's build database in
+    // `.next/cache/turbopack`. CI build caches (Cloudflare Workers Builds
+    // caches `.next/cache` for Next.js projects) can restore that directory
+    // partially; a `.meta` file whose referenced `.sst` is missing makes
+    // Turbopack panic with `TurbopackInternalError` instead of treating it
+    // as a cache miss, which fails the whole deploy. Builds are small
+    // (~20s clean), so we opt out of the persistent cache rather than let
+    // a restored cache decide whether a release can ship.
+    turbopackFileSystemCacheForBuild: false,
   },
 };
 
