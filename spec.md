@@ -602,11 +602,13 @@ Rules (mandatory for every production release):
   Builds are ~20s clean, so reliability beats the cache. A build must always
   succeed with `.next` deleted; CI asserts no `.next/cache/turbopack`
   directory is ever written and that repeated builds emit no Turbopack error.
-- Pre-merge gate: `.github/workflows/ci.yml` runs frozen install →
-  `next typegen` → `tsc --noEmit` → lint → `test:inside` → OpenNext build,
-  then two consecutive rebuilds, on every PR to `main` and every push to
-  `main`. Branch protection must require this check — a merge that cannot
-  build must not be mergeable.
+- Pre-merge gate: `.github/workflows/ci.yml` (single job `validate`) runs
+  frozen install → lockfile-unchanged assertion → `next typegen` →
+  `tsc --noEmit` → lint → `test:inside` → clean OpenNext build (asserting
+  `.open-next/worker.js` and `.open-next/assets/_next` exist) → two
+  consecutive rebuilds → one rebuild with a deliberately corrupted
+  `.next/cache/turbopack` present, on every PR to `main`, every push to
+  `main`, and on demand. A merge that cannot build must not be mergeable.
 - Deploy the exact verified commit once: Cloudflare build command is
   `pnpm exec opennextjs-cloudflare build`, deploy command is
   `pnpm exec opennextjs-cloudflare deploy` (one install, one build, one

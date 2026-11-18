@@ -163,7 +163,7 @@
 - [ ] Production environment verified
 
 ## Q. Production Release (required sequence — spec.md §12.1)
-- [ ] CI green on the exact commit (`.github/workflows/ci.yml`: frozen install → typegen → tsc → lint → tests → OpenNext build + clean-cache rebuilds)
+- [ ] CI green on the exact commit (`.github/workflows/ci.yml` job `validate`: frozen install → typegen → tsc → lint → tests → clean OpenNext build → 2 consecutive rebuilds → rebuild with a corrupted Turbopack cache present)
 - [ ] `pnpm release:build` (frozen-lockfile install → tests → Next typegen → tsc → lint → OpenNext build) — must pass from a clean checkout (no `.next`)
 - [ ] Validation green (no skips)
 - [ ] Staging Worker deployed from the SAME commit with staging Supabase credentials; smoke PASS there
