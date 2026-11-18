@@ -2,86 +2,195 @@
 
 > *just us.*
 >
-> 🏛️ campus-only, private, and romantic.
+> Campus-only, private, and romantic.
 
-`us` is a private, campus-only dating web app designed to bring students together with sincerity, warmth, and intimacy. No social network noise, no generic corporate feel, no algorithmic clutter. Just a quiet, beautiful corner for you to meet someone special from your college.
+**us** is a campus-focused web app built to help students discover people from their college. The project is designed around a quiet, warm experience rather than a conventional social network.
 
-**Discover → Like → Match → Chat**
+> **Current product status:** the codebase includes onboarding, campus search, profiles, invitations, account tools and internal administration. Matching and chat are not currently exposed as completed user-facing flows; the product is still in its pre-launch stage.
 
----
+## Project links
 
-## 🌸 The Experience
+- [Source code](https://github.com/us-justus/us)
+- [Issues and bug reports](https://github.com/us-justus/us/issues)
+- [Pull requests](https://github.com/us-justus/us/pulls)
+- [Product and technical specification](spec.md)
+- [Pre-launch checklist](PRE_LAUNCH_CHECKLIST.md)
+- [Contribution guidelines](CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [MIT License](LICENSE)
 
-`us` is built with a commitment to simplicity, elegance, and tactile delight:
+## What is implemented
 
-- **Campus-Only & Verified:** Immutable USN verification secures the boundary of your college community. Your space, your peers.
-- **Warm & Editorial:** Designed with cream papers, deep ink, and warm coral accents. Beautiful typography and intentional whitespace.
-- **Whisper & Speak:** Discover others, send a quiet like, and when it's mutual—*it's a match.* Open a safe, private conversation.
-- **Quietly Private:** We protect student privacy with absolute care. USNs and verification emails never leave secure server boundaries.
+The current application includes:
 
----
+- **Campus onboarding:** USN-based campus verification, email ownership verification, password setup, profile details and profile photos.
+- **Profiles:** editable personal profiles with a username, nickname, age, branch, year, gender, bio, interests and up to six photos.
+- **Campus search:** authenticated students can search active campus profiles by username.
+- **Profile pages:** a student's own profile and username-based campus profile pages.
+- **Pre-launch home:** a waiting/launch experience with a profile username, allocated spot and waitlist count where available.
+- **Invitations:** completed accounts can create and share invite links.
+- **Account tools:** account security, password management, sign-out and suspension status/appeal paths.
+- **Feedback:** authenticated students can submit feedback and view their own feedback history.
+- **Internal administration (/inside):** protected tools for dashboard metrics, student moderation, reports, feedback, email queues and health information.
 
-## 🛠️ Local Development
+The repository does **not** currently contain completed like, match or chat product routes. Those should not be assumed to be available just because they appear in the product vision.
 
-While the product is deeply romantic, the architecture is precise, robust, and modern.
+## Tech stack
 
-### Quick Start
-`us` uses a Next.js frontend with local Supabase services powered by Docker.
+| Area | Technology |
+| --- | --- |
+| Framework | Next.js 16 (App Router) |
+| UI | React 19, TypeScript |
+| Styling | Tailwind CSS 4 |
+| Backend services | Supabase (Postgres, Auth and Storage) |
+| Supabase integration | @supabase/ssr, @supabase/supabase-js |
+| Cloud deployment | Cloudflare Workers with OpenNext and Wrangler |
+| Package manager | pnpm 11.21.0 |
+| Runtime | Node.js 24.7.0 or newer |
+| Additional UI libraries | Motion, Three.js |
 
-```bash
+The application uses Next.js server components and route handlers alongside browser components. Supabase clients are separated for browser, server and server-only service-role use. The Cloudflare Worker is built through OpenNext; it is not a plain next start deployment.
+
+## Architecture at a glance
+
+- src/app/ — App Router pages and API route handlers.
+- src/components/ — reusable landing, onboarding, profile, search, settings and admin UI.
+- src/lib/ — authentication, onboarding, Supabase clients, profiles, photos, feedback, verification, security and admin logic.
+- supabase/migrations/ — ordered database migrations.
+- supabase/seed.sql — local seed data.
+- scripts/ — local staging-dev launcher and production smoke-test utility.
+- wrangler.jsonc, open-next.config.ts — Cloudflare Workers/OpenNext configuration.
+
+The main user-facing routes include /, /login, /onboarding/*, /home, /search, /profile, /profile/edit, /u/[username], /invite/[token], /feedback and /settings. The /inside area is an internal admin surface and is not part of the normal student navigation.
+
+## Local development
+
+### Requirements
+
+Install the following before starting:
+
+- [Node.js](https://nodejs.org/) **24.7.0 or newer**
+- [pnpm](https://pnpm.io/) **11.21.0**
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) running for the local Supabase stack
+- Git
+
+### 1. Clone and install
+
+~~~bash
+git clone https://github.com/us-justus/us.git
+cd us
 pnpm install
-pnpm exec supabase start      # Starts the local Supabase Docker stack (pulls images on first run)
-pnpm exec supabase db reset   # Applies all database migrations & seed data (clean reset)
-pnpm dev                      # Starts Next.js with local dev env (.env.local)
-```
+~~~
 
-*Open [http://localhost:3000](http://localhost:3000) to feel the experience.*
+The repository pins pnpm through the packageManager field in package.json.
 
-### Configuration & Precedence
-We use local-first development files. Next.js environment variable resolution:
-`.env.{NODE_ENV}.local` > `.env.local` > `.env.{NODE_ENV}` > `.env`
+### 2. Start local Supabase
 
-- `.env.local` is gitignored and contains local credentials.
-- `.env.production.local` is preserved for production releases.
-- **Never** create a plain `.env` file to prevent pointing dev environments to production.
+Make sure Docker Desktop is running, then start the local services:
 
-### Database Lifecycle
-```bash
-pnpm exec supabase db reset   # Clean reset of all database migrations and seeds
-pnpm exec supabase stop       # Stop local containers
-pnpm exec supabase status     # View URLs and service keys
-```
+~~~bash
+pnpm exec supabase start
+~~~
 
-### Administrative Dashboard (`/inside`)
-To access the local administrative tools (INSIDE v1):
-1. **Create a local user:** Create an account via onboarding in your browser or run:
-   ```bash
-   curl -X POST http://127.0.0.1:54321/auth/v1/signup \
-     -H "apikey: <local-anon-key>" \
-     -H "Content-Type: application/json" \
-     -d '{"email":"you@example.com","password":"password123"}'
-   ```
-2. **Find the user ID:**
-   ```bash
-   PGPASSWORD=postgres psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -c "SELECT id, email FROM auth.users;"
-   ```
-3. **Elevate to Local Admin:**
-   ```bash
-   PGPASSWORD=postgres psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -c "INSERT INTO public.admin_users (user_id) VALUES ('<id>');"
-   ```
-4. **Sign In:** Navigate to `/inside` using the `ADMIN_SECRET_KEY` from `.env.local` and your credentials.
+On the first run, Supabase may need to download its Docker images. Apply the repository's migrations and seed data to the **local** database:
+
+~~~bash
+pnpm exec supabase db reset
+~~~
+
+This command resets the local Supabase database and reapplies the migrations and seed file. Do not point this workflow at a hosted staging or production database.
+
+### 3. Configure local environment variables
+
+The repository does not include a committed .env.example. Create a local .env.local file in the project root. It is ignored by Git.
+
+Get the local API URL, anon key and service-role key from:
+
+~~~bash
+pnpm exec supabase status
+~~~
+
+Use the values printed for your **local** Supabase instance:
+
+~~~dotenv
+NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<local-anon-key>
+SUPABASE_SERVICE_ROLE_KEY=<local-service-role-key>
+
+# Required when using the /inside admin area locally.
+ADMIN_SECRET_KEY=<a-long-random-local-secret>
+
+# Needed for outbound email features that use Brevo.
+BREVO_API_KEY=<brevo-api-key>
+BREVO_SENDER_EMAIL=<verified-sender-address>
+# Optional:
+BREVO_SENDER_NAME=us
+~~~
+
+Replace placeholders with your own local or authorized development values. Never commit .env.local, paste secrets into issues, or use production credentials for local development. The service-role key, admin secret and Brevo API key are server-side secrets; do not prefix them with NEXT_PUBLIC_.
+
+### 4. Start Next.js
+
+~~~bash
+pnpm dev
+~~~
+
+Open [http://localhost:3000](http://localhost:3000).
+
+### Useful local Supabase commands
+
+~~~bash
+pnpm exec supabase status   # Show local service URLs and keys
+pnpm exec supabase db reset # Reapply migrations and seed data (destructive to local DB)
+pnpm exec supabase stop     # Stop local Supabase containers
+~~~
+
+### Optional: staging-connected local development
+
+The pnpm dev:staging script loads environment variables from .env.staging.local and then starts Next.js in development mode. This file is Git-ignored and must contain only the separately provisioned staging configuration.
+
+Use this only when you are authorized to work against the staging project. Do not copy production values into it, and do not use it as a substitute for the isolated local Supabase setup above.
+
+## Checks and tests
+
+The repository provides these scripts:
+
+~~~bash
+pnpm lint
+pnpm exec tsc --noEmit
+pnpm test:inside
+~~~
+
+- pnpm lint runs ESLint.
+- pnpm exec tsc --noEmit runs the TypeScript type check without emitting files.
+- pnpm test:inside runs the Node.js test files listed in package.json, covering admin, authentication, onboarding, feedback and related security logic.
+
+Run the relevant checks before opening a pull request. Some tests or application flows may require local environment configuration.
+
+## Internal admin area
+
+The /inside area is an internal, server-gated admin surface. Access requires a local authenticated Supabase user, membership in the public.admin_users table and a configured ADMIN_SECRET_KEY.
+
+For local-only testing:
+
+1. Start the local Supabase stack and run the migrations as described above.
+2. Create a test account through the local app or local Supabase Auth.
+3. Find that test user's ID in the local auth.users table.
+4. Add that ID to public.admin_users in the **local** database.
+5. Sign in through /inside.
+
+Do not grant admin membership to real users or run these steps against a hosted database unless the project maintainers have explicitly authorized it. The admin area is not linked from the normal product UI.
+
+## Deployment
+
+The production Worker configuration is maintained in wrangler.jsonc and open-next.config.ts. OpenNext generates the Worker entry point and static assets before Wrangler deploys them to Cloudflare Workers.
+
+Deployment credentials and server-side secrets are managed outside the repository. Production deployment is a maintainer-controlled process; contributors should not run deployment or rollback commands unless explicitly asked to do so.
+
+## Contributing
+
+Please read the [Contribution Guidelines](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md) before contributing. Work on a dedicated branch, keep changes focused, run the relevant checks and open a pull request for review. Do not commit environment files, credentials, generated build output or local database data.
 
 ---
 
-## 💌 Join the Journey
-
-Interested in helping us craft this space? 
-
-- Read our **[Contribution Guidelines](CONTRIBUTING.md)** to see how we build with care.
-- Read our **[Code of Conduct](CODE_OF_CONDUCT.md)** to understand how we maintain a safe, welcoming, and warm community.
-
----
-
-> *it's a match.*
->
-> *you both liked each other.*
+> *just us.*
