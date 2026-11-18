@@ -24,7 +24,7 @@
 The current application includes:
 
 - **Campus onboarding:** USN-based campus verification, email ownership verification, password setup, profile details and profile photos.
-- **Profiles:** editable personal profiles with a username, nickname, age, branch, year, gender, bio, interests and up to six photos.
+- **Profiles:** editable personal profiles with a username, nickname, age, branch, year, gender, bio, interests and profile photos.
 - **Campus search:** authenticated students can search active campus profiles by username.
 - **Profile pages:** a student's own profile and username-based campus profile pages.
 - **Pre-launch home:** a waiting/launch experience with a profile username, allocated spot and waitlist count where available.
@@ -120,14 +120,14 @@ SUPABASE_SERVICE_ROLE_KEY=<local-service-role-key>
 # Required for the /inside admin login locally (16+ characters).
 ADMIN_SECRET_KEY=<random-local-secret-at-least-16-characters>
 
-# Optional: required only for email features that send through Brevo.
+# Set these to test email verification, feedback replies and waitlist email sending.
 BREVO_API_KEY=<brevo-api-key>
 BREVO_SENDER_EMAIL=<verified-sender-address>
 # Optional; defaults to "us":
 BREVO_SENDER_NAME=us
 ~~~
 
-Replace placeholders with your own local or authorized development values. Never commit .env.local, paste secrets into issues, or use production credentials for local development. The service-role key, admin secret and Brevo API key are server-side secrets; do not prefix them with NEXT_PUBLIC_.
+Replace placeholders with your own local or authorized development values. The app can start without Brevo credentials, but outbound email flows will not work until BREVO_API_KEY and BREVO_SENDER_EMAIL are configured. Never commit .env.local, paste secrets into issues, or use production credentials for local development. The service-role key, admin secret and Brevo API key are server-side secrets; do not prefix them with NEXT_PUBLIC_.
 
 ### 4. Start Next.js
 
