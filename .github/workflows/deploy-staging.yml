@@ -65,7 +65,6 @@ jobs:
           RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
-          CREATED_AT: ${{ github.event.workflow_run.created_at }}
         run: |
           set -euo pipefail
           [ "${RUN_NAME}" = "${CANDIDATE_WORKFLOW}" ] || { echo "::error::unexpected workflow '${RUN_NAME}'"; exit 1; }
@@ -85,7 +84,6 @@ jobs:
             echo "run_id=${RUN_ID}" >>"$GITHUB_OUTPUT"
             echo "run_attempt=${RUN_ATTEMPT}" >>"$GITHUB_OUTPUT"
             echo "head_branch=${HEAD_BRANCH}" >>"$GITHUB_OUTPUT"
-            echo "created_at=${CREATED_AT}" >>"$GITHUB_OUTPUT"
           }
 
       - name: Checkout trusted default branch
@@ -352,7 +350,7 @@ jobs:
           EVENT: ${{ steps.candidate.outputs.event }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
           CANDIDATE_REF: ${{ steps.pr.outputs.ref }}
-          RUN_CREATED_AT: ${{ steps.candidate.outputs.created_at }}
+          RUN_ID: ${{ steps.candidate.outputs.run_id }}
           VERSION_ID: ${{ steps.deploy.outputs.version_id }}
           HEAD_BRANCH: ${{ steps.candidate.outputs.head_branch }}
         run: |
@@ -363,8 +361,10 @@ jobs:
           #    queued behind us; in both cases this SHA must not claim "verified".
           gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/actions/workflows/staging-candidate.yml/runs?event=${EVENT}&per_page=50" \
             >"${RUNNER_TEMP}/candidate-runs.json"
-          newer="$(jq --arg ref "${CANDIDATE_REF}" --arg sha "${SHA}" --arg created "${RUN_CREATED_AT}" \
-            '[.[].workflow_runs[] | select(.head_branch == ($ref | sub("^refs/heads/"; "")) and .head_sha != $sha and .created_at > $created)] | length' \
+          # Run ids increase monotonically, so they order candidates even when
+          # two runs share the same second in `created_at` (a push race).
+          newer="$(jq --arg ref "${CANDIDATE_REF}" --arg sha "${SHA}" --argjson run_id "${RUN_ID}" \
+            '[.[].workflow_runs[] | select(.head_branch == ($ref | sub("^refs/heads/"; "")) and .head_sha != $sha and .id > $run_id)] | length' \
             "${RUNNER_TEMP}/candidate-runs.json")"
           if [ "${newer}" -ne 0 ]; then
             echo "::error::a newer candidate exists for ${CANDIDATE_REF}; not publishing staging/verified for ${SHA}"
