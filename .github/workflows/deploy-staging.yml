@@ -209,8 +209,12 @@ jobs:
             pr_number="$(jq -r '(.workflow_run.pull_requests // [])[0].number // empty' "${GITHUB_EVENT_PATH}")"
             if [ -z "${pr_number}" ]; then
               # Associated-PR lookup for payloads without pull_requests[] (forks).
-              pr_number="$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/commits/${SHA}/pulls" \
-                --jq '[.[][] | select(.base.ref == "main" and .state == "open")][0].number // empty')"
+              # Read pages into a file and run jq once, so the result does not
+              # depend on gh's --slurp/--jq ordering.
+              gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/commits/${SHA}/pulls" \
+                >"${RUNNER_TEMP}/commit-pulls.json"
+              pr_number="$(jq -r '[.[][] | select(.base.ref == "main" and .state == "open")][0].number // empty' \
+                "${RUNNER_TEMP}/commit-pulls.json")"
             fi
             [ -n "${pr_number}" ] || { echo "::error::no open pull request targeting main is associated with ${SHA}"; exit 1; }
 
@@ -364,7 +368,7 @@ jobs:
           # Run ids increase monotonically, so they order candidates even when
           # two runs share the same second in `created_at` (a push race).
           newer="$(jq --arg ref "${CANDIDATE_REF}" --arg sha "${SHA}" --argjson run_id "${RUN_ID}" \
-            '[.[].workflow_runs[] | select(.head_branch == ($ref | sub("^refs/heads/"; "")) and .head_sha != $sha and .id > $run_id)] | length' \
+            '[.[].workflow_runs[] | select((.head_branch | sub("^refs/heads/"; "")) == ($ref | sub("^refs/heads/"; "")) and .head_sha != $sha and .id > $run_id)] | length' \
             "${RUNNER_TEMP}/candidate-runs.json")"
           if [ "${newer}" -ne 0 ]; then
             echo "::error::a newer candidate exists for ${CANDIDATE_REF}; not publishing staging/verified for ${SHA}"
