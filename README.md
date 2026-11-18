@@ -117,13 +117,13 @@ NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
 NEXT_PUBLIC_SUPABASE_ANON_KEY=<local-anon-key>
 SUPABASE_SERVICE_ROLE_KEY=<local-service-role-key>
 
-# Required when using the /inside admin area locally.
-ADMIN_SECRET_KEY=<a-long-random-local-secret>
+# Required for the /inside admin login locally (16+ characters).
+ADMIN_SECRET_KEY=<random-local-secret-at-least-16-characters>
 
-# Needed for outbound email features that use Brevo.
+# Optional: required only for email features that send through Brevo.
 BREVO_API_KEY=<brevo-api-key>
 BREVO_SENDER_EMAIL=<verified-sender-address>
-# Optional:
+# Optional; defaults to "us":
 BREVO_SENDER_NAME=us
 ~~~
 
@@ -169,17 +169,24 @@ Run the relevant checks before opening a pull request. Some tests or application
 
 ## Internal admin area
 
-The /inside area is an internal, server-gated admin surface. Access requires a local authenticated Supabase user, membership in the public.admin_users table and a configured ADMIN_SECRET_KEY.
+The /inside area is an internal admin surface and uses the existing Supabase Auth system; it does not have a separate password or client-supplied admin-key login.
+
+A successful /inside login requires all of the following:
+
+- A valid Supabase email-and-password sign-in. The identifier can be an email address, phone number or USN.
+- Current membership for that authenticated user in public.admin_users, checked through the is_admin() database function.
+- A configured server-side ADMIN_SECRET_KEY (at least 16 characters). After the first two checks pass, the server uses this key to sign a 12-hour, HttpOnly admin-session cookie. The key itself is never entered in the login form or sent to the browser.
+- On subsequent requests, the server verifies the signed cookie, its expiry, the live Supabase session for the same user and current admin membership again.
 
 For local-only testing:
 
-1. Start the local Supabase stack and run the migrations as described above.
-2. Create a test account through the local app or local Supabase Auth.
-3. Find that test user's ID in the local auth.users table.
-4. Add that ID to public.admin_users in the **local** database.
-5. Sign in through /inside.
+1. Start the local Supabase stack and apply the migrations as described above.
+2. Create a test account in the local Supabase instance and note its user ID from the local auth.users table.
+3. Add that test user's ID to public.admin_users in the **local** database. Only do this for a test account in your local database.
+4. Set ADMIN_SECRET_KEY in .env.local to a random local value at least 16 characters long.
+5. Open /inside and sign in with the test account's email, phone number or USN and its Supabase password. Do not enter ADMIN_SECRET_KEY in the form.
 
-Do not grant admin membership to real users or run these steps against a hosted database unless the project maintainers have explicitly authorized it. The admin area is not linked from the normal product UI.
+The admin login also uses the server-side service-role configuration for protected login-resolution and rate-limit operations. Do not grant admin membership to real users or run these steps against a hosted database unless the project maintainers have explicitly authorized it. The admin area is not linked from the normal product UI.
 
 ## Deployment
 
