@@ -1,285 +1,397 @@
 name: deploy-staging
 
-# Manual, SHA-pinned deployment to the `us-staging` Worker (wrangler.jsonc ->
-# env.staging). Production (`us`) is deployed by Cloudflare Workers Builds and is
-# deliberately NOT handled here: this workflow never runs without `--env staging`,
-# so it cannot resolve the top-level Worker name.
+# PRIVILEGED staging deployment. Runs from the DEFAULT BRANCH only
+# (`workflow_run` always resolves the workflow definition from the default
+# branch), so PR-controlled workflow code is never executed with credentials.
 #
-# Fail-closed gates, in order:
-#   0. the run was dispatched from main (any other ref is skipped outright)
-#   1. input is a single full 40-char commit SHA
-#   2. the checked-out commit is exactly that SHA
-#   3. the commit is an ancestor of origin/main
-#   4. every CI check / commit status on that SHA is finished and green, and
-#      the repository-owned `validate` check (ci.yml) actually ran
-#   5. all staging variables + credentials exist, the Supabase URL is exactly
-#      the staging project (never production), and STAGING_BASE_URL is an
-#      allowed staging host
-#   6. validation (tests, tsc, lint) passes and the OpenNext build succeeds
-#   7. the `us-staging` Worker already carries the secrets it needs at runtime
-#      (Wrangler deletes dashboard plaintext vars on deploy; secrets are kept)
-#   8. the live Worker answers the existing smoke suite, re-validating the URL
+# Trust boundary, explicitly:
+#   - PR code  -> built by `staging-candidate` with NO credentials -> artifact
+#   - this file -> checks out `main` (trusted scripts + wrangler.jsonc),
+#                  installs from main's lockfile, and only ever treats the
+#                  artifact as DATA: it is downloaded, hashed, unzipped outside
+#                  the repository, shape-checked, and handed to `wrangler
+#                  deploy`. No script, hook or config from the artifact runs.
+#   - `--env staging` is hard-coded in scripts/deploy-staging.sh, so this path
+#     cannot resolve the production Worker `us`.
 #
-# GitHub `staging` environment requirements (see docs/staging-deployment.md):
-# deployment branch policy = main only, plus required reviewers for the
-# explicit approval before anything reaches the Cloudflare account.
+# Success is only published as the `staging/verified` commit status on the exact
+# SHA that was deployed AND smoke-tested, after re-checking that the PR (or merge
+# group) still points at it. Any failure, cancellation or supersession means no
+# status: the check simply never turns green.
 
 on:
-  workflow_dispatch:
-    inputs:
-      sha:
-        description: Full 40-character commit SHA on main to deploy to us-staging
-        required: true
-        type: string
+  workflow_run:
+    workflows: ["staging-candidate"]
+    types: [completed]
 
 permissions:
   contents: read
-  checks: read
-  statuses: read
+  actions: read
+  pull-requests: read
+  statuses: write # publish staging/verified on the deployed SHA only
 
+# One shared staging Worker: deploys are serialised, never overlapped. Do not
+# switch to cancel-in-progress: cancelling mid-upload leaves the Worker in an
+# unknown version.
 concurrency:
-  group: deploy-staging
+  group: staging-us-staging
   cancel-in-progress: false
+
+env:
+  STAGING_WORKER: us-staging
+  STAGING_SUPABASE_ORIGIN: "https://ietruyukgqwkmsyfvxxi.supabase.co"
+  CANDIDATE_WORKFLOW: staging-candidate
 
 jobs:
   deploy:
-    name: us-staging
-    # Staging only ever deploys main. A dispatch from any other ref is skipped
-    # before the job starts, so no step runs and no environment secret is
-    # materialised.
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    environment: staging # staging-scoped variables + secrets only
+    name: deploy us-staging
+    if: >-
+      github.repository == 'us-justus/us' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.name == 'staging-candidate' &&
+      (github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.event == 'merge_group')
+    runs-on: ubuntu-24.04
+    environment: staging # staging-scoped variables + credentials only
     timeout-minutes: 40
 
     steps:
-      - name: Validate target SHA
-        id: target
+      - name: Validate the triggering run
+        id: candidate
         env:
-          INPUT_SHA: ${{ inputs.sha }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_NAME: ${{ github.event.workflow_run.name }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          CREATED_AT: ${{ github.event.workflow_run.created_at }}
         run: |
           set -euo pipefail
-          sha="$(printf '%s' "${INPUT_SHA:-}" | tr '[:upper:]' '[:lower:]')"
-          # Whole-string match: any character outside [0-9a-f] — including a
-          # newline from a multi-line paste — fails. This also keeps a hostile
-          # input from injecting extra lines into $GITHUB_OUTPUT.
-          case "$sha" in
-            "" | *[!0-9a-f]*)
-              echo "::error::input 'sha' must be a single full 40-character commit SHA"
-              exit 1
-              ;;
+          [ "${RUN_NAME}" = "${CANDIDATE_WORKFLOW}" ] || { echo "::error::unexpected workflow '${RUN_NAME}'"; exit 1; }
+          [ "${RUN_CONCLUSION}" = "success" ] || { echo "::error::candidate run concluded '${RUN_CONCLUSION}'"; exit 1; }
+          case "${RUN_EVENT}" in
+            pull_request | merge_group) ;;
+            *) echo "::error::unexpected candidate event '${RUN_EVENT}'"; exit 1 ;;
           esac
-          if [ "${#sha}" -ne 40 ]; then
-            echo "::error::input 'sha' must be a full 40-character commit SHA (got ${#sha} characters)"
-            exit 1
-          fi
-          echo "sha=$sha" >>"$GITHUB_OUTPUT"
-
-      - name: Check out the target commit
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ steps.target.outputs.sha }}
-          fetch-depth: 0 # full history so origin/main exists for the ancestry check
-          persist-credentials: false
-
-      - name: Confirm the checkout is the target commit, on main
-        env:
-          EXPECTED_SHA: ${{ steps.target.outputs.sha }}
-        run: |
-          set -euo pipefail
-          actual="$(git rev-parse HEAD)"
-          if [ "$actual" != "$EXPECTED_SHA" ]; then
-            echo "::error::checked out $actual but expected $EXPECTED_SHA"
-            exit 1
-          fi
-          if ! git rev-parse --verify --quiet origin/main >/dev/null; then
-            echo "::error::origin/main is unavailable; cannot verify branch membership"
-            exit 1
-          fi
-          if ! git merge-base --is-ancestor "$EXPECTED_SHA" origin/main; then
-            echo "::error::$EXPECTED_SHA is not on main; staging only takes main commits"
-            exit 1
-          fi
+          case "${HEAD_SHA}" in
+            "" | *[!0-9a-f]*) echo "::error::candidate head SHA is not a lowercase commit SHA"; exit 1 ;;
+          esac
+          [ "${#HEAD_SHA}" -eq 40 ] || { echo "::error::candidate head SHA is not 40 characters"; exit 1; }
+          [ -n "${RUN_ID}" ] && [ -n "${RUN_ATTEMPT}" ] || { echo "::error::candidate run id/attempt missing"; exit 1; }
           {
-            echo "### staging deploy"
-            echo ""
-            echo "- commit: \`$EXPECTED_SHA\`"
-            echo "- branch: main"
-          } >>"$GITHUB_STEP_SUMMARY"
+            echo "sha=${HEAD_SHA}" >>"$GITHUB_OUTPUT"
+            echo "event=${RUN_EVENT}" >>"$GITHUB_OUTPUT"
+            echo "run_id=${RUN_ID}" >>"$GITHUB_OUTPUT"
+            echo "run_attempt=${RUN_ATTEMPT}" >>"$GITHUB_OUTPUT"
+            echo "head_branch=${HEAD_BRANCH}" >>"$GITHUB_OUTPUT"
+            echo "created_at=${CREATED_AT}" >>"$GITHUB_OUTPUT"
+          }
 
-      - name: Verify CI checks passed on the target commit
+      - name: Checkout trusted default branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # actions/checkout v4.2.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Locate the candidate artifact
+        id: artifact
         env:
           GH_TOKEN: ${{ github.token }}
-          TARGET_SHA: ${{ steps.target.outputs.sha }}
-          REQUIRED_CHECKS: ${{ vars.STAGING_REQUIRED_CHECKS }}
+        run: |
+          set -euo pipefail
+          api="repos/${GITHUB_REPOSITORY}/actions/runs/${{ steps.candidate.outputs.run_id }}/artifacts?per_page=100"
+          gh api "${api}" >"${RUNNER_TEMP}/artifacts.json"
+
+          count="$(jq '[.artifacts[] | select(.name == "staging-candidate" and (.expired | not))] | length' "${RUNNER_TEMP}/artifacts.json")"
+          if [ "${count}" -ne 1 ]; then
+            echo "::error::expected exactly one non-expired staging-candidate artifact, found ${count}"
+            exit 1
+          fi
+          jq '[.artifacts[] | select(.name == "staging-candidate" and (.expired | not))][0]' \
+            "${RUNNER_TEMP}/artifacts.json" >"${RUNNER_TEMP}/artifact.json"
+
+          artifact_id="$(jq -r '.id' "${RUNNER_TEMP}/artifact.json")"
+          digest="$(jq -r '.digest // ""' "${RUNNER_TEMP}/artifact.json")"
+          case "${digest}" in
+            sha256:*) ;;
+            *) echo "::error::artifact has no sha256 digest; refusing an unverifiable download"; exit 1 ;;
+          esac
+          if ! printf '%s\n' "${digest}" | grep -E '^sha256:[0-9a-f]{64}$' >/dev/null; then
+            echo "::error::artifact digest is malformed"
+            exit 1
+          fi
+          echo "id=${artifact_id}" >>"$GITHUB_OUTPUT"
+          echo "digest=${digest}" >>"$GITHUB_OUTPUT"
+          echo "- artifact: \`${artifact_id}\` (\`${digest}\`)" >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Download and verify the artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.artifact.outputs.id }}
+          EXPECTED_DIGEST: ${{ steps.artifact.outputs.digest }}
+        run: |
+          set -euo pipefail
+          zip="${RUNNER_TEMP}/candidate.zip"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" >"${zip}"
+          printf '%s  %s\n' "${EXPECTED_DIGEST#sha256:}" "${zip}" | sha256sum -c -
+          echo "OK: artifact zip matches the digest GitHub recorded for the run"
+
+      - name: Unpack the artifact outside the repository
+        id: unpack
+        run: |
+          set -euo pipefail
+          zip="${RUNNER_TEMP}/candidate.zip"
+          dest="${RUNNER_TEMP}/candidate-unpacked"
+          rm -rf "${dest}"
+          mkdir -p "${dest}"
+
+          # Reject absolute and parent-traversal members before extracting.
+          # The listing is captured first: `unzip | grep -q` can lose the match
+          # status to SIGPIPE under pipefail, which would skip this check.
+          members="${RUNNER_TEMP}/artifact-members.txt"
+          unzip -Z1 "${zip}" >"${members}"
+          if grep -Eq '(^/|(^|/)\.\.(/|$))' "${members}"; then
+            echo "::error::artifact contains an absolute or parent-traversal path"
+            grep -En '(^/|(^|/)\.\.(/|$))' "${members}" | head -20
+            exit 1
+          fi
+          unzip -q "${zip}" -d "${dest}"
+
+          # The artifact must be exactly what the candidate workflow promises:
+          # a built bundle and its metadata, nothing else, no symlinks.
+          unexpected="$(find "${dest}" -mindepth 1 -maxdepth 1 ! -name '.open-next' ! -name 'candidate.json' -print)"
+          if [ -n "${unexpected}" ]; then
+            echo "::error::artifact has unexpected top-level entries:"
+            printf '%s\n' "${unexpected}"
+            exit 1
+          fi
+          if [ -n "$(find "${dest}" -type l -print -quit)" ]; then
+            echo "::error::artifact contains symlinks; refusing to deploy"
+            exit 1
+          fi
+          for path in "${dest}/.open-next/worker.js" "${dest}/.open-next/assets/_next" "${dest}/candidate.json"; do
+            [ -e "${path}" ] || { echo "::error::artifact is missing ${path#"${dest}/"}"; exit 1; }
+          done
+          echo "dest=${dest}" >>"$GITHUB_OUTPUT"
+
+      - name: Cross-check artifact metadata against GitHub
+        env:
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+          EXPECTED_EVENT: ${{ steps.candidate.outputs.event }}
+          EXPECTED_HEAD_SHA: ${{ steps.candidate.outputs.sha }}
+          EXPECTED_RUN_ID: ${{ steps.candidate.outputs.run_id }}
+          EXPECTED_RUN_ATTEMPT: ${{ steps.candidate.outputs.run_attempt }}
+        run: |
+          set -euo pipefail
+          dest="${{ steps.unpack.outputs.dest }}"
+          node scripts/staging-config.mjs metadata "${dest}/candidate.json"
+
+          metadata_worker="$(jq -r '.worker_sha256' "${dest}/candidate.json")"
+          actual_worker="$(sha256sum "${dest}/.open-next/worker.js" | cut -d' ' -f1)"
+          if [ "${metadata_worker}" != "${actual_worker}" ]; then
+            echo "::error::candidate.json worker_sha256 does not match the artifact's worker.js"
+            exit 1
+          fi
+          echo "OK: metadata matches the run, the commit and the artifact bytes"
+
+      - name: Resolve and validate the pull request
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ steps.candidate.outputs.event }}
+          SHA: ${{ steps.candidate.outputs.sha }}
+          HEAD_BRANCH: ${{ steps.candidate.outputs.head_branch }}
+          UNPACKED: ${{ steps.unpack.outputs.dest }}
         run: |
           set -euo pipefail
 
-          check_runs="$(gh api --paginate \
-            -H "Accept: application/vnd.github+json" \
-            "repos/${GITHUB_REPOSITORY}/commits/${TARGET_SHA}/check-runs?per_page=100" \
-            --jq '.check_runs[] | [.name, .status, (.conclusion // "")] | @tsv')"
+          if [ "${EVENT}" = "pull_request" ]; then
+            pr_number="$(jq -r '(.workflow_run.pull_requests // [])[0].number // empty' "${GITHUB_EVENT_PATH}")"
+            if [ -z "${pr_number}" ]; then
+              # Associated-PR lookup for payloads without pull_requests[] (forks).
+              pr_number="$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/commits/${SHA}/pulls" \
+                --jq '[.[][] | select(.base.ref == "main" and .state == "open")][0].number // empty')"
+            fi
+            [ -n "${pr_number}" ] || { echo "::error::no open pull request targeting main is associated with ${SHA}"; exit 1; }
 
-          commit_statuses="$(gh api \
-            -H "Accept: application/vnd.github+json" \
-            "repos/${GITHUB_REPOSITORY}/commits/${TARGET_SHA}/status" \
-            --jq '.statuses[] | [.context, .state] | @tsv')"
-
-          if [ -z "$check_runs" ] && [ -z "$commit_statuses" ]; then
-            echo "::error::no CI results are attached to ${TARGET_SHA}; refusing to deploy an unverified commit"
-            exit 1
+            pr="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}")"
+            [ "$(jq -r '.state' <<<"${pr}")" = "open" ] || { echo "::error::PR #${pr_number} is not open"; exit 1; }
+            [ "$(jq -r '.base.ref' <<<"${pr}")" = "main" ] || { echo "::error::PR #${pr_number} does not target main"; exit 1; }
+            pr_head="$(jq -r '.head.sha' <<<"${pr}")"
+            if [ "${pr_head}" != "${SHA}" ]; then
+              echo "::error::PR #${pr_number} head is now ${pr_head}, but the candidate was built from ${SHA}"
+              exit 1
+            fi
+            echo "pr_number=${pr_number}" >>"$GITHUB_OUTPUT"
+            echo "ref=refs/heads/$(jq -r '.head.ref' <<<"${pr}")" >>"$GITHUB_OUTPUT"
+          else
+            merge_group_ref="$(jq -r '.merge_group_ref // ""' "${UNPACKED}/candidate.json")"
+            node scripts/staging-config.mjs merge-group-ref "${merge_group_ref}"
+            head_branch="${HEAD_BRANCH#refs/heads/}"
+            if [ "${merge_group_ref}" != "refs/heads/${head_branch}" ]; then
+              echo "::error::candidate merge_group_ref ${merge_group_ref} does not match the run branch ${head_branch}"
+              exit 1
+            fi
+            # The merge queue ref is created by GitHub. It must still exist and
+            # still point at the SHA we are about to deploy.
+            ref_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${head_branch}" --jq '.object.sha')"
+            if [ "${ref_sha}" != "${SHA}" ]; then
+              echo "::error::merge group ${head_branch} now points at ${ref_sha}, not ${SHA}"
+              exit 1
+            fi
+            pr_number="$(printf '%s' "${merge_group_ref}" | sed -E 's#^refs/heads/gh-readonly-queue/([^/]+)/pr-([0-9]+)-([0-9a-f]{40})$#\2#')"
+            pr="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}")"
+            [ "$(jq -r '.state' <<<"${pr}")" = "open" ] || { echo "::error::PR #${pr_number} is not open"; exit 1; }
+            [ "$(jq -r '.base.ref' <<<"${pr}")" = "main" ] || { echo "::error::PR #${pr_number} does not target main"; exit 1; }
+            echo "pr_number=${pr_number}" >>"$GITHUB_OUTPUT"
+            echo "ref=${merge_group_ref}" >>"$GITHUB_OUTPUT"
           fi
 
-          failed=0
+          echo "- pr: #${pr_number}" >>"$GITHUB_STEP_SUMMARY"
 
-          while IFS=$'\t' read -r name status conclusion; do
-            [ -n "${name:-}" ] || continue
-            if [ "${status:-}" != "completed" ]; then
-              echo "::error::check '$name' is not finished (status=${status:-unknown})"
-              failed=1
-              continue
-            fi
-            case "${conclusion:-}" in
-              success | neutral | skipped) ;;
-              *)
-                echo "::error::check '$name' concluded '${conclusion:-none}'"
-                failed=1
-                ;;
-            esac
-          done <<<"$check_runs"
+      - name: Use the pinned Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # actions/setup-node v4.4.0
+        with:
+          node-version-file: .nvmrc
 
-          while IFS=$'\t' read -r context state; do
-            [ -n "${context:-}" ] || continue
-            case "${state:-}" in
-              success | neutral | skipped) ;;
-              *)
-                echo "::error::commit status '$context' is '${state:-unknown}'"
-                failed=1
-                ;;
-            esac
-          done <<<"$commit_statuses"
+      - name: Enable pnpm from package.json packageManager
+        run: corepack enable pnpm
 
-          # Required check names, comma- or newline-separated, e.g.
-          # "validate,Workers Builds: us". Split on separators only and trim
-          # each item — never whitespace-strip, because check names contain
-          # spaces. Defaults to the repository-owned `validate` job (ci.yml) so
-          # the gate never depends on a third-party integration publishing
-          # check runs for this repo.
-          required="${REQUIRED_CHECKS:-validate}"
-          while IFS= read -r want; do
-            want="$(printf '%s' "$want" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-            [ -n "$want" ] || continue
-            if ! printf '%s\n' "$check_runs" | cut -f1 | grep -Fxq -- "$want"; then
-              echo "::error::required check '$want' did not run on $TARGET_SHA"
-              failed=1
-            fi
-          done < <(printf '%s\n' "$required" | tr ',' '\n')
+      - name: Verify pinned toolchain
+        run: |
+          set -euo pipefail
+          expected_node="$(tr -d '[:space:]' < .nvmrc)"
+          actual_node="$(node -v)"; actual_node="${actual_node#v}"
+          expected_pnpm="$(node -p "require('./package.json').packageManager.replace(/^pnpm@/, '')")"
+          [ "${actual_node}" = "${expected_node}" ] || { echo "::error::Node ${actual_node} != .nvmrc ${expected_node}"; exit 1; }
+          [ "$(pnpm -v)" = "${expected_pnpm}" ] || { echo "::error::pnpm $(pnpm -v) != ${expected_pnpm}"; exit 1; }
 
-          if [ "$failed" -ne 0 ]; then
-            exit 1
-          fi
-          echo "- CI: all checks on the target commit are green" >>"$GITHUB_STEP_SUMMARY"
+      - name: Test the staging guards
+        run: |
+          set -euo pipefail
+          node --test scripts/staging-config.test.mjs
+          bash scripts/check-staging-url.test.sh
+
+      # Deliberately no actions/cache: a cache written by a PR workflow must not
+      # be restorable by a job that holds deployment credentials.
+      - name: Install the trusted toolchain (default branch lockfile)
+        run: pnpm install --frozen-lockfile
 
       - name: Guard staging configuration and credentials
         env:
-          SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           STAGING_BASE_URL: ${{ vars.STAGING_BASE_URL }}
+          SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+          CANDIDATE_SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_STAGING }}
           CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID_STAGING }}
         run: |
           set -euo pipefail
           missing=0
-          [ -n "$SUPABASE_URL" ] || { echo "::error::staging variable NEXT_PUBLIC_SUPABASE_URL is missing"; missing=1; }
-          [ -n "$SUPABASE_ANON_KEY" ] || { echo "::error::staging variable NEXT_PUBLIC_SUPABASE_ANON_KEY is missing"; missing=1; }
-          [ -n "$STAGING_BASE_URL" ] || { echo "::error::staging variable STAGING_BASE_URL is missing"; missing=1; }
-          [ -n "$CF_API_TOKEN" ] || { echo "::error::staging secret CLOUDFLARE_API_TOKEN_STAGING is missing"; missing=1; }
-          [ -n "$CF_ACCOUNT_ID" ] || { echo "::error::staging secret CLOUDFLARE_ACCOUNT_ID_STAGING is missing"; missing=1; }
-          if [ "$missing" -ne 0 ]; then
-            echo "::error::staging environment is incomplete; refusing to build or deploy"
-            exit 1
-          fi
+          [ -n "${STAGING_BASE_URL:-}" ] || { echo "::error::staging variable STAGING_BASE_URL is missing"; missing=1; }
+          [ -n "${SUPABASE_URL:-}" ] || { echo "::error::staging variable NEXT_PUBLIC_SUPABASE_URL is missing"; missing=1; }
+          [ -n "${CANDIDATE_SUPABASE_URL:-}" ] || { echo "::error::repository variable STAGING_SUPABASE_URL is missing"; missing=1; }
+          [ -n "${SUPABASE_ANON_KEY:-}" ] || { echo "::error::staging variable NEXT_PUBLIC_SUPABASE_ANON_KEY is missing"; missing=1; }
+          [ -n "${CF_API_TOKEN:-}" ] || { echo "::error::staging secret CLOUDFLARE_API_TOKEN_STAGING is missing"; missing=1; }
+          [ -n "${CF_ACCOUNT_ID:-}" ] || { echo "::error::staging secret CLOUDFLARE_ACCOUNT_ID_STAGING is missing"; missing=1; }
+          [ "${missing}" -eq 0 ] || { echo "::error::staging environment is incomplete; refusing to deploy"; exit 1; }
 
-          # The Supabase project is inlined into the build, so this is the only
-          # place that can keep staging off the production database. Compare the
-          # exact origin: substring matching would accept lookalikes such as
-          # https://ietruyukgqwkmsyfvxxi.supabase.co.evil.com.
-          if [ "$SUPABASE_URL" != "https://ietruyukgqwkmsyfvxxi.supabase.co" ]; then
-            echo "::error::NEXT_PUBLIC_SUPABASE_URL must be exactly https://ietruyukgqwkmsyfvxxi.supabase.co (the staging project)"
-            exit 1
-          fi
+          # The Supabase project is inlined at build time. Both scopes must name
+          # the staging project exactly, or the candidate was built against the
+          # wrong database.
+          for candidate_url in "${SUPABASE_URL}" "${CANDIDATE_SUPABASE_URL}"; do
+            if [ "${candidate_url}" != "${STAGING_SUPABASE_ORIGIN}" ]; then
+              echo "::error::a staging Supabase URL resolves to '${candidate_url}'; expected ${STAGING_SUPABASE_ORIGIN}"
+              exit 1
+            fi
+          done
 
-          # Exact-host staging URL guard; the smoke step re-runs it after deploy.
-          bash scripts/check-staging-url.sh "$STAGING_BASE_URL"
+          bash scripts/check-staging-url.sh "${STAGING_BASE_URL}"
+          echo "- target: \`${STAGING_WORKER}\` at ${STAGING_BASE_URL}" >>"$GITHUB_STEP_SUMMARY"
 
-      - uses: pnpm/action-setup@v4 # packageManager: pnpm@11.21.0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24 # engines.node >= 24.7.0
-          cache: pnpm
-
-      - name: Install (frozen lockfile)
-        run: pnpm install --frozen-lockfile
-
-      # next-env.d.ts is gitignored and regenerated by Next 16; tsc needs it
-      # before `opennextjs-cloudflare build` runs (layout.tsx imports CSS).
-      - name: Generate Next.js types
-        run: pnpm exec next typegen
-
-      - name: Unit tests
-        run: pnpm test:inside
-
-      - name: Type check
-        run: pnpm exec tsc --noEmit
-
-      - name: Lint
-        run: pnpm lint
-
-      - name: Build with staging Supabase
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
-          NEXT_PUBLIC_APP_ENV: staging # /inside health label; display-only
-        run: pnpm exec opennextjs-cloudflare build
-
-      - name: Verify us-staging Worker secrets are provisioned
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_STAGING }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID_STAGING }}
+      - name: Stage the artifact for deployment
         run: |
           set -euo pipefail
-          # `wrangler deploy` deletes dashboard plaintext vars when the config
-          # declares none (it keeps secrets). This asserts the runtime config
-          # staging needs exists BEFORE the code is replaced.
-          existing="$(pnpm exec wrangler secret list --env staging | jq -r '.[].name' | sort -u)"
-          required="$(printf '%s\n' \
-            ADMIN_SECRET_KEY \
-            BREVO_API_KEY \
-            BREVO_SENDER_EMAIL \
-            SUPABASE_SERVICE_ROLE_KEY | sort -u)"
-          missing="$(comm -23 <(printf '%s\n' "$required") <(printf '%s\n' "$existing"))"
-          if [ -n "$missing" ]; then
-            echo "::error::us-staging is missing required Worker secrets: $(printf '%s' "$missing" | tr '\n' ' ')"
-            echo "::error::set them with: pnpm exec wrangler secret put <NAME> --env staging"
-            exit 1
-          fi
+          rm -rf .open-next
+          cp -R "${{ steps.unpack.outputs.dest }}/.open-next" .open-next
+          [ -f .open-next/worker.js ] || { echo "::error::staged bundle is missing worker.js"; exit 1; }
+
+      - name: Staging dry-run (allowlisted env only)
+        env:
+          STAGING_DEPLOY_SHA: ${{ steps.candidate.outputs.sha }}
+        run: bash scripts/deploy-staging.sh --dry-run
 
       - name: Deploy to us-staging
+        id: deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_STAGING }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID_STAGING }}
-        run: pnpm exec opennextjs-cloudflare deploy --env staging
+          STAGING_DEPLOY_SHA: ${{ steps.candidate.outputs.sha }}
+        run: |
+          set -euo pipefail
+          bash scripts/deploy-staging.sh 2>&1 | tee "${RUNNER_TEMP}/deploy.log"
+          version_id="$(grep -oE 'Current Version ID: [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' "${RUNNER_TEMP}/deploy.log" | tail -1 | sed 's/Current Version ID: //')"
+          echo "version_id=${version_id:-unknown}" >>"$GITHUB_OUTPUT"
+          echo "- worker version: \`${version_id:-unknown}\` (tag \`${{ steps.candidate.outputs.sha }}\`)" >>"$GITHUB_STEP_SUMMARY"
 
       - name: Smoke test the live staging deployment
         env:
           STAGING_BASE_URL: ${{ vars.STAGING_BASE_URL }}
         run: |
           set -euo pipefail
-          # Re-validated here on purpose: this step must not inherit trust from
-          # the earlier config guard. Empty or production values are rejected.
+          # Re-validated: this step must not inherit trust from the config guard.
           bash scripts/check-staging-url.sh "${STAGING_BASE_URL:-}"
-          {
-            echo "- worker: us-staging"
-            echo "- url: $STAGING_BASE_URL"
-          } >>"$GITHUB_STEP_SUMMARY"
-          node scripts/smoke-prod.mjs "$STAGING_BASE_URL"
+          node scripts/smoke-prod.mjs "${STAGING_BASE_URL}"
+
+      - name: Re-check the candidate and publish staging/verified
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.candidate.outputs.sha }}
+          EVENT: ${{ steps.candidate.outputs.event }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+          CANDIDATE_REF: ${{ steps.pr.outputs.ref }}
+          RUN_CREATED_AT: ${{ steps.candidate.outputs.created_at }}
+          VERSION_ID: ${{ steps.deploy.outputs.version_id }}
+          HEAD_BRANCH: ${{ steps.candidate.outputs.head_branch }}
+        run: |
+          set -euo pipefail
+
+          # 1. This run must still be the newest candidate for its ref. A newer
+          #    candidate either already replaced us on the shared Worker or is
+          #    queued behind us; in both cases this SHA must not claim "verified".
+          gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/actions/workflows/staging-candidate.yml/runs?event=${EVENT}&per_page=50" \
+            >"${RUNNER_TEMP}/candidate-runs.json"
+          newer="$(jq --arg ref "${CANDIDATE_REF}" --arg sha "${SHA}" --arg created "${RUN_CREATED_AT}" \
+            '[.[].workflow_runs[] | select(.head_branch == ($ref | sub("^refs/heads/"; "")) and .head_sha != $sha and .created_at > $created)] | length' \
+            "${RUNNER_TEMP}/candidate-runs.json")"
+          if [ "${newer}" -ne 0 ]; then
+            echo "::error::a newer candidate exists for ${CANDIDATE_REF}; not publishing staging/verified for ${SHA}"
+            exit 1
+          fi
+
+          # 2. The PR (or merge group) must still point at the SHA we tested.
+          if [ "${EVENT}" = "pull_request" ]; then
+            pr_json="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
+            state="$(jq -r '.state' <<<"${pr_json}")"
+            base="$(jq -r '.base.ref' <<<"${pr_json}")"
+            head="$(jq -r '.head.sha' <<<"${pr_json}")"
+            [ "${state}" = "open" ] || { echo "::error::PR #${PR_NUMBER} is no longer open"; exit 1; }
+            [ "${base}" = "main" ] || { echo "::error::PR #${PR_NUMBER} no longer targets main"; exit 1; }
+            [ "${head}" = "${SHA}" ] || { echo "::error::PR #${PR_NUMBER} head moved to ${head}"; exit 1; }
+          else
+            ref_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${HEAD_BRANCH#refs/heads/}" --jq '.object.sha')"
+            [ "${ref_sha}" = "${SHA}" ] || { echo "::error::merge group ${HEAD_BRANCH} moved to ${ref_sha}"; exit 1; }
+          fi
+
+          # 3. Publish on the exact deployed SHA.
+          description="${STAGING_WORKER} ${VERSION_ID} smoke PASS"
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/statuses/${SHA}" \
+            -f state=success \
+            -f context=staging/verified \
+            -f description="${description}" \
+            -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            >/dev/null
+          echo "staging/verified -> ${SHA} (${description})"
+          echo "- status: \`staging/verified\` on \`${SHA}\` (${description})" >>"$GITHUB_STEP_SUMMARY"

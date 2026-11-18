@@ -1,48 +1,107 @@
-# Staging deployment runbook
+# Staging verification runbook
 
-Status: `.github/workflows/deploy-staging.yml` deploys an approved `main`
-commit to the `us-staging` Worker only. Production (`us`) is deployed by
-Cloudflare Workers Builds and is **not** handled by this workflow — every
-Wrangler call in it passes `--env staging`, which resolves the Worker name to
-`us-staging` and can never resolve the top-level `us`.
+Status: **implemented but not yet active.** The two staging workflows only
+become live once this file and `.github/workflows/` are on `main`, because
+`workflow_run` resolves its workflow definition from the default branch. Until
+then, nothing here can deploy.
 
-No secrets live in this file. Identifiers below are non-secret.
+Production (`us`) is deployed by **Cloudflare Workers Builds on every push to
+`main`** and is deliberately not touched by any workflow in this repository.
+Staging is the `us-staging` Worker at
+`https://us-staging.atharvaspatil2005-d16.workers.dev`, built against the
+staging Supabase project `ietruyukgqwkmsyfvxxi`.
 
-## 1. Prerequisites
+No secret values live in this file. Identifiers below are non-secret.
 
-### GitHub environment `staging`
+---
 
-Environment variables (not secrets):
+## 1. Architecture and trust boundary
+
+```
+PR opened / updated ──► staging-candidate.yml            (unprivileged)
+                          checkout PR head SHA
+                          install → typegen → tsc → lint → tests
+                          build with staging Supabase (public values only)
+                          write candidate.json (provenance)
+                          upload artifact "staging-candidate"
+                                     │
+                                     ▼  workflow_run (completed)
+                        deploy-staging.yml                (privileged)
+                          checkout main  ← trusted scripts + wrangler.jsonc
+                          download artifact by run id
+                          verify sha256 digest GitHub recorded
+                          unzip OUTSIDE the repo, shape-check, no symlinks
+                          cross-check candidate.json vs payload + API
+                          verify PR open / base main / head SHA unchanged
+                          pnpm install (main lockfile, NO cache)
+                          dry-run → deploy --env staging → smoke
+                          re-check PR state → publish staging/verified
+```
+
+Why it is split:
+
+- The candidate workflow runs **PR-controlled code** (package scripts, build
+  config, dependencies). It therefore gets **no secrets, no environment, no
+  Cloudflare credentials**, only a read-only token plus `actions: write` for the
+  upload. Staging's public build values (`STAGING_SUPABASE_URL`,
+  `STAGING_SUPABASE_ANON_KEY`) are repository variables, safe to expose: the
+  anon key is a public client key and staging data is isolated.
+- The deploying workflow runs from the **default branch** with staging-scoped
+  credentials. It never checks out PR code and never executes anything from the
+  artifact. The artifact is data: it is hashed, unpacked outside the repository,
+  structurally validated, and handed to `wrangler deploy`.
+- `opennextjs-cloudflare deploy` is **not** used in the privileged path because
+  it runs a build first, which would execute PR-controlled code while the
+  Cloudflare token is available. `scripts/deploy-staging.sh` calls
+  `wrangler deploy` against the already-built bundle instead.
+- No `actions/cache` in the privileged job. A cache written by a PR workflow
+  cannot be restored by a job that holds deployment credentials.
+
+## 2. One-time GitHub configuration
+
+### Repository variables (Settings → Secrets and variables → Actions → Variables)
 
 | Name | Value |
 | --- | --- |
-| `NEXT_PUBLIC_SUPABASE_URL` | `https://ietruyukgqwkmsyfvxxi.supabase.co` — exact, no trailing slash |
+| `STAGING_SUPABASE_URL` | `https://ietruyukgqwkmsyfvxxi.supabase.co` — exact, no trailing slash |
+| `STAGING_SUPABASE_ANON_KEY` | staging project anon key (public by design) |
+
+These are read by the **candidate** workflow. They must never hold the
+production project or the service-role key.
+
+### GitHub environment `staging`
+
+Variables:
+
+| Name | Value |
+| --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` | `https://ietruyukgqwkmsyfvxxi.supabase.co` |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | staging project anon key |
-| `STAGING_BASE_URL` | `https://staging.us-justus.in` or `https://us-staging.<subdomain>.workers.dev` |
+| `STAGING_BASE_URL` | `https://us-staging.atharvaspatil2005-d16.workers.dev` (or `https://staging.us-justus.in`) |
 | `STAGING_REQUIRED_CHECKS` | optional; defaults to `validate` |
 
-Environment secrets:
+Secrets:
 
 | Name | Purpose |
 | --- | --- |
-| `CLOUDFLARE_API_TOKEN_STAGING` | token scoped to the staging account/Worker |
+| `CLOUDFLARE_API_TOKEN_STAGING` | token scoped to the staging account/Worker only |
 | `CLOUDFLARE_ACCOUNT_ID_STAGING` | staging account ID |
 
-Environment protection rules (both required):
+Protection rules:
 
-1. **Deployment branch policy: `main` only.** The workflow job also refuses any
-   other ref (`if: github.ref == 'refs/heads/main'`), but the environment rule
-   is the server-side half of that guarantee and must be set to "Selected
-   branches" → `main`.
-2. **Required reviewers: at least one.** This is the explicit human approval
-   before a staging deploy starts. Without it, `workflow_dispatch` alone is the
-   only gate.
+1. **Deployment branch policy: `main` only.** `deploy-staging-manual.yml` also
+   refuses any other ref, but the environment rule is the server-side half.
+2. **Required reviewers** (optional). If set, every staging deploy — including
+   automatic candidate deploys — waits for that approval. This is the strongest
+   setting; it means "a human approved promoting this candidate to staging".
+   Leave it unset to let candidate deploys run unattended.
 
-### Cloudflare Worker `us-staging` secrets
+### Cloudflare Worker `us-staging` runtime configuration
 
-`wrangler deploy` deletes dashboard plaintext variables when the config
-declares none, but it keeps secrets. These must already exist, or the deploy
-step aborts before replacing code:
+`wrangler deploy` treats the config file as the source of truth for **vars**:
+dashboard plaintext variables are deleted when the config declares none.
+**Secrets are never deleted.** This repository declares no vars, so every
+runtime value below must exist as a Worker **secret**:
 
 ```bash
 pnpm exec wrangler secret put ADMIN_SECRET_KEY --env staging
@@ -51,74 +110,159 @@ pnpm exec wrangler secret put BREVO_SENDER_EMAIL --env staging
 pnpm exec wrangler secret put SUPABASE_SERVICE_ROLE_KEY --env staging
 ```
 
+`BREVO_SENDER_EMAIL` is an email address, not a credential, but it is still a
+**secret here on purpose**: no `vars` block exists in `wrangler.jsonc`, so a
+dashboard variable would be removed by the next deploy and the app would lose
+its sender. If it is ever moved to `env.staging.vars`, `scripts/deploy-staging.sh`
+counts declared vars as present and the preflight keeps working. Optional
+values (`BREVO_SENDER_NAME`, `BREVO_QUOTA_RETRY_SECONDS`) are not required.
+
+`SUPABASE_SERVICE_ROLE_KEY` must be the **staging** project's key. Never copy the
+production key into staging.
+
 ### Supabase staging project
 
-Add the staging origin (`STAGING_BASE_URL`) to the staging project's Auth
-redirect allowlist — signup/verification links are built from
-`window.location.origin`.
+Add `STAGING_BASE_URL` to the staging project's Auth redirect allowlist —
+signup/verification links are built from `window.location.origin`.
 
-## 2. CI source of truth
+## 3. What is verified before anything is deployed
 
-The staging gate requires a successful `validate` check run on the target
-commit. That check is produced by the repository-owned
-`.github/workflows/ci.yml` (job `validate`, runs on push to `main`, on PRs
-targeting `main`, and on demand). It is deliberately **not** dependent on
-Cloudflare Workers Builds publishing check runs: whether that integration
-emits them is not something this repository can assert or rely on.
+`deploy-staging.yml` refuses to continue unless every one of these holds:
 
-To confirm the check name GitHub actually records for a commit:
+1. The run was triggered by `staging-candidate` (not another workflow).
+2. The candidate run concluded `success` and its event is `pull_request` or
+   `merge_group`.
+3. `github.repository` is exactly `us-justus/us`.
+4. The run has exactly one non-expired `staging-candidate` artifact.
+5. The artifact's `sha256` digest matches the one GitHub recorded for the run.
+6. The artifact contains only `.open-next/` and `candidate.json`, no symlinks,
+   no absolute or `../` paths, and the expected bundle paths exist.
+7. `candidate.json` matches the workflow-run payload: repository, event, head
+   SHA, run id and run attempt, and the worker digest matches the actual
+   `worker.js` bytes. The PR / merge-group identity itself is resolved from the
+   run payload and the GitHub API, never from the artifact.
+8. The PR is **open**, targets **main**, and its head SHA is still exactly the
+   built SHA (for merge groups: the `gh-readonly-queue` ref still points at the
+   built SHA).
+9. The staging URL is an allowed staging host, and both Supabase URL scopes name
+   the staging project exactly.
+10. `wrangler` resolves `us-staging` in a dry run of the exact bundle.
+11. The Worker's required runtime secrets exist.
+12. After deploy, the live staging URL passes `scripts/smoke-prod.mjs`.
+13. The PR/merge-group still points at the deployed SHA, and no newer candidate
+    exists for the same ref.
 
-```bash
-gh api "repos/us-justus/us/commits/<sha>/check-runs" \
-  --jq '.check_runs[] | "\(.name)  \(.status)  \(.conclusion)"'
-```
+Only then is `staging/verified` posted — as a **commit status on the exact SHA
+that was deployed and smoke-tested**. Any failure, cancellation, supersession or
+PR-head move means no status at all; the check never turns green by default.
 
-If the recorded name ever differs, set the repository variable
-`STAGING_REQUIRED_CHECKS` to the exact name (comma-separated for several
-names; names may contain spaces). The gate stays fail-closed: an unset,
-empty, or non-matching requirement blocks the deploy.
+The `candidate.json` is written by untrusted PR code, so it is never trusted on
+its own: every field is compared against the `workflow_run` payload and the
+GitHub API, and the artifact is only accepted because its digest matches the
+run.
 
-## 3. Deploying
+## 4. Concurrency and the shared Worker
 
-1. Pick the full 40-character SHA of a commit already on `main`.
-2. Actions → `deploy-staging` → Run workflow → branch `main` → paste the SHA.
-3. Approve the `staging` environment prompt.
-4. The run ends with the smoke suite against `STAGING_BASE_URL`.
+There is exactly one staging Worker, so deploys are serialised:
 
-Gates, in order — all fail closed: run is from `main`; SHA is one 40-hex
-token; checkout matches the SHA; the SHA is an ancestor of `origin/main`; every
-check run and commit status on it is finished and green **and** `validate`
-actually ran; staging variables/credentials exist; the Supabase URL is exactly
-the staging origin; the staging base URL is an allowed staging host; tests,
-`tsc`, lint pass; the OpenNext build succeeds; the Worker already has its
-runtime secrets; the live Worker answers the smoke suite.
+- `concurrency: group: staging-us-staging` (no `cancel-in-progress`) in both
+  deploy workflows — one deploy at a time, never a half-cancelled upload.
+- `concurrency: group: staging-candidate-<pr>` (cancel-in-progress) — a push
+  supersedes an in-flight build; the cancelled run never deploys.
+- Before publishing, the deploy workflow checks that no newer candidate exists
+  for the same ref, and re-reads the PR head SHA.
 
-## 4. Production gating (proposal — not implemented)
+Consequence, stated plainly: `staging/verified` means "this exact SHA was
+deployed to `us-staging` and passed smoke at that moment". It does **not** mean
+that SHA is still live. A newer candidate from another PR replaces the Worker
+content; the older status stays on its commit for audit but is no longer a
+statement about the live staging Worker. The status description carries the
+Cloudflare Worker **version ID** (and the version is tagged with the commit SHA,
+visible via `wrangler deployments list --env staging`), so the live version can
+always be traced to the SHA that produced it. Re-run the candidate (push an
+empty commit or re-dispatch the manual fallback) if a PR needs fresh evidence.
 
-Gap: Workers Builds deploys every push to the production branch immediately,
-while this workflow only accepts commits that are already on `main`. So a
-commit can be live in production before staging has ever seen it. Closing that
-gap requires a change outside this repository; two options, smallest first.
+## 5. Exact SHA, merge methods, and the merge queue
 
-**Option A — require a staging status before merge (no Cloudflare changes).**
-1. Let the workflow also accept the head SHA of an open PR targeting `main`
-   (verify via `GET /repos/{repo}/pulls?head={owner}:{branch}`), instead of
-   `main` ancestry only.
-2. On success, post a commit status `staging/verified` on that SHA
-   (add `statuses: write`).
-3. In branch protection for `main`, require `validate` and `staging/verified`.
+What is verified is the PR **head** SHA. What production deploys is the commit
+that lands on `main`. Those differ unless the merge method and timing cooperate:
 
-Result: nothing reaches `main` — and therefore production — without a green
-staging deploy plus a human approval of the `staging` environment. No
-Cloudflare dashboard change, no new secrets, ~15 lines of workflow.
+| Merge method | Result |
+| --- | --- |
+| Merge commit | New commit on `main`; its tree equals the PR head **only if `main` did not move**. |
+| Squash | New commit with a new SHA; tree equals PR head only if `main` did not move. |
+| Rebase | New SHAs; same tree if `main` did not move, but the commits are rewritten. |
 
-**Option B — stop Workers Builds from deploying on push.**
-Switch the Worker's build command from `wrangler deploy` to
-`wrangler versions upload`, then promote a version explicitly
-(`wrangler versions deploy <id>`) from an approved `production` environment in
-GitHub Actions. Strongest guarantee (production deploy becomes a reviewed
-action), but it changes the production deploy path and needs a Cloudflare
-dashboard change — do it only with explicit sign-off.
+So `staging/verified` on the PR head SHA is necessary but not sufficient to
+guarantee the production commit was staged. Two mitigations:
 
-Recommendation: Option A now, Option B if production deploys need their own
-approval step rather than relying on merge review.
+1. **Require branches to be up to date before merging** (branch protection).
+   With the PR head unchanged and `main` unchanged since verification, the merge
+   result's tree matches what was staged.
+2. **Enable the merge queue** (recommended). This repo already supports
+   `merge_group`: `ci.yml` runs `validate` on the queue commit, the candidate
+   workflow builds that exact commit, the deploy workflow publishes
+   `staging/verified` on it, and the queue will not merge without both.
+   Configure:
+   - Ruleset → `main` → require status check `validate` on pull requests;
+   - enable "Require merge queue" and add `validate` + `staging/verified` to the
+     merge-queue checks.
+
+   Keep `staging/verified` **out of the PR-level required checks**: Dependabot
+   and fork PRs run with a read-only token, cannot upload the candidate artifact
+   (see §8), and would be blocked forever. In the merge queue the run is created
+   by GitHub, not by Dependabot, so the artifact upload works and the queue gets
+   the same exact-commit verification as an in-repo PR.
+
+Without one of those, treat production deploys as "staged candidate + untested
+merge result", not as exact-commit staging verification. The merge-queue path is
+implemented but has not been exercised in this repository yet; validate it with a
+throwaway PR after enabling the queue.
+
+## 6. Manual fallback
+
+`.github/workflows/deploy-staging-manual.yml`:
+
+1. Actions → `deploy-staging-manual` → Run workflow → branch `main`.
+2. Paste a **full 40-character** SHA that is already an ancestor of `main`.
+3. Approve the `staging` environment prompt (if required reviewers are set).
+
+It re-checks the SHA, the ancestry, that every check/status on the SHA is green
+and that `validate` actually ran, verifies the staging Supabase project and URL,
+runs the full validation + build, then deploys with the same hard-coded
+`--env staging` path and runs the same smoke suite. It publishes
+`staging/verified` on that SHA.
+
+It cannot deploy a PR branch: `workflow_dispatch` from a branch would run that
+branch's workflow file with credentials. Pre-merge testing is the candidate
+pipeline's job.
+
+## 7. Required GitHub settings (manual — not applied by this PR)
+
+- Ruleset / branch protection for `main`:
+  - Pull requests: require `validate`.
+  - Require branches to be up to date before merging.
+  - (Recommended) Require the merge queue, with `validate` + `staging/verified`
+    as queue checks (not PR checks — see §5).
+  - Require review from the owner for external contributors (configured
+    separately, per the repository policy).
+- Do **not** remove the existing Cloudflare Workers Builds integration from
+  `main`; it remains the production deploy path.
+- Dependabot PRs run `validate` but their read-only token cannot upload a
+  candidate artifact, so they cannot get a PR-level `staging/verified`. The
+  merge queue covers them: the queue commit is built and verified normally.
+  Do not make `staging/verified` a PR-level required check.
+
+## 8. Known limitations
+
+- `workflow_run` requires this workflow to exist on `main`, so the pipeline is
+  inert until this PR merges. PRs opened before that have no candidate builds.
+- Fork pull requests and Dependabot PRs receive a read-only `GITHUB_TOKEN`, so
+  the artifact upload fails. Such candidates fail closed (no PR-level
+  `staging/verified`). A maintainer can push a fork branch into this repository,
+  or rely on the merge queue, which runs with a normal write token.
+- Staging is one Worker shared by all PRs; see §4 for what a status means.
+- A successful candidate build is not a staging deployment, and a successful
+  deployment is not a smoke pass. Only the status means all three happened.
+- This pipeline verifies staging. It does not deploy production and does not
+  change Cloudflare Workers Builds.

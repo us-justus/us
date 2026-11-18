@@ -40,12 +40,26 @@ case "$url" in
   *) reject "STAGING_BASE_URL must be an https:// URL (got: $url)" ;;
 esac
 
-# Strip scheme, path, query, fragment, then port — leaving the bare host.
-host="${url#https://}"
-host="${host%%/*}"
-host="${host%%\?*}"
-host="${host%%#*}"
-host="${host%%:*}"
+# Strip scheme, path, query and fragment — leaving `host` or `host:port`.
+authority="${url#https://}"
+authority="${authority%%[/?#]*}"
+
+[ -n "$authority" ] || reject "STAGING_BASE_URL has no host (got: $url)"
+# A plain host[:port] only. This rejects userinfo (`user@host`), backslashes and
+# whitespace, all of which URL parsers are allowed to interpret differently.
+case "$authority" in
+  *[!A-Za-z0-9.:-]*)
+    reject "STAGING_BASE_URL authority '$authority' contains characters outside a plain host[:port]"
+    ;;
+esac
+
+host="${authority%%:*}"
+if [ "$host" != "$authority" ]; then
+  port="${authority##*:}"
+  case "$port" in
+    "" | *[!0-9]*) reject "STAGING_BASE_URL has an invalid port (got: $authority)" ;;
+  esac
+fi
 host="$(printf '%s' "$host" | tr '[:upper:]' '[:lower:]')"
 
 [ -n "$host" ] || reject "STAGING_BASE_URL has no host (got: $url)"
