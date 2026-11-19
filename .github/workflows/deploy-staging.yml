@@ -8,16 +8,19 @@ name: deploy-staging
 #   - PR code  -> built by `staging-candidate` with NO credentials -> artifact
 #   - this file -> checks out `main` (trusted scripts + wrangler.jsonc),
 #                  installs from main's lockfile, and only ever treats the
-#                  artifact as DATA: it is downloaded, hashed, unzipped outside
-#                  the repository, shape-checked, and handed to `wrangler
-#                  deploy`. No script, hook or config from the artifact runs.
+#                  artifact as DATA: it is downloaded, hashed, its ZIP central
+#                  directory is validated (no symlinks/traversal/absolute paths/
+#                  oversized members) before it is unzipped outside the
+#                  repository, shape-checked, and handed to `wrangler deploy`.
+#                  No script, hook or config from the artifact runs.
 #   - `--env staging` is hard-coded in scripts/deploy-staging.sh, so this path
 #     cannot resolve the production Worker `us`.
 #
 # Success is only published as the `staging/verified` commit status on the exact
 # SHA that was deployed AND smoke-tested, after re-checking that the PR (or merge
-# group) still points at it. Any failure, cancellation or supersession means no
-# status: the check simply never turns green.
+# group) still points at it AND that the active Worker version is still the
+# version tagged with that SHA. Any failure, cancellation or supersession means
+# no status: the check simply never turns green.
 
 on:
   workflow_run:
@@ -93,6 +96,25 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
+      # The pinned Node.js validates the artifact before it is unpacked, so it
+      # must be available before the download steps.
+      - name: Use the pinned Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # actions/setup-node v4.4.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Enable pnpm from package.json packageManager
+        run: corepack enable pnpm
+
+      - name: Verify pinned toolchain
+        run: |
+          set -euo pipefail
+          expected_node="$(tr -d '[:space:]' < .nvmrc)"
+          actual_node="$(node -v)"; actual_node="${actual_node#v}"
+          expected_pnpm="$(node -p "require('./package.json').packageManager.replace(/^pnpm@/, '')")"
+          [ "${actual_node}" = "${expected_node}" ] || { echo "::error::Node ${actual_node} != .nvmrc ${expected_node}"; exit 1; }
+          [ "$(pnpm -v)" = "${expected_pnpm}" ] || { echo "::error::pnpm $(pnpm -v) != ${expected_pnpm}"; exit 1; }
+
       - name: Locate the candidate artifact
         id: artifact
         env:
@@ -135,6 +157,15 @@ jobs:
           gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" >"${zip}"
           printf '%s  %s\n' "${EXPECTED_DIGEST#sha256:}" "${zip}" | sha256sum -c -
           echo "OK: artifact zip matches the digest GitHub recorded for the run"
+
+      - name: Validate the artifact archive
+        run: |
+          set -euo pipefail
+          # Central-directory validation before anything is extracted: rejects
+          # symlinks (Unix mode), absolute/traversal paths, duplicate names,
+          # encryption and oversized archives. Fails closed on malformed ZIP
+          # metadata. `unzip` is only reached when this exits 0.
+          node scripts/verify-artifact.mjs "${RUNNER_TEMP}/candidate.zip"
 
       - name: Unpack the artifact outside the repository
         id: unpack
@@ -253,27 +284,10 @@ jobs:
 
           echo "- pr: #${pr_number}" >>"$GITHUB_STEP_SUMMARY"
 
-      - name: Use the pinned Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # actions/setup-node v4.4.0
-        with:
-          node-version-file: .nvmrc
-
-      - name: Enable pnpm from package.json packageManager
-        run: corepack enable pnpm
-
-      - name: Verify pinned toolchain
-        run: |
-          set -euo pipefail
-          expected_node="$(tr -d '[:space:]' < .nvmrc)"
-          actual_node="$(node -v)"; actual_node="${actual_node#v}"
-          expected_pnpm="$(node -p "require('./package.json').packageManager.replace(/^pnpm@/, '')")"
-          [ "${actual_node}" = "${expected_node}" ] || { echo "::error::Node ${actual_node} != .nvmrc ${expected_node}"; exit 1; }
-          [ "$(pnpm -v)" = "${expected_pnpm}" ] || { echo "::error::pnpm $(pnpm -v) != ${expected_pnpm}"; exit 1; }
-
       - name: Test the staging guards
         run: |
           set -euo pipefail
-          node --test scripts/staging-config.test.mjs
+          node --test scripts/staging-config.test.mjs scripts/verify-artifact.test.mjs scripts/verify-worker-version.test.mjs
           bash scripts/check-staging-url.test.sh
 
       # Deliberately no actions/cache: a cache written by a PR workflow must not
@@ -333,10 +347,26 @@ jobs:
           STAGING_DEPLOY_SHA: ${{ steps.candidate.outputs.sha }}
         run: |
           set -euo pipefail
-          bash scripts/deploy-staging.sh 2>&1 | tee "${RUNNER_TEMP}/deploy.log"
-          version_id="$(grep -oE 'Current Version ID: [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' "${RUNNER_TEMP}/deploy.log" | tail -1 | sed 's/Current Version ID: //')"
-          echo "version_id=${version_id:-unknown}" >>"$GITHUB_OUTPUT"
-          echo "- worker version: \`${version_id:-unknown}\` (tag \`${{ steps.candidate.outputs.sha }}\`)" >>"$GITHUB_STEP_SUMMARY"
+          deploy_log="${RUNNER_TEMP}/deploy.log"
+          bash scripts/deploy-staging.sh 2>&1 | tee "${deploy_log}"
+
+          # Strict: no `unknown` fallback. The parser rejects a missing line,
+          # "unknown", a malformed UUID, or conflicting IDs.
+          version_id="$(node scripts/verify-worker-version.mjs from-log "${deploy_log}")"
+          echo "version_id=${version_id}" >>"$GITHUB_OUTPUT"
+          echo "- worker version: \`${version_id}\` (tag \`${{ steps.candidate.outputs.sha }}\`)" >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Verify the deployed Worker version is the candidate
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_STAGING }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID_STAGING }}
+          SHA: ${{ steps.candidate.outputs.sha }}
+          VERSION_ID: ${{ steps.deploy.outputs.version_id }}
+        run: |
+          set -euo pipefail
+          # Read-only, independent of the deploy log: the version must carry the
+          # candidate's tag and the active deployment must serve it at 100%.
+          bash scripts/verify-staging-version.sh "${SHA}" "${VERSION_ID}"
 
       - name: Smoke test the live staging deployment
         env:
@@ -350,6 +380,8 @@ jobs:
       - name: Re-check the candidate and publish staging/verified
         env:
           GH_TOKEN: ${{ github.token }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_STAGING }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID_STAGING }}
           SHA: ${{ steps.candidate.outputs.sha }}
           EVENT: ${{ steps.candidate.outputs.event }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
@@ -389,7 +421,10 @@ jobs:
             [ "${ref_sha}" = "${SHA}" ] || { echo "::error::merge group ${HEAD_BRANCH} moved to ${ref_sha}"; exit 1; }
           fi
 
-          # 3. Publish on the exact deployed SHA.
+          # 3. The version that passed smoke must still be the active version.
+          bash scripts/verify-staging-version.sh "${SHA}" "${VERSION_ID}"
+
+          # 4. Publish on the exact deployed SHA.
           description="${STAGING_WORKER} ${VERSION_ID} smoke PASS"
           gh api -X POST "repos/${GITHUB_REPOSITORY}/statuses/${SHA}" \
             -f state=success \

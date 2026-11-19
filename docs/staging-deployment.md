@@ -30,11 +30,15 @@ PR opened / updated ──► staging-candidate.yml            (unprivileged)
                           checkout main  ← trusted scripts + wrangler.jsonc
                           download artifact by run id
                           verify sha256 digest GitHub recorded
+                          validate ZIP central directory (symlinks, traversal,
+                            absolute paths, size limits) BEFORE extracting
                           unzip OUTSIDE the repo, shape-check, no symlinks
                           cross-check candidate.json vs payload + API
                           verify PR open / base main / head SHA unchanged
                           pnpm install (main lockfile, NO cache)
                           dry-run → deploy --env staging → smoke
+                          verify version id + tag == SHA, active at 100%
+                          smoke again → re-verify the active version
                           re-check PR state → publish staging/verified
 ```
 
@@ -141,22 +145,32 @@ signup/verification links are built from `window.location.origin`.
 3. `github.repository` is exactly `us-justus/us`.
 4. The run has exactly one non-expired `staging-candidate` artifact.
 5. The artifact's `sha256` digest matches the one GitHub recorded for the run.
-6. The artifact contains only `.open-next/` and `candidate.json`, no symlinks,
-   no absolute or `../` paths, and the expected bundle paths exist.
-7. `candidate.json` matches the workflow-run payload: repository, event, head
+6. The ZIP central directory is validated before extraction: no symbolic links
+   (Unix file mode), no absolute, drive-letter or `..`/`.` paths, no backslashes,
+   no duplicate names, no encryption, and no archive above the compressed,
+   uncompressed, per-entry or member-count limits. Malformed metadata fails
+   closed. Only then is the archive unpacked outside the repository.
+7. The artifact contains only `.open-next/` and `candidate.json`, and the
+   expected bundle paths exist.
+8. `candidate.json` matches the workflow-run payload: repository, event, head
    SHA, run id and run attempt, and the worker digest matches the actual
    `worker.js` bytes. The PR / merge-group identity itself is resolved from the
    run payload and the GitHub API, never from the artifact.
-8. The PR is **open**, targets **main**, and its head SHA is still exactly the
+9. The PR is **open**, targets **main**, and its head SHA is still exactly the
    built SHA (for merge groups: the `gh-readonly-queue` ref still points at the
    built SHA).
-9. The staging URL is an allowed staging host, and both Supabase URL scopes name
-   the staging project exactly.
-10. `wrangler` resolves `us-staging` in a dry run of the exact bundle.
-11. The Worker's required runtime secrets exist.
-12. After deploy, the live staging URL passes `scripts/smoke-prod.mjs`.
-13. The PR/merge-group still points at the deployed SHA, and no newer candidate
-    exists for the same ref.
+10. The staging URL is an allowed staging host, and both Supabase URL scopes name
+    the staging project exactly.
+11. `wrangler` resolves `us-staging` in a dry run of the exact bundle.
+12. The Worker's required runtime secrets exist.
+13. After deploy, `wrangler deploy` must report exactly one well-formed version
+    ID (never `unknown`). The Cloudflare API is then queried independently: the
+    version must carry `workers/tag` equal to the candidate SHA, and the latest
+    deployment must serve exactly that version at 100% of traffic.
+14. After deploy, the live staging URL passes `scripts/smoke-prod.mjs`.
+15. Immediately before publishing, the active version is re-read and must still
+    be the version that passed smoke; the PR/merge-group still points at the
+    deployed SHA, and no newer candidate exists for the same ref.
 
 Only then is `staging/verified` posted — as a **commit status on the exact SHA
 that was deployed and smoke-tested**. Any failure, cancellation, supersession or
@@ -270,5 +284,12 @@ pipeline's job.
 - Staging is one Worker shared by all PRs; see §4 for what a status means.
 - A successful candidate build is not a staging deployment, and a successful
   deployment is not a smoke pass. Only the status means all three happened.
+- The artifact guard rejects ZIP64 archives and anything above its limits
+  (512 MiB compressed, 1 GiB uncompressed, 256 MiB per member, 100k members).
+  If the bundle legitimately grows past those limits, raise `ZIP_LIMITS` in
+  `scripts/verify-artifact.mjs` deliberately; the workflow never relaxes them.
+- Worker version verification calls the Cloudflare API directly, so the staging
+  token needs `Workers Scripts Read` in addition to its deploy permissions
+  (the existing `wrangler secret list` preflight already requires read access).
 - This pipeline verifies staging. It does not deploy production and does not
   change Cloudflare Workers Builds.

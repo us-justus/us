@@ -191,7 +191,7 @@ jobs:
       - name: Test the staging guards
         run: |
           set -euo pipefail
-          node --test scripts/staging-config.test.mjs
+          node --test scripts/staging-config.test.mjs scripts/verify-artifact.test.mjs scripts/verify-worker-version.test.mjs
           bash scripts/check-staging-url.test.sh
 
       - name: Install dependencies with frozen lockfile
@@ -283,10 +283,21 @@ jobs:
           STAGING_DEPLOY_SHA: ${{ steps.target.outputs.sha }}
         run: |
           set -euo pipefail
-          bash scripts/deploy-staging.sh 2>&1 | tee "${RUNNER_TEMP}/deploy.log"
-          version_id="$(grep -oE 'Current Version ID: [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' "${RUNNER_TEMP}/deploy.log" | tail -1 | sed 's/Current Version ID: //')"
-          echo "version_id=${version_id:-unknown}" >>"$GITHUB_OUTPUT"
-          echo "- worker version: \`${version_id:-unknown}\` (tag \`${{ steps.target.outputs.sha }}\`)" >>"$GITHUB_STEP_SUMMARY"
+          deploy_log="${RUNNER_TEMP}/deploy.log"
+          bash scripts/deploy-staging.sh 2>&1 | tee "${deploy_log}"
+          version_id="$(node scripts/verify-worker-version.mjs from-log "${deploy_log}")"
+          echo "version_id=${version_id}" >>"$GITHUB_OUTPUT"
+          echo "- worker version: \`${version_id}\` (tag \`${{ steps.target.outputs.sha }}\`)" >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Verify the deployed Worker version is the candidate
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_STAGING }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID_STAGING }}
+          SHA: ${{ steps.target.outputs.sha }}
+          VERSION_ID: ${{ steps.deploy.outputs.version_id }}
+        run: |
+          set -euo pipefail
+          bash scripts/verify-staging-version.sh "${SHA}" "${VERSION_ID}"
 
       - name: Smoke test the live staging deployment
         env:
@@ -299,6 +310,8 @@ jobs:
       - name: Publish staging/verified on the deployed SHA
         env:
           GH_TOKEN: ${{ github.token }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_STAGING }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID_STAGING }}
           SHA: ${{ steps.target.outputs.sha }}
           VERSION_ID: ${{ steps.deploy.outputs.version_id }}
         run: |
@@ -309,6 +322,8 @@ jobs:
             echo "::error::${SHA} is no longer on main; not publishing staging/verified"
             exit 1
           fi
+          # The version that passed smoke must still be the active version.
+          bash scripts/verify-staging-version.sh "${SHA}" "${VERSION_ID}"
           description="${STAGING_WORKER} ${VERSION_ID} smoke PASS"
           gh api -X POST "repos/${GITHUB_REPOSITORY}/statuses/${SHA}" \
             -f state=success \

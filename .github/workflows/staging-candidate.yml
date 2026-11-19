@@ -111,7 +111,7 @@ jobs:
       - name: Test the staging guards
         run: |
           set -euo pipefail
-          node --test scripts/staging-config.test.mjs
+          node --test scripts/staging-config.test.mjs scripts/verify-artifact.test.mjs scripts/verify-worker-version.test.mjs
           bash scripts/check-staging-url.test.sh
 
       # No cache restore: this job runs PR-controlled code and must not be able
