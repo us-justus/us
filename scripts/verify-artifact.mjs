@@ -6,7 +6,9 @@
 // archives that could escape the extraction directory or exhaust the runner:
 //
 //   - symbolic links (detected from the Unix file mode in external attributes)
-//   - special files (FIFO, socket, block/character device)
+//   - every Unix file type other than a regular file or directory, including
+//     FIFOs, sockets, block/character devices, whiteouts and reserved types
+//   - overlapping local records (headers, data or data descriptors)
 //   - absolute paths, drive-letter paths, backslashes, `..`/`.` segments
 //   - duplicate member names
 //   - encrypted members and unsupported compression methods
@@ -40,10 +42,21 @@ export const ZIP_LIMITS = Object.freeze({
   maxEntries: 100_000,
 });
 
+const DATA_DESCRIPTOR_SIGNATURE = 0x08074b50;
+const DATA_DESCRIPTOR_SIZE = 12;
+const DATA_DESCRIPTOR_SIGNED_SIZE = 16;
+const DATA_DESCRIPTOR_FLAG = 0x0008;
+
 const ALLOWED_METHODS = new Set([0, 8]); // stored, deflate
 const UNIX_FILE_TYPE_MASK = 0xf000;
+const UNIX_DIRECTORY = 0x4000;
+const UNIX_REGULAR = 0x8000;
 const UNIX_SYMLINK = 0xa000;
+const UNIX_WHITEOUT = 0xe000;
 const UNIX_SPECIAL_TYPES = new Set([0x1000, 0x2000, 0x6000, 0xc000]);
+// A zero file type means the entry declared no Unix type at all (ordinary
+// DOS/Windows archives); that case must keep working.
+const UNIX_ALLOWED_TYPES = new Set([UNIX_REGULAR, UNIX_DIRECTORY]);
 
 export class ZipFormatError extends Error {}
 
@@ -138,6 +151,7 @@ export function readZipEntries(buffer) {
   }
 
   const entries = [];
+  const localRecords = [];
   const seen = new Set();
   let cursor = centralOffset;
   const centralEnd = centralOffset + centralSize;
@@ -227,6 +241,21 @@ export function readZipEntries(buffer) {
       }
     }
 
+    // Track the whole local record — header, name, extra fields, data and any
+    // data descriptor — so overlapping records can be rejected. The descriptor
+    // is 12 bytes, or 16 when it carries the optional signature; ZIP64 is
+    // rejected above, so no 64-bit descriptor is possible here.
+    const dataEnd = localOffset + LOCAL_HEADER_SIZE + localNameLength + localExtraLength + compressedSize;
+    let localEnd = dataEnd;
+    if ((flags & DATA_DESCRIPTOR_FLAG) !== 0) {
+      requireRange(buffer, dataEnd, DATA_DESCRIPTOR_SIZE, centralOffset, `data descriptor for ${JSON.stringify(name)}`);
+      const signed =
+        dataEnd + DATA_DESCRIPTOR_SIGNED_SIZE <= centralOffset &&
+        buffer.readUInt32LE(dataEnd) === DATA_DESCRIPTOR_SIGNATURE;
+      localEnd = dataEnd + (signed ? DATA_DESCRIPTOR_SIGNED_SIZE : DATA_DESCRIPTOR_SIZE);
+    }
+    localRecords.push({ name, start: localOffset, end: localEnd });
+
     const unixMode = (externalAttributes >>> 16) & 0xffff;
     const fileType = unixMode & UNIX_FILE_TYPE_MASK;
 
@@ -243,6 +272,20 @@ export function readZipEntries(buffer) {
   }
 
   if (cursor !== centralEnd) fail("central directory size does not match its entries");
+
+  // Local records must describe disjoint byte ranges. Adjacent records are
+  // fine (start === previous end); anything that shares a byte is ambiguous and
+  // could make extraction read data belonging to another member.
+  const orderedRecords = [...localRecords].sort((a, b) => a.start - b.start || a.end - b.end);
+  let previous = null;
+  for (const record of orderedRecords) {
+    if (previous !== null && record.start < previous.end) {
+      fail(
+        `local record for ${JSON.stringify(record.name)} overlaps local record for ${JSON.stringify(previous.name)}`,
+      );
+    }
+    if (previous === null || record.end > previous.end) previous = record;
+  }
 
   return { entries };
 }
@@ -299,10 +342,19 @@ export function validateZip(buffer, limits = ZIP_LIMITS) {
 
     // The Unix mode lives in the external attributes regardless of the
     // declared platform, so a non-Unix archive cannot smuggle one either.
-    if (entry.fileType === UNIX_SYMLINK) {
-      errors.push(`symbolic link ${label}`);
-    } else if (UNIX_SPECIAL_TYPES.has(entry.fileType)) {
-      errors.push(`special file ${label}`);
+    // Fail closed: once a type is declared, only regular files and directories
+    // are extractable. A zero type means the entry declared none (the common
+    // DOS/Windows case) and stays allowed.
+    if (entry.fileType !== 0 && !UNIX_ALLOWED_TYPES.has(entry.fileType)) {
+      if (entry.fileType === UNIX_SYMLINK) {
+        errors.push(`symbolic link ${label}`);
+      } else if (entry.fileType === UNIX_WHITEOUT) {
+        errors.push(`whiteout ${label}`);
+      } else if (UNIX_SPECIAL_TYPES.has(entry.fileType)) {
+        errors.push(`special file ${label}`);
+      } else {
+        errors.push(`unsupported Unix file type 0x${entry.fileType.toString(16).padStart(4, "0")} for ${label}`);
+      }
     }
 
     if ((entry.flags & 0x0001) !== 0 || (entry.flags & 0x0040) !== 0) {

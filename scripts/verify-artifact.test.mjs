@@ -25,6 +25,17 @@ function extraField(id, payload = Buffer.alloc(0)) {
   return Buffer.concat([header, payload]);
 }
 
+/** Encode a data descriptor, optionally prefixed with its signature. */
+function dataDescriptor(compressedSize, uncompressedSize, signed) {
+  const crcAndSizes = Buffer.alloc(12);
+  crcAndSizes.writeUInt32LE(compressedSize, 4);
+  crcAndSizes.writeUInt32LE(uncompressedSize, 8);
+  if (!signed) return crcAndSizes;
+  const signature = Buffer.alloc(4);
+  signature.writeUInt32LE(0x08074b50, 0);
+  return Buffer.concat([signature, crcAndSizes]);
+}
+
 /**
  * Build a minimal, spec-shaped ZIP. Only the fields the validator reads are
  * populated; CRC values are left at zero because nothing decompresses here.
@@ -39,10 +50,14 @@ function buildZip(entries, options = {}) {
     const name = Buffer.from(entry.name, "utf8");
     const data = entry.data ?? Buffer.alloc(0);
     const stored = entry.stored ?? data;
-    const flags = entry.flags ?? 0;
+    const descriptor = entry.dataDescriptor ?? null;
+    const flags = entry.flags ?? (descriptor ? 0x0008 : 0);
     const method = entry.method ?? 0;
     const compressedSize = entry.compressedSize ?? stored.length;
     const uncompressedSize = entry.uncompressedSize ?? data.length;
+    // Flag 0x0008 allows the local header sizes to be zero.
+    const localCompressedSize = descriptor ? 0 : compressedSize;
+    const localUncompressedSize = descriptor ? 0 : uncompressedSize;
     const versionMadeBy = entry.versionMadeBy ?? (((entry.platform ?? 3) << 8) | 20);
     const externalAttributes =
       entry.externalAttributes ?? (((entry.mode ?? 0o100644) & 0xffff) << 16) >>> 0;
@@ -55,13 +70,16 @@ function buildZip(entries, options = {}) {
     local.writeUInt16LE(flags, 6);
     local.writeUInt16LE(method, 8);
     local.writeUInt32LE(0, 14);
-    local.writeUInt32LE(compressedSize, 18);
-    local.writeUInt32LE(uncompressedSize, 22);
+    local.writeUInt32LE(localCompressedSize, 18);
+    local.writeUInt32LE(localUncompressedSize, 22);
     local.writeUInt16LE(name.length, 26);
     local.writeUInt16LE(localExtra.length, 28);
 
     localOffsets.push(offset);
-    const localHeader = Buffer.concat([local, name, localExtra, stored]);
+    const trailer = descriptor
+      ? dataDescriptor(compressedSize, uncompressedSize, descriptor.signature !== false)
+      : Buffer.alloc(0);
+    const localHeader = Buffer.concat([local, name, localExtra, stored, trailer]);
     localChunks.push(localHeader);
     offset += localHeader.length;
 
@@ -148,6 +166,110 @@ test("special files are rejected", () => {
       `mode ${mode.toString(8)} should be rejected`,
     );
   }
+});
+
+test("whiteouts and unknown Unix file types are rejected", () => {
+  assert.match(
+    errorsFor([{ name: "whiteout", data: Buffer.alloc(0), mode: 0o160644 }]),
+    /whiteout/,
+    "mode 0o160644 (whiteout) should be rejected",
+  );
+
+  // 0x3000, 0x5000, 0x7000, 0x9000, 0xb000, 0xd000 and 0xf000 are reserved or
+  // otherwise unknown; none may be extracted.
+  for (const mode of [0o030644, 0o050644, 0o070644, 0o110644, 0o130644, 0o150644, 0o170644]) {
+    assert.match(
+      errorsFor([{ name: "reserved", data: Buffer.alloc(0), mode }]),
+      /unsupported Unix file type/,
+      `mode ${mode.toString(8)} should be rejected`,
+    );
+  }
+});
+
+test("regular files, directories and undeclared types are allowed", () => {
+  const zip = buildZip([
+    { name: "candidate.json", data: Buffer.from("{}"), mode: 0o100644 },
+    { name: ".open-next/", data: Buffer.alloc(0), mode: 0o040755 },
+    { name: "windows.txt", data: Buffer.from("x"), mode: 0 },
+  ]).buffer;
+
+  assert.deepEqual(validateZip(zip), []);
+  assert.deepEqual(
+    readZipEntries(zip).entries.map((entry) => entry.fileType),
+    [0x8000, 0x4000, 0x0000],
+    "a zero type means the entry declared no Unix type at all",
+  );
+});
+
+test("valid archives with data descriptors are accepted", () => {
+  for (const signature of [true, false]) {
+    const zip = buildZip([
+      {
+        name: "candidate.json",
+        data: Buffer.from("{}"),
+        mode: 0o100644,
+        dataDescriptor: { signature },
+      },
+      {
+        name: ".open-next/worker.js",
+        data: Buffer.from("export default {}"),
+        mode: 0o100644,
+        dataDescriptor: { signature },
+      },
+      { name: ".open-next/assets/", data: Buffer.alloc(0), mode: 0o040755 },
+    ]).buffer;
+
+    assert.deepEqual(validateZip(zip), [], `descriptor signature=${signature} should be accepted`);
+  }
+});
+
+test("overlapping local records are rejected", () => {
+  // Entry `a` declares enough compressed data to run into entry `b`'s local
+  // header (offset 35).
+  assert.match(
+    errorsFor([
+      { name: "a", stored: Buffer.from("aaaa"), compressedSize: 34, mode: 0o100644 },
+      { name: "b", data: Buffer.from("bbbb"), mode: 0o100644 },
+    ]),
+    /overlaps local record/,
+  );
+
+  // Here `a`'s data reaches past `b`'s header and into `b`'s compressed data
+  // (which starts at offset 66).
+  assert.match(
+    errorsFor([
+      { name: "a", stored: Buffer.from("aaaa"), compressedSize: 38, mode: 0o100644 },
+      { name: "b", data: Buffer.from("bbbb"), mode: 0o100644 },
+    ]),
+    /overlaps local record/,
+  );
+
+  // A data descriptor is part of the local record too: `a`'s declared data
+  // pushes its descriptor into `b`'s local header.
+  assert.match(
+    errorsFor([
+      {
+        name: "a",
+        stored: Buffer.from("aaaa"),
+        compressedSize: 20,
+        mode: 0o100644,
+        dataDescriptor: { signature: true },
+      },
+      { name: "b", data: Buffer.from("bbbb"), mode: 0o100644 },
+    ]),
+    /overlaps local record/,
+  );
+});
+
+test("local records that reach into the central directory are rejected", () => {
+  const zip = buildZip([{ name: "a", stored: Buffer.from("aaaa"), mode: 0o100644 }]);
+  const buffer = Buffer.from(zip.buffer);
+  const inflated = 4 + 30 + 1 + 4; // far past the central directory offset
+
+  buffer.writeUInt32LE(inflated, zip.localOffsets[0] + 18);
+  buffer.writeUInt32LE(inflated, zip.centralOffset + 20);
+
+  assert.match(validateZip(buffer).join("\n"), /could not be validated: .*out of bounds/);
 });
 
 test("path traversal is rejected", () => {
