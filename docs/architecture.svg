@@ -1,87 +1,30 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="650" viewBox="0 0 1200 650" role="img" aria-labelledby="title desc">
-  <title id="title">us system architecture</title>
-  <desc id="desc">A hand-drawn style diagram showing a student using the us web app, hosted on Cloudflare Workers through OpenNext, with Supabase providing database, authentication and storage.</desc>
-  <defs>
-    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
-      <path d="M1 1 L8 5 L1 9" fill="none" stroke="#55504b" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-    </marker>
-    <style>
-      .ink{fill:#24211f;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
-      .small{font-size:17px;fill:#625c56}
-      .label{font-size:21px;font-weight:650}
-      .sub{font-size:16px;fill:#625c56}
-      .sketch{fill:none;stroke:#39332f;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
-      .arrow{fill:none;stroke:#625c56;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#arrow)}
-    </style>
-  </defs>
-  <rect x="12" y="12" width="1176" height="626" rx="26" fill="#fffdf9" stroke="#e8ded5" stroke-width="2"/>
-  <path d="M38 82 C280 77 515 86 760 80 S1050 83 1160 78" fill="none" stroke="#f0e5dc" stroke-width="2"/>
-  <text x="58" y="55" class="ink" font-size="25" font-weight="700">How the pieces connect</text>
-  <text x="58" y="112" class="small">A simplified view of the web app and its hosted services</text>
-
-  <!-- Student / browser -->
-  <g transform="rotate(-1 145 300)">
-    <path class="sketch" d="M63 235 Q66 226 79 228 L211 226 Q225 228 224 241 L221 364 Q219 376 207 375 L76 377 Q62 375 62 363 Z"/>
-    <path d="M67 250 Q138 247 218 250" class="sketch"/>
-    <circle cx="81" cy="239" r="3.5" fill="#ff6666"/><circle cx="94" cy="239" r="3.5" fill="#e7b7a9"/><circle cx="107" cy="239" r="3.5" fill="#d9c9b9"/>
-    <circle cx="142" cy="291" r="20" fill="#f7d7d0" stroke="#e9a99e" stroke-width="2"/>
-    <path d="M105 344 Q108 316 141 316 Q174 316 178 344" fill="#f4c9c5" stroke="#e9a99e" stroke-width="2.2" stroke-linecap="round"/>
-    <text x="143" y="408" text-anchor="middle" class="ink label">Student</text>
-    <text x="143" y="434" text-anchor="middle" class="sub">Browser</text>
-  </g>
-
-  <!-- Cloudflare boundary -->
-  <g transform="rotate(.7 440 305)">
-    <path d="M290 193 Q298 181 318 184 L566 182 Q585 184 584 202 L582 399 Q579 415 562 414 L309 416 Q290 413 291 396 Z" fill="#fff2e7" stroke="#e7a16b" stroke-width="2.5" stroke-linejoin="round"/>
-    <path d="M301 205 Q437 199 572 205" fill="none" stroke="#efc7a5" stroke-width="1.8"/>
-    <path d="M360 271 C341 258 347 238 364 231 C375 209 412 214 421 234 C443 225 465 241 459 260 C480 273 466 293 447 293 L370 293 C349 293 343 279 360 271 Z" fill="#ffe0c4" stroke="#d98643" stroke-width="2.2" stroke-linejoin="round"/>
-    <text x="405" y="322" text-anchor="middle" class="ink label">Cloudflare Workers</text>
-    <text x="405" y="348" text-anchor="middle" class="sub">OpenNext deployment</text>
-    <text x="437" y="382" text-anchor="middle" class="small">Hosts the application</text>
-  </g>
-
-  <!-- Next app -->
-  <g transform="rotate(-.6 765 305)">
-    <path d="M650 224 Q654 212 668 213 L863 211 Q878 213 879 227 L877 365 Q875 379 862 379 L665 381 Q650 379 649 365 Z" fill="#f4f0eb" stroke="#7f7770" stroke-width="2.5" stroke-linejoin="round"/>
-    <path d="M663 239 Q761 235 866 239" fill="none" stroke="#c9c0b7" stroke-width="2"/>
-    <rect x="708" y="264" width="112" height="53" rx="8" fill="#171615"/>
-    <text x="764" y="298" text-anchor="middle" fill="#fffdf9" font-size="22" font-weight="700" font-family="ui-sans-serif,system-ui">Next.js</text>
-    <text x="764" y="342" text-anchor="middle" class="ink label">Application</text>
-    <text x="764" y="366" text-anchor="middle" class="sub">Pages · API · server logic</text>
-  </g>
-
-  <!-- Supabase -->
-  <g transform="rotate(.6 1035 305)">
-    <path d="M934 194 Q940 181 956 184 L1138 185 Q1154 187 1153 203 L1151 399 Q1149 414 1134 414 L950 412 Q934 411 934 396 Z" fill="#ecf7ef" stroke="#75b88a" stroke-width="2.5" stroke-linejoin="round"/>
-    <path d="M950 204 Q1044 200 1138 205" fill="none" stroke="#b8d9c0" stroke-width="2"/>
-    <path d="M1011 238 L987 281 Q983 290 993 290 L1017 290 L1004 325 L1061 268 L1035 268 L1051 238 Z" fill="#3fcf8e" stroke="#258e61" stroke-width="2" stroke-linejoin="round"/>
-    <text x="1043" y="353" text-anchor="middle" class="ink label">Supabase</text>
-    <text x="1043" y="381" text-anchor="middle" class="sub">Database · Auth · Storage</text>
-  </g>
-
-  <!-- Connections -->
-  <path d="M229 302 C250 300 269 300 292 300" class="arrow"/>
-  <text x="260" y="279" text-anchor="middle" class="small">HTTPS</text>
-  <path d="M585 300 C608 300 625 300 648 300" class="arrow"/>
-  <text x="617" y="278" text-anchor="middle" class="small">serves</text>
-  <path d="M880 300 C899 300 914 300 932 300" class="arrow"/>
-  <text x="905" y="278" text-anchor="middle" class="small">uses</text>
-
-  <!-- Footer notes -->
-  <path d="M58 480 Q600 475 1143 480" fill="none" stroke="#eadfd6" stroke-width="2" stroke-dasharray="5 8"/>
-  <g>
-    <rect x="75" y="514" width="305" height="78" rx="13" fill="#fff0ed" stroke="#e8b0a7" stroke-width="1.8"/>
-    <text x="96" y="545" class="ink" font-size="17" font-weight="700">Frontend experience</text>
-    <text x="96" y="571" class="sub">Pages and interactive components</text>
-  </g>
-  <g>
-    <rect x="448" y="514" width="305" height="78" rx="13" fill="#fff2e7" stroke="#e7c19f" stroke-width="1.8"/>
-    <text x="469" y="545" class="ink" font-size="17" font-weight="700">Application runtime</text>
-    <text x="469" y="571" class="sub">Server routes and business logic</text>
-  </g>
-  <g>
-    <rect x="821" y="514" width="305" height="78" rx="13" fill="#ecf7ef" stroke="#b8d9c0" stroke-width="1.8"/>
-    <text x="842" y="545" class="ink" font-size="17" font-weight="700">Backend services</text>
-    <text x="842" y="571" class="sub">Persistent data and identity services</text>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="560" viewBox="0 0 1100 560">
+<defs><marker id="a" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M1 1L9 5L1 9" fill="none" stroke="#34312f" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<rect width="1100" height="560" rx="24" fill="#fffdf9"/>
+<path d="M52 86Q50 72 68 72H1032Q1050 74 1048 92V472Q1046 489 1028 488H72Q52 486 52 468Z" fill="none" stroke="#e8ded5" stroke-width="2" stroke-dasharray="6 9"/>
+<g stroke="#34312f" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+<path d="M95 207Q92 194 110 193H290Q308 195 307 213V315Q305 332 287 333H112Q94 331 95 314Z" fill="#fff0ed"/>
+<path d="M390 207Q387 194 405 193H610Q628 195 627 213V315Q625 332 607 333H407Q389 331 390 314Z" fill="#f2f0ff"/>
+<path d="M718 207Q715 194 733 193H963Q981 195 980 213V315Q978 332 960 333H735Q717 331 718 314Z" fill="#eaf7f0"/>
+<path d="M158 367Q156 354 173 353H278Q295 355 293 371V422Q291 436 275 436H175Q158 434 158 419Z" fill="#fff6df"/>
+<path d="M447 367Q445 354 462 353H557Q574 355 572 371V422Q570 436 554 436H464Q447 434 447 419Z" fill="#fff6df"/>
+<path d="M774 367Q772 354 789 353H884Q901 355 899 371V422Q897 436 881 436H791Q774 434 774 419Z" fill="#fff6df"/>
+<path d="M309 263C338 261 357 261 383 263" fill="none" marker-end="url(#a)"/>
+<path d="M629 263C662 261 684 261 711 263" fill="none" marker-end="url(#a)"/>
+<path d="M205 334C205 344 215 348 222 351" fill="none" marker-end="url(#a)"/>
+<path d="M508 334V350" fill="none" marker-end="url(#a)"/>
+<path d="M847 334C847 344 837 348 830 351" fill="none" marker-end="url(#a)"/>
+<path d="M294 394C345 394 384 394 439 394M573 394C641 394 701 394 765 394" fill="none" stroke-dasharray="5 7" marker-end="url(#a)"/>
+</g>
+<g font-family="Arial,sans-serif" text-anchor="middle" fill="#292624">
+<text x="550" y="119" font-size="17" letter-spacing="3" fill="#9b716a">SYSTEM OVERVIEW</text>
+<text x="200" y="244" font-size="24" font-weight="bold">Student</text><text x="200" y="276" font-size="16" fill="#716761">Browser</text>
+<text x="508" y="244" font-size="24" font-weight="bold">Next.js app</text><text x="508" y="276" font-size="16" fill="#716761">Pages · UI · server routes</text>
+<text x="848" y="244" font-size="24" font-weight="bold">Supabase</text><text x="848" y="276" font-size="16" fill="#716761">Backend services</text>
+<text x="225" y="389" font-size="18" font-weight="bold">OpenNext</text><text x="225" y="414" font-size="14" fill="#716761">Build adapter</text>
+<text x="508" y="389" font-size="18" font-weight="bold">Cloudflare Workers</text><text x="508" y="414" font-size="14" fill="#716761">Application runtime</text>
+<text x="836" y="389" font-size="18" font-weight="bold">Data services</text><text x="836" y="414" font-size="14" fill="#716761">Postgres · Auth · Storage</text>
+<text x="550" y="520" font-size="14" fill="#9b716a">A simple view of how the pieces connect</text>
+</g>
+<g stroke="#ff6666" stroke-width="2" fill="none" stroke-linecap="round"><path d="M450 145q55-8 111 0M790 296q55 8 111 0"/></g>
 </svg>
