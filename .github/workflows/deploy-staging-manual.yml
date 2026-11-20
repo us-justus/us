@@ -107,68 +107,32 @@ jobs:
         run: |
           set -euo pipefail
 
-          check_runs="$(gh api --paginate \
+          check_runs="${RUNNER_TEMP}/check-runs.json"
+          commit_statuses="${RUNNER_TEMP}/commit-statuses.json"
+
+          # `--slurp` collects the pages into one array (gh forbids --slurp with
+          # --jq), so jq flattens the per-page check_runs arrays afterwards.
+          gh api --paginate --slurp \
             -H "Accept: application/vnd.github+json" \
             "repos/${GITHUB_REPOSITORY}/commits/${TARGET_SHA}/check-runs?per_page=100" \
-            --jq '.check_runs[] | [.name, .status, (.conclusion // "")] | @tsv')"
+            | jq '[.[].check_runs[]]' >"${check_runs}"
 
-          commit_statuses="$(gh api \
+          gh api \
             -H "Accept: application/vnd.github+json" \
             "repos/${GITHUB_REPOSITORY}/commits/${TARGET_SHA}/status" \
-            --jq '.statuses[] | [.context, .state] | @tsv')"
+            --jq '.statuses // []' >"${commit_statuses}"
 
-          if [ -z "$check_runs" ] && [ -z "$commit_statuses" ]; then
-            echo "::error::no CI results are attached to ${TARGET_SHA}; refusing to deploy an unverified commit"
-            exit 1
-          fi
+          # This workflow is attached to TARGET_SHA as a check run and is still
+          # in_progress while this step runs. The guard drops exactly the check
+          # runs whose details_url points at THIS run id and validates every
+          # other check run and commit status; names are never used to exclude.
+          node scripts/verify-ci-checks.mjs verify \
+            --target-sha "${TARGET_SHA}" \
+            --current-run-id "${GITHUB_RUN_ID}" \
+            --check-runs "${check_runs}" \
+            --statuses "${commit_statuses}" \
+            --required "${REQUIRED_CHECKS:-validate}"
 
-          failed=0
-
-          while IFS=$'\t' read -r name status conclusion; do
-            [ -n "${name:-}" ] || continue
-            if [ "${status:-}" != "completed" ]; then
-              echo "::error::check '$name' is not finished (status=${status:-unknown})"
-              failed=1
-              continue
-            fi
-            case "${conclusion:-}" in
-              success | neutral | skipped) ;;
-              *)
-                echo "::error::check '$name' concluded '${conclusion:-none}'"
-                failed=1
-                ;;
-            esac
-          done <<<"$check_runs"
-
-          while IFS=$'\t' read -r context state; do
-            [ -n "${context:-}" ] || continue
-            case "${state:-}" in
-              success | neutral | skipped) ;;
-              *)
-                echo "::error::commit status '$context' is '${state:-unknown}'"
-                failed=1
-                ;;
-            esac
-          done <<<"$commit_statuses"
-
-          # Required check names, comma- or newline-separated, e.g.
-          # "validate,staging/verified". Split on separators only and trim each
-          # item — never whitespace-strip, because check names contain spaces.
-          required="${REQUIRED_CHECKS:-validate}"
-          while IFS= read -r want; do
-            want="$(printf '%s' "$want" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-            [ -n "$want" ] || continue
-            # No `grep -q` here: it exits on the first match, `cut` can then die
-            # on SIGPIPE, and pipefail would report a green check as missing.
-            if ! printf '%s\n' "$check_runs" | cut -f1 | grep -Fx -- "$want" >/dev/null; then
-              echo "::error::required check '$want' did not run on $TARGET_SHA"
-              failed=1
-            fi
-          done < <(printf '%s\n' "$required" | tr ',' '\n')
-
-          if [ "$failed" -ne 0 ]; then
-            exit 1
-          fi
           echo "- CI: all checks on the target commit are green" >>"$GITHUB_STEP_SUMMARY"
 
       - name: Use the pinned Node.js
@@ -191,7 +155,7 @@ jobs:
       - name: Test the staging guards
         run: |
           set -euo pipefail
-          node --test scripts/staging-config.test.mjs scripts/verify-artifact.test.mjs scripts/verify-worker-version.test.mjs
+          node --test scripts/staging-config.test.mjs scripts/verify-artifact.test.mjs scripts/verify-worker-version.test.mjs scripts/verify-ci-checks.test.mjs
           bash scripts/check-staging-url.test.sh
 
       - name: Install dependencies with frozen lockfile
