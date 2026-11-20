@@ -1,10 +1,14 @@
+<p align="center">
+  <img src="logo/us-logo.png" alt="us — just us." width="280">
+</p>
+
 # us
 
 > *just us.*
 >
 > Campus-only, private, and romantic.
 
-**us** is a campus-focused web app built to help students discover people from their college. The project is designed around a quiet, warm experience rather than a conventional social network.
+**us** is a private, campus-only dating app where students can meet people from their own college. It is built around a quiet, warm experience rather than a conventional social network.
 
 > **Current product status:** the codebase includes onboarding, campus search, profiles, invitations, account tools and internal administration. Matching and chat are not currently exposed as completed user-facing flows; the product is still in its pre-launch stage.
 
@@ -154,7 +158,7 @@ Use this only when you are authorized to work against the staging project. Do no
 
 ## Checks and tests
 
-The repository provides these scripts:
+Run these checks:
 
 ~~~bash
 pnpm lint
@@ -162,8 +166,8 @@ pnpm exec tsc --noEmit
 pnpm test:inside
 ~~~
 
-- pnpm lint runs ESLint.
-- pnpm exec tsc --noEmit runs the TypeScript type check without emitting files.
+- pnpm lint runs the ESLint script.
+- pnpm exec tsc --noEmit is a command that runs the TypeScript type check without emitting files.
 - pnpm test:inside runs the Node.js test files listed in package.json, covering admin, authentication, onboarding, feedback and related security logic.
 
 Run the relevant checks before opening a pull request. Some tests or application flows may require local environment configuration.
