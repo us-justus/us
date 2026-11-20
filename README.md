@@ -50,29 +50,6 @@ Campus exclusivity should mean something.
 - **Protected account features:** authenticated routes and server-side checks protect sensitive operations.
 - **A focused experience:** the product is about meeting people, not building another public social feed.
 
-## ⚙ Technology
-
-The stack is intentionally modern, with a focus on a maintainable application and a reliable deployment workflow.
-
-<p align="center"><strong>APPLICATION</strong></p>
-<p align="center">
-  <a href="https://nextjs.org/"><img src="https://img.shields.io/badge/Next.js-000000?style=for-the-badge&logo=nextdotjs&logoColor=white" alt="Next.js"></a>
-  <a href="https://react.dev/"><img src="https://img.shields.io/badge/React-20232a?style=for-the-badge&logo=react&logoColor=61DAFB" alt="React"></a>
-  <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript"></a>
-  <a href="https://tailwindcss.com/"><img src="https://img.shields.io/badge/Tailwind_CSS-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white" alt="Tailwind CSS"></a>
-</p>
-<p align="center"><strong>BACKEND &amp; DATA</strong></p>
-<p align="center">
-  <a href="https://supabase.com/"><img src="https://img.shields.io/badge/Supabase-3FCF8E?style=for-the-badge&logo=supabase&logoColor=white" alt="Supabase"></a>
-  <a href="https://www.postgresql.org/"><img src="https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL"></a>
-</p>
-<p align="center"><strong>DEPLOYMENT &amp; TOOLING</strong></p>
-<p align="center">
-  <a href="https://workers.cloudflare.com/"><img src="https://img.shields.io/badge/Cloudflare_Workers-F38020?style=for-the-badge&logo=cloudflare&logoColor=white" alt="Cloudflare Workers"></a>
-  <a href="https://pnpm.io/"><img src="https://img.shields.io/badge/pnpm-F69220?style=for-the-badge&logo=pnpm&logoColor=white" alt="pnpm"></a>
-  <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white" alt="Node.js"></a>
-</p>
-
 ## ⌘ How it fits together
 
 Next.js powers the web experience and server-side application logic. Supabase provides the database, authentication and storage. OpenNext packages the application for deployment to Cloudflare Workers.
