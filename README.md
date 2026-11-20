@@ -235,5 +235,4 @@ Please don't commit credentials, environment files, generated build output or lo
 
 <p align="center">
   <strong>just us.</strong><br>
-  <sub>Made with care, for the people around you.</sub>
 </p>
