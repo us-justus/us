@@ -163,12 +163,17 @@
 - [ ] Production environment verified
 
 ## Q. Production Release (required sequence — spec.md §12.1)
-- [ ] `pnpm release:build` (frozen-lockfile install → tests → tsc → lint → OpenNext build)
+- [ ] CI green on the exact commit (`.github/workflows/ci.yml` job `validate`: frozen install → typegen → tsc → lint → tests → clean OpenNext build → 2 consecutive rebuilds → rebuild with a corrupted Turbopack cache present)
+- [ ] `pnpm release:build` (frozen-lockfile install → tests → Next typegen → tsc → lint → OpenNext build) — must pass from a clean checkout (no `.next`)
 - [ ] Validation green (no skips)
+- [ ] Staging Worker deployed from the SAME commit with staging Supabase credentials; smoke PASS there
+- [ ] Record the commit SHA + Cloudflare Worker version ID for the release
+- [ ] Confirm the previous known-good Worker version ID is available for rollback
 - [ ] Upload / traffic cutover (record the live Worker version ID)
 - [ ] `pnpm release:smoke` against LIVE production → PASS = healthy
 - [ ] On FAIL: record version, do NOT edit auth/DB/secrets first (spec.md §12.1); manual rollback if necessary (`pnpm release:rollback` prints the command)
 - [ ] Smoke again after any rollback
+- [ ] Do not run a second production deploy concurrently; never deploy a commit that did not pass CI + staging
 
 ## P. Optional email (STEP 3C)
 - [x] Email optional in onboarding (skip path, internal sign-in identity + password)

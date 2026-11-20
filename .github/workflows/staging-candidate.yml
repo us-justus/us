@@ -1,0 +1,200 @@
+name: staging-candidate
+
+# UNPRIVILEGED candidate build. Runs PR-controlled code, therefore:
+#   - no secrets, no environment, no Cloudflare credentials
+#   - read-only token plus `actions: write` for the artifact upload only
+#   - never checks out the default branch on top of the PR tree
+#
+# The artifact it produces is deployed by `deploy-staging.yml`, which runs from
+# the default branch and never executes anything from this artifact.
+#
+# The check this workflow creates is `staging-candidate` (informational). The
+# merge gate is the `staging/verified` commit status published by the privileged
+# workflow AFTER deploying and smoke-testing this exact SHA.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  merge_group:
+
+permissions:
+  contents: read
+  # Required by actions/upload-artifact. Fork pull requests receive a read-only
+  # token, so the upload fails closed for them; see docs/staging-deployment.md.
+  actions: write
+
+concurrency:
+  group: staging-candidate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+  STAGING_SUPABASE_ORIGIN: "https://ietruyukgqwkmsyfvxxi.supabase.co"
+
+jobs:
+  candidate:
+    name: staging-candidate
+    # Drafts are not candidates; merge queue entries always are.
+    if: github.event_name == 'merge_group' || github.event.pull_request.draft == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout the exact candidate commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # actions/checkout v4.2.2
+        with:
+          # pull_request: the PR head SHA (not the merge ref GitHub builds for
+          # CI). merge_group: the merge-queue head commit itself.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Resolve candidate identity
+        id: candidate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          MERGE_GROUP_REF: ${{ github.event.merge_group.head_ref }}
+          MERGE_GROUP_SHA: ${{ github.event.merge_group.head_sha }}
+        run: |
+          set -euo pipefail
+          head_sha="$(git rev-parse HEAD)"
+          case "${EVENT_NAME}" in
+            pull_request)
+              [ -n "${PR_NUMBER}" ] || { echo "::error::pull_request event without a PR number"; exit 1; }
+              pr_number="${PR_NUMBER}"
+              merge_group_ref=""
+              ;;
+            merge_group)
+              merge_group_ref="${MERGE_GROUP_REF}"
+              merge_group_summary="$(node scripts/staging-config.mjs merge-group-ref "${merge_group_ref}")"
+              pr_number="$(printf '%s' "${merge_group_summary}" | sed -E 's/.*pr #([0-9]+).*/\1/')"
+              case "${pr_number}" in
+                "" | *[!0-9]*) echo "::error::could not read the pull request number from ${merge_group_ref}"; exit 1 ;;
+              esac
+              if [ "${head_sha}" != "${MERGE_GROUP_SHA}" ]; then
+                echo "::error::checked out ${head_sha} but the merge group head is ${MERGE_GROUP_SHA}"
+                exit 1
+              fi
+              ;;
+            *)
+              echo "::error::unsupported event ${EVENT_NAME}"
+              exit 1
+              ;;
+          esac
+          if [ "${head_sha}" != "${{ github.event.pull_request.head.sha || github.sha }}" ]; then
+            echo "::error::checked out ${head_sha}, expected the event commit"
+            exit 1
+          fi
+          echo "head_sha=${head_sha}" >>"$GITHUB_OUTPUT"
+          echo "pr_number=${pr_number}" >>"$GITHUB_OUTPUT"
+          echo "merge_group_ref=${merge_group_ref}" >>"$GITHUB_OUTPUT"
+          echo "- candidate: \`${head_sha}\` (pr #${pr_number})" >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Use the pinned Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # actions/setup-node v4.4.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Enable pnpm from package.json packageManager
+        run: corepack enable pnpm
+
+      - name: Verify pinned toolchain
+        run: |
+          set -euo pipefail
+          expected_node="$(tr -d '[:space:]' < .nvmrc)"
+          actual_node="$(node -v)"; actual_node="${actual_node#v}"
+          expected_pnpm="$(node -p "require('./package.json').packageManager.replace(/^pnpm@/, '')")"
+          [ "${actual_node}" = "${expected_node}" ] || { echo "::error::Node ${actual_node} != .nvmrc ${expected_node}"; exit 1; }
+          [ "$(pnpm -v)" = "${expected_pnpm}" ] || { echo "::error::pnpm $(pnpm -v) != ${expected_pnpm}"; exit 1; }
+
+      - name: Test the staging guards
+        run: |
+          set -euo pipefail
+          node --test scripts/staging-config.test.mjs scripts/verify-artifact.test.mjs scripts/verify-worker-version.test.mjs
+          bash scripts/check-staging-url.test.sh
+
+      # No cache restore: this job runs PR-controlled code and must not be able
+      # to write anything a privileged job later trusts.
+      - name: Install dependencies with frozen lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify lockfile was not modified
+        run: |
+          set -euo pipefail
+          if ! git diff --quiet -- pnpm-lock.yaml; then
+            echo "::error::pnpm install --frozen-lockfile modified pnpm-lock.yaml"
+            git --no-pager diff -- pnpm-lock.yaml
+            exit 1
+          fi
+
+      - name: Unit tests
+        run: pnpm test:inside
+
+      - name: Generate Next.js route types
+        run: pnpm exec next typegen
+
+      - name: TypeScript
+        run: pnpm exec tsc --noEmit
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Guard staging build configuration
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.STAGING_SUPABASE_ANON_KEY }}
+        run: |
+          set -euo pipefail
+          [ -n "${NEXT_PUBLIC_SUPABASE_URL:-}" ] || { echo "::error::repository variable STAGING_SUPABASE_URL is missing"; exit 1; }
+          [ -n "${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}" ] || { echo "::error::repository variable STAGING_SUPABASE_ANON_KEY is missing"; exit 1; }
+          if [ "${NEXT_PUBLIC_SUPABASE_URL}" != "${STAGING_SUPABASE_ORIGIN}" ]; then
+            echo "::error::STAGING_SUPABASE_URL must be exactly ${STAGING_SUPABASE_ORIGIN} (the staging project)"
+            exit 1
+          fi
+          echo "staging build configuration verified"
+
+      - name: Build the OpenNext Cloudflare bundle
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.STAGING_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_APP_ENV: staging # /inside health label; display-only
+        run: |
+          set -o pipefail
+          rm -rf .next .open-next
+          pnpm exec opennextjs-cloudflare build 2>&1 | tee "$RUNNER_TEMP/build.log"
+
+      - name: Validate artifact structure and write metadata
+        env:
+          CANDIDATE_EVENT: ${{ github.event_name }}
+          CANDIDATE_HEAD_SHA: ${{ steps.candidate.outputs.head_sha }}
+          CANDIDATE_PR_NUMBER: ${{ steps.candidate.outputs.pr_number }}
+          CANDIDATE_MERGE_GROUP_REF: ${{ steps.candidate.outputs.merge_group_ref }}
+          CANDIDATE_BASE_REF: ${{ github.event.pull_request.base.ref || 'main' }}
+        run: |
+          set -euo pipefail
+          for path in .open-next/worker.js .open-next/assets .open-next/assets/_next; do
+            [ -e "${path}" ] || { echo "::error::build did not produce ${path}"; exit 1; }
+          done
+          if [ -e .next/cache/turbopack ]; then
+            echo "::error::.next/cache/turbopack was written; the Turbopack build cache must stay disabled"
+            exit 1
+          fi
+          if grep -qE 'TurbopackInternalError|Failed to lookup task ids|Unable to open static sorted file' "$RUNNER_TEMP/build.log"; then
+            echo "::error::Turbopack cache/internal error in the candidate build"
+            grep -nE 'TurbopackInternalError|Failed to lookup task ids|Unable to open static sorted file' "$RUNNER_TEMP/build.log"
+            exit 1
+          fi
+          CANDIDATE_PNPM_VERSION="$(pnpm -v)" node scripts/staging-config.mjs write-metadata candidate.json
+
+      - name: Upload candidate artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # actions/upload-artifact v4.6.2
+        with:
+          name: staging-candidate
+          path: |
+            .open-next
+            candidate.json
+          # `.open-next/.build` is hidden and still needed by the bundle.
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7

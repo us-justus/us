@@ -34,6 +34,34 @@
       "invocation_logs": true,
       "head_sampling_rate": 1
     }
+  },
+  // Staging Worker. Deploy with `bash scripts/deploy-staging.sh`, which always
+  // passes `--env staging` (.github/workflows/deploy-staging.yml). Do NOT use
+  // `opennextjs-cloudflare deploy` from the privileged workflow: it builds
+  // first, which would execute PR-controlled code with staging credentials.
+  // Without `--env`, Wrangler resolves the top-level environment above (`us`)
+  // exactly as before, so the production path — Cloudflare Workers Builds — is
+  // unchanged.
+  //
+  // `services` is a NON-INHERITABLE key, so it must be re-declared here. The
+  // self-reference must point at `us-staging`; inheriting the top-level `us`
+  // would make staging issue its internal revalidation subrequests into
+  // production. Keep the two names in sync if the staging Worker is renamed.
+  //
+  // `main`, `assets`, `compatibility_date`, `compatibility_flags`, `workers_dev`
+  // and `observability` are inheritable and intentionally not duplicated.
+  // NOTE: if a top-level `route`/`routes` is ever added, this environment WILL
+  // inherit it — override it here, or split configs, before that happens.
+  "env": {
+    "staging": {
+      "name": "us-staging",
+      "services": [
+        {
+          "binding": "WORKER_SELF_REFERENCE",
+          "service": "us-staging"
+        }
+      ]
+    }
   }
   // NOTE: no R2/KV/D1/R2/images/queues/cron bindings — nothing in the current
   // app requires them. Default OpenNext caching is used (no R2 incremental
