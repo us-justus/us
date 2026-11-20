@@ -1,30 +1,61 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="560" viewBox="0 0 1100 560">
-<defs><marker id="a" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M1 1L9 5L1 9" fill="none" stroke="#34312f" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
-<rect width="1100" height="560" rx="24" fill="#fffdf9"/>
-<path d="M52 86Q50 72 68 72H1032Q1050 74 1048 92V472Q1046 489 1028 488H72Q52 486 52 468Z" fill="none" stroke="#e8ded5" stroke-width="2" stroke-dasharray="6 9"/>
-<g stroke="#34312f" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
-<path d="M95 207Q92 194 110 193H290Q308 195 307 213V315Q305 332 287 333H112Q94 331 95 314Z" fill="#fff0ed"/>
-<path d="M390 207Q387 194 405 193H610Q628 195 627 213V315Q625 332 607 333H407Q389 331 390 314Z" fill="#f2f0ff"/>
-<path d="M718 207Q715 194 733 193H963Q981 195 980 213V315Q978 332 960 333H735Q717 331 718 314Z" fill="#eaf7f0"/>
-<path d="M158 367Q156 354 173 353H278Q295 355 293 371V422Q291 436 275 436H175Q158 434 158 419Z" fill="#fff6df"/>
-<path d="M447 367Q445 354 462 353H557Q574 355 572 371V422Q570 436 554 436H464Q447 434 447 419Z" fill="#fff6df"/>
-<path d="M774 367Q772 354 789 353H884Q901 355 899 371V422Q897 436 881 436H791Q774 434 774 419Z" fill="#fff6df"/>
-<path d="M309 263C338 261 357 261 383 263" fill="none" marker-end="url(#a)"/>
-<path d="M629 263C662 261 684 261 711 263" fill="none" marker-end="url(#a)"/>
-<path d="M205 334C205 344 215 348 222 351" fill="none" marker-end="url(#a)"/>
-<path d="M508 334V350" fill="none" marker-end="url(#a)"/>
-<path d="M847 334C847 344 837 348 830 351" fill="none" marker-end="url(#a)"/>
-<path d="M294 394C345 394 384 394 439 394M573 394C641 394 701 394 765 394" fill="none" stroke-dasharray="5 7" marker-end="url(#a)"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="520" viewBox="0 0 1120 520" role="img" aria-labelledby="title desc">
+<title id="title">us system architecture</title>
+<desc id="desc">A student uses the web app in a browser. The Next.js application runs on Cloudflare Workers through OpenNext and connects to Supabase services: PostgreSQL, authentication and storage.</desc>
+<defs>
+  <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M2 2 L10 6 L2 10" fill="none" stroke="#f4e9df" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></marker>
+  <filter id="soft"><feGaussianBlur stdDeviation="18"/></filter>
+</defs>
+<!-- Dark canvas is intentional: it blends into GitHub dark mode and remains a contained dark diagram in light mode. -->
+<rect x="8" y="8" width="1104" height="504" rx="28" fill="#171615" stroke="#393330" stroke-width="2"/>
+<circle cx="160" cy="90" r="80" fill="#ff6666" opacity=".07" filter="url(#soft)"/>
+<circle cx="930" cy="420" r="100" fill="#8b80d8" opacity=".08" filter="url(#soft)"/>
+<g font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif">
+  <text x="54" y="58" fill="#ff9a91" font-size="13" font-weight="700" letter-spacing="3">US / UNDER THE HOOD</text>
+  <text x="54" y="88" fill="#fff8f1" font-size="23" font-weight="650">A small look at how the pieces connect</text>
+  <text x="1064" y="60" fill="#918780" font-size="12" text-anchor="end">SYSTEM ARCHITECTURE</text>
 </g>
-<g font-family="Arial,sans-serif" text-anchor="middle" fill="#292624">
-<text x="550" y="119" font-size="17" letter-spacing="3" fill="#9b716a">SYSTEM OVERVIEW</text>
-<text x="200" y="244" font-size="24" font-weight="bold">Student</text><text x="200" y="276" font-size="16" fill="#716761">Browser</text>
-<text x="508" y="244" font-size="24" font-weight="bold">Next.js app</text><text x="508" y="276" font-size="16" fill="#716761">Pages · UI · server routes</text>
-<text x="848" y="244" font-size="24" font-weight="bold">Supabase</text><text x="848" y="276" font-size="16" fill="#716761">Backend services</text>
-<text x="225" y="389" font-size="18" font-weight="bold">OpenNext</text><text x="225" y="414" font-size="14" fill="#716761">Build adapter</text>
-<text x="508" y="389" font-size="18" font-weight="bold">Cloudflare Workers</text><text x="508" y="414" font-size="14" fill="#716761">Application runtime</text>
-<text x="836" y="389" font-size="18" font-weight="bold">Data services</text><text x="836" y="414" font-size="14" fill="#716761">Postgres · Auth · Storage</text>
-<text x="550" y="520" font-size="14" fill="#9b716a">A simple view of how the pieces connect</text>
+<!-- Browser card: double-stroked imperfect outline -->
+<g stroke-linecap="round" stroke-linejoin="round">
+  <path d="M54 195 Q53 181 70 180 L260 181 Q276 182 276 199 L274 342 Q273 358 257 359 L72 357 Q55 356 55 340 Z" fill="#24201f" stroke="#f2d8ce" stroke-width="2.2"/>
+  <path d="M59 190 Q61 177 76 178 L264 180 Q280 181 279 198 L277 337" fill="none" stroke="#f2d8ce" stroke-width="1" opacity=".45"/>
+  <path d="M56 222 L275 222" stroke="#75645e" stroke-width="1.4"/>
+  <circle cx="76" cy="202" r="4" fill="#ff8178"/><circle cx="91" cy="202" r="4" fill="#e9bd73"/><circle cx="106" cy="202" r="4" fill="#84b99b"/>
+  <rect x="76" y="245" width="178" height="83" rx="12" fill="#302725" stroke="#80665f" stroke-width="1.3"/>
+  <text x="165" y="278" fill="#fff8f1" font-size="21" text-anchor="middle" font-weight="650">Student</text>
+  <text x="165" y="303" fill="#c7b8af" font-size="14" text-anchor="middle">Web browser</text>
+  <text x="165" y="389" fill="#c7b8af" font-size="13" text-anchor="middle">Visits the app</text>
+  <!-- Cloudflare / OpenNext runtime -->
+  <path d="M378 165 Q378 151 396 151 L690 153 Q708 154 708 171 L706 366 Q705 383 688 384 L397 382 Q379 381 379 364 Z" fill="#24201f" stroke="#f0a05f" stroke-width="2.4"/>
+  <path d="M384 171 Q386 157 401 158 L696 160" fill="none" stroke="#f0a05f" stroke-width="1" opacity=".5"/>
+  <rect x="402" y="184" width="282" height="54" rx="12" fill="#3a2922" stroke="#f0a05f" stroke-width="1.5"/>
+  <text x="543" y="207" fill="#ffc18e" font-size="12" text-anchor="middle" font-weight="700" letter-spacing="1.5">DEPLOYMENT RUNTIME</text>
+  <text x="543" y="227" fill="#fff4e9" font-size="18" text-anchor="middle" font-weight="650">Cloudflare Workers</text>
+  <rect x="423" y="259" width="240" height="81" rx="13" fill="#29243a" stroke="#a69ae8" stroke-width="1.6"/>
+  <text x="543" y="287" fill="#c5bafa" font-size="12" text-anchor="middle" font-weight="700" letter-spacing="1.2">OPENNEXT ADAPTER</text>
+  <text x="543" y="313" fill="#fff8f1" font-size="20" text-anchor="middle" font-weight="650">Next.js application</text>
+  <text x="543" y="330" fill="#c9c0d9" font-size="12" text-anchor="middle">Pages · UI · server routes</text>
+  <text x="543" y="413" fill="#c7b8af" font-size="13" text-anchor="middle">Next.js runs inside the Worker</text>
+  <!-- Supabase services -->
+  <path d="M810 195 Q808 181 825 180 L1045 181 Q1063 183 1062 199 L1060 342 Q1059 358 1042 359 L828 357 Q811 356 811 340 Z" fill="#202a25" stroke="#83c9a2" stroke-width="2.3"/>
+  <path d="M817 191 Q819 178 834 179 L1050 181" fill="none" stroke="#83c9a2" stroke-width="1" opacity=".5"/>
+  <text x="936" y="225" fill="#a8e4bf" font-size="12" text-anchor="middle" font-weight="700" letter-spacing="2">BACKEND SERVICES</text>
+  <text x="936" y="260" fill="#f4fff7" font-size="24" text-anchor="middle" font-weight="700">Supabase</text>
+  <g font-size="13" text-anchor="middle">
+    <rect x="833" y="283" width="88" height="37" rx="10" fill="#263d32" stroke="#609b78"/><text x="877" y="306" fill="#d8f4e2">Postgres</text>
+    <rect x="927" y="283" width="67" height="37" rx="10" fill="#263d32" stroke="#609b78"/><text x="960" y="306" fill="#d8f4e2">Auth</text>
+    <rect x="1000" y="283" width="48" height="37" rx="10" fill="#263d32" stroke="#609b78"/><text x="1024" y="306" fill="#d8f4e2">Files</text>
+  </g>
+  <text x="936" y="389" fill="#c7b8af" font-size="13" text-anchor="middle">Database · identity · media</text>
+  <!-- Hand-drawn arrows -->
+  <path d="M289 267 C318 263 342 264 367 267" fill="none" stroke="#f4e9df" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <path d="M718 267 C747 263 772 264 799 267" fill="none" stroke="#f4e9df" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <path d="M298 261 Q327 254 363 260" fill="none" stroke="#f4e9df" stroke-width=".8" opacity=".35"/>
+  <path d="M725 261 Q758 254 795 260" fill="none" stroke="#f4e9df" stroke-width=".8" opacity=".35"/>
 </g>
-<g stroke="#ff6666" stroke-width="2" fill="none" stroke-linecap="round"><path d="M450 145q55-8 111 0M790 296q55 8 111 0"/></g>
+<g font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif" fill="#a89b93" font-size="12">
+  <text x="327" y="242" text-anchor="middle">request</text>
+  <text x="760" y="242" text-anchor="middle">data access</text>
+  <text x="560" y="475" text-anchor="middle" fill="#e6b0a6" font-size="13">The app is deployed on Workers; Supabase provides its data and identity services.</text>
+</g>
+</g>
 </svg>
