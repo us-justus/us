@@ -14,7 +14,7 @@
 ---
 
 <p align="center">
-  <a href="#-the-idea">The idea</a> · <a href="#-the-experience">The experience</a> · <a href="#-whats-here-today">What's here</a> · <a href="#-technology">Technology</a> · <a href="#-get-started">Get started</a> · <a href="#-contributing">Contribute</a>
+  <a href="#-the-idea">The idea</a> · <a href="#-the-experience">The experience</a> · <a href="#-technology">Technology</a> · <a href="#-get-started">Get started</a> · <a href="#-contributing">Contribute</a>
 </p>
 
 ## ♡ The idea
@@ -40,33 +40,6 @@ The product is being built around one simple journey:
 <p align="center"><em>Discover someone. Feel a connection. See where it goes.</em></p>
 
 This is the intended product journey, not a list of features that are already live. Likes, matching and chat are not currently completed user-facing flows.
-
-## ✦ What's here today
-
-The current application focuses on getting the campus experience ready before launch.
-
-| Status | Area | What it includes |
-|:---:|---|---|
-| <img src="https://img.shields.io/badge/Implemented-2e9d70?style=flat" alt="Implemented"> | **Campus onboarding** | USN-based campus verification, email ownership verification, password setup and profile creation. |
-| <img src="https://img.shields.io/badge/Implemented-2e9d70?style=flat" alt="Implemented"> | **Profiles** | Editable username, nickname, age, branch, year, gender, bio, interests and profile photos. |
-| <img src="https://img.shields.io/badge/Implemented-2e9d70?style=flat" alt="Implemented"> | **Campus search** | Authenticated students can search active campus profiles by username. |
-| <img src="https://img.shields.io/badge/Implemented-2e9d70?style=flat" alt="Implemented"> | **Profile pages** | Personal profile and username-based campus profile pages. |
-| <img src="https://img.shields.io/badge/Implemented-2e9d70?style=flat" alt="Implemented"> | **Pre-launch home** | A waiting/launch experience with profile username, allocated spot and waitlist count where available. |
-| <img src="https://img.shields.io/badge/Implemented-2e9d70?style=flat" alt="Implemented"> | **Invitations** | Completed accounts can create and share invite links. |
-| <img src="https://img.shields.io/badge/Implemented-2e9d70?style=flat" alt="Implemented"> | **Account tools** | Account security, password management, sign-out and suspension status/appeal paths. |
-| <img src="https://img.shields.io/badge/Implemented-2e9d70?style=flat" alt="Implemented"> | **Feedback** | Authenticated students can submit feedback and view their own feedback history. |
-
-<details>
-<summary><strong>What's being worked towards?</strong> — The core product experience</summary>
-
-- Discover eligible students through profiles.
-- Like or pass on profiles.
-- Match when interest is mutual.
-- Start private conversations.
-
-These are product goals. They should not be assumed to be available in the current application.
-
-</details>
 
 ## ◇ Built around privacy
 
@@ -100,34 +73,14 @@ The stack is intentionally modern, with a focus on a maintainable application an
   <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white" alt="Node.js"></a>
 </p>
 
-| Layer | Tools |
-|---|---|
-| Framework | Next.js 16 · React 19 |
-| Language | TypeScript |
-| Styling | Tailwind CSS 4 |
-| Backend services | Supabase · PostgreSQL · Auth · Storage |
-| Supabase integration | <code>@supabase/ssr</code> · <code>@supabase/supabase-js</code> |
-| Deployment | Cloudflare Workers · OpenNext · Wrangler |
-| Additional UI libraries | Motion · Three.js |
-| Package manager | pnpm 11.21.0 |
-| Node.js runtime | 24.22.1 |
-
 ## ⌘ How it fits together
 
 Next.js powers the web experience and server-side application logic. Supabase provides the database, authentication and storage. OpenNext packages the application for deployment to Cloudflare Workers.
 
-~~~mermaid
-flowchart TD
-    A["Student"] --> B["Next.js application"]
-    B --> C["Pages and UI"]
-    B --> D["Server routes and logic"]
-    D --> E["Supabase"]
-    E --> F[("PostgreSQL")]
-    E --> G["Authentication"]
-    E --> H["Storage"]
-    B --> I["OpenNext"]
-    I --> J["Cloudflare Workers"]
-~~~
+<p align="center">
+  <img src="docs/architecture.svg" alt="Hand-drawn architecture diagram showing the student browser, Next.js application, OpenNext, Cloudflare Workers and Supabase services" width="100%">
+</p>
+
 
 ### Repository map
 
