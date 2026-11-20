@@ -5,7 +5,7 @@
   "license": "MIT",
   "packageManager": "pnpm@11.21.0",
   "engines": {
-    "node": ">=24.7.0"
+    "node": "24.22.1"
   },
   "scripts": {
     "dev": "next dev",
@@ -18,7 +18,7 @@
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "upload": "opennextjs-cloudflare build && opennextjs-cloudflare upload",
     "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
-    "release:build": "pnpm install --frozen-lockfile && pnpm test:inside && pnpm exec tsc --noEmit && pnpm lint && opennextjs-cloudflare build",
+    "release:build": "pnpm install --frozen-lockfile && pnpm test:inside && pnpm exec next typegen && pnpm exec tsc --noEmit && pnpm lint && opennextjs-cloudflare build",
     "release:upload": "opennextjs-cloudflare build && opennextjs-cloudflare upload",
     "release:smoke": "node scripts/smoke-prod.mjs",
     "release:rollback": "pnpm exec wrangler versions list && printf '\\nManual rollback ONLY - this script changes nothing.\\n1. Pick the last known-good version ID above.\\n2. Run: pnpm exec wrangler rollback <version-id> -m \"<reason>\"\\n3. Re-run: pnpm release:smoke\\nNote: rollback restores code, not secret values (see spec.md 12.1).\\n'"
@@ -44,6 +44,6 @@
     "supabase": "^2.119.0",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "wrangler": "4.147.0"
+    "wrangler": "4.165.0"
   }
 }
