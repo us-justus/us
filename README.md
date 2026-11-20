@@ -78,11 +78,7 @@ The stack is intentionally modern, with a focus on a maintainable application an
 Next.js powers the web experience and server-side application logic. Supabase provides the database, authentication and storage. OpenNext packages the application for deployment to Cloudflare Workers.
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/architecture-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="docs/architecture-light.svg">
-    <img src="docs/architecture-dark.svg" alt="Architecture: student browser to Next.js on Cloudflare Workers through OpenNext, connected to Supabase Postgres, Auth and Storage" width="100%">
-  </picture>
+  <img src="docs/architecture-dark.svg" alt="Architecture: student browser to Next.js on Cloudflare Workers through OpenNext, connected to Supabase Postgres, Auth and Storage" width="100%">
 </p>
 
 
