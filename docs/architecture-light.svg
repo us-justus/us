@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="520" viewBox="0 0 1120 520" role="img" aria-labelledby="title desc">
+<title id="title">us system architecture — light</title><desc id="desc">Student browser connects to the Next.js application deployed on Cloudflare Workers through OpenNext. The application connects to Supabase for PostgreSQL, authentication and storage.</desc>
+<defs><marker id="arr" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M2 2L10 6L2 10" fill="none" stroke="#4b413b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<rect x="8" y="8" width="1104" height="504" rx="28" fill="#fffdf9" stroke="#e6d9d0" stroke-width="2"/>
+<circle cx="145" cy="85" r="80" fill="#ff6666" opacity=".09"/><circle cx="970" cy="430" r="95" fill="#8b80d8" opacity=".10"/>
+<g font-family="Arial, sans-serif">
+<text x="52" y="55" fill="#d6535a" font-size="13" font-weight="bold" letter-spacing="3">US / UNDER THE HOOD</text><text x="52" y="88" fill="#292624" font-size="23" font-weight="bold">A look at how the pieces connect</text><text x="1065" y="58" fill="#786d66" font-size="12" text-anchor="end">SYSTEM ARCHITECTURE</text>
+<g stroke-linecap="round" stroke-linejoin="round">
+<path d="M54 195Q53 181 70 180L260 181Q276 182 276 199L274 342Q273 358 257 359L72 357Q55 356 55 340Z" fill="#fff3ef" stroke="#b98278" stroke-width="2.2"/>
+<path d="M56 222H275" stroke="#e0c9c1" stroke-width="1.4"/><circle cx="76" cy="202" r="4" fill="#ff8178"/><circle cx="91" cy="202" r="4" fill="#b98737"/><circle cx="106" cy="202" r="4" fill="#4c9870"/>
+<rect x="76" y="245" width="178" height="83" rx="12" fill="#ffffff" stroke="#d8b9ae" stroke-width="1.3"/>
+<path d="M378 165Q378 151 396 151L690 153Q708 154 708 171L706 366Q705 383 688 384L397 382Q379 381 379 364Z" fill="#292624" stroke="#cf8a50" stroke-width="2.4"/>
+<rect x="402" y="184" width="282" height="54" rx="12" fill="#fff0e2" stroke="#cf8a50" stroke-width="1.5"/>
+<rect x="423" y="259" width="240" height="81" rx="13" fill="#f2f0ff" stroke="#9a8bd4" stroke-width="1.6"/>
+<path d="M810 195Q808 181 825 180L1045 181Q1063 183 1062 199L1060 342Q1059 358 1042 359L828 357Q811 356 811 340Z" fill="#effaf3" stroke="#70aa88" stroke-width="2.3"/>
+<rect x="833" y="283" width="88" height="37" rx="10" fill="#e1f3e7" stroke="#8bb99a"/><rect x="927" y="283" width="67" height="37" rx="10" fill="#263d32" stroke="#609b78"/><rect x="1000" y="283" width="48" height="37" rx="10" fill="#263d32" stroke="#609b78"/>
+<path d="M289 267C318 263 342 264 367 267M718 267C747 263 772 264 799 267" fill="none" stroke="#4b413b" stroke-width="2.5" marker-end="url(#arr)"/>
+</g>
+<g text-anchor="middle">
+<text x="165" y="278" fill="#292624" font-size="21" font-weight="bold">Student</text><text x="165" y="303" fill="#786d66" font-size="14">Web browser</text><text x="165" y="389" fill="#786d66" font-size="13">Visits the app</text>
+<text x="543" y="207" fill="#9a5a27" font-size="12" font-weight="bold" letter-spacing="1.5">DEPLOYMENT RUNTIME</text><text x="543" y="227" fill="#352b25" font-size="18" font-weight="bold">Cloudflare Workers</text>
+<text x="543" y="287" fill="#6957a8" font-size="12" font-weight="bold" letter-spacing="1.2">OPENNEXT ADAPTER</text><text x="543" y="313" fill="#292624" font-size="20" font-weight="bold">Next.js application</text><text x="543" y="330" fill="#6e6681" font-size="12">Pages · UI · server routes</text><text x="543" y="413" fill="#786d66" font-size="13">Next.js runs inside the Worker</text>
+<text x="936" y="225" fill="#397a52" font-size="12" font-weight="bold" letter-spacing="2">BACKEND SERVICES</text><text x="936" y="260" fill="#233c2d" font-size="24" font-weight="bold">Supabase</text>
+<text x="877" y="306" fill="#315a40" font-size="13">Postgres</text><text x="960" y="306" fill="#315a40" font-size="13">Auth</text><text x="1024" y="306" fill="#315a40" font-size="13">Files</text><text x="936" y="389" fill="#786d66" font-size="13">Database · identity · media</text>
+</g>
+<g font-size="12" fill="#786d66"><text x="327" y="242" text-anchor="middle">request</text><text x="760" y="242" text-anchor="middle">data access</text></g>
+<text x="560" y="475" font-size="13" text-anchor="middle" fill="#9b6259">The app runs on Workers; Supabase provides its data and identity services.</text>
+</g></svg>
