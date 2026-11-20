@@ -1,39 +1,26 @@
 # Code of Conduct
 
-> *a safe, warm, and respectful space for us.*
+We expect everyone participating in this project to treat others with respect and to help maintain a professional, inclusive environment.
 
-## Our Pledge
+## Expected behaviour
 
-In the interest of fostering an open, warm, and welcoming community, we as contributors and maintainers pledge to make participation in `us` a harassment-free and positive experience for everyone, regardless of age, body size, visible or invisible disability, ethnicity, sex characteristics, gender identity and expression, level of experience, education, socio-economic status, nationality, personal appearance, race, religion, or sexual identity and orientation.
+- Be respectful and considerate in discussions and reviews.
+- Give and accept constructive feedback.
+- Respect the privacy and personal information of users and contributors.
+- Keep project discussions relevant and professional.
 
-We are committed to building a space that feels **intimate, safe, and private**—both for the students who use the application and for the developers who build it.
+## Unacceptable behaviour
 
----
+- Harassment, discrimination, threats, or personal attacks.
+- Publishing private or identifying information without permission.
+- Sharing credentials, private messages, or user data.
+- Spam, abusive language, or deliberately disruptive behaviour.
 
-## Our Standards
+## Reporting
 
-Examples of behavior that contributes to creating a positive environment include:
+Report concerns privately to the project maintainers through GitHub. Do not post sensitive information in public issues or discussions.
 
-* **Empathy & Kindness:** Treating peers, collaborators, and users with deep respect, warmth, and understanding.
-* **Privacy by Default:** Holding student data in absolute confidence. Never leaking, sharing, or logging identifying info (such as USNs, emails, or chat logs).
-* **Graceful Collaboration:** Accepting constructive feedback with humility and treating others' ideas with care.
-* **Inclusivity:** Ensuring the campus community feels accessible and welcoming to all students.
+## Enforcement
 
-Examples of unacceptable behavior include:
+Project maintainers are responsible for reviewing reports and addressing violations. They may remove content, restrict participation, or take other action appropriate to the circumstances.
 
-* **Harassment & Bullying:** The use of sexualized language or imagery, unwelcome sexual attention or advances, or trolling/insulting comments.
-* **Doxxing & Outing:** Publishing others' private information, such as email addresses, USNs, physical locations, or chat messages, without explicit permission.
-* **Exclusionary Behavior:** Designing features or contributing code intended to exclude, marginalize, or target specific groups within the campus community.
-* **Unsolicited Solicitation:** Using the platform or contribution channels for spamming, corporate marketing, or financial gain.
-
----
-
-## Enforcement & Reporting
-
-Project maintainers are responsible for clarifying the standards of acceptable behavior and are expected to take appropriate and fair corrective action in response to any instances of unacceptable behavior.
-
-If you experience or witness behavior that violates this Code of Conduct, please report it immediately to the project organizers (or via the `/inside` support channels). All reports will be reviewed and investigated with complete discretion and confidentiality. Maintainers who do not follow or enforce the Code of Conduct in good faith may face temporary or permanent repercussions as determined by other members of the project's leadership.
-
----
-
-> *just us.*
