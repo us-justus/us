@@ -296,7 +296,6 @@ Please don't commit credentials, environment files, generated build output or lo
 
 <p align="center">
   <a href="spec.md"><img src="https://img.shields.io/badge/Product_Specification-171615?style=flat-square" alt="Product specification"></a>
-  <a href="PRE_LAUNCH_CHECKLIST.md"><img src="https://img.shields.io/badge/Pre--launch_Checklist-ff6666?style=flat-square" alt="Pre-launch checklist"></a>
   <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/Contribution_Guide-555555?style=flat-square" alt="Contribution guide"></a>
   <a href="https://github.com/us-justus/us/issues"><img src="https://img.shields.io/badge/Issues-181717?style=flat-square&logo=github" alt="Issues"></a>
   <a href="https://github.com/us-justus/us/pulls"><img src="https://img.shields.io/badge/Pull_Requests-181717?style=flat-square&logo=github" alt="Pull requests"></a>
