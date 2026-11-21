@@ -2,6 +2,13 @@ import { createClient } from "@/lib/supabase/server";
 import { requireInsideAdmin } from "@/lib/inside/auth";
 import { InsideClient } from "./inside-client";
 
+// Request-scoped: reads the inside_admin cookie and the live Supabase session.
+// Force dynamic so a build without ADMIN_SECRET_KEY cannot statically
+// prerender the login screen — that static page fails with the generic
+// Server Components 500 on the Cloudflare Worker. Matches every other
+// request-dependent page in src/app.
+export const dynamic = "force-dynamic";
+
 /**
  * /inside — internal admin entry (INSIDE v1). Never linked from product UI.
  *
