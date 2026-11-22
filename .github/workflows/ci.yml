@@ -247,6 +247,9 @@ jobs:
       - name: Generate Next.js route types
         run: pnpm exec next typegen
 
+      - name: Check workflow action pins
+        run: node scripts/check-workflow-pins.mjs
+
       - name: TypeScript
         run: pnpm exec tsc --noEmit
 
