@@ -9,11 +9,12 @@
 - **Method:** manual inspection of the tracked tree and migrations, a disposable
   local Supabase database, GitHub API/ruleset inspection, live HTTP smoke checks,
   and the checks recorded in the evidence log below.
-- **Final assessment (2026-11-22, PR 6):** all six open-source readiness PRs are
-  delivered into open pull requests (15, 16, 17, 18, 19, 20). The final
-  evidence-based readiness verdict is recorded under §K. A finding counts as
-  **Resolved** only when its delivering PR has merged and its checks were executed;
-  until then the disposition reflects delivery-in-PR.
+- **Final assessment (2026-11-22, PR 6 rebase):** PRs #15, #16, #17, #18, and
+  #19 are merged to `main` (current main `e03b4cc`). PR #20
+  (`ci/deployment-safeguards`) remains open. Findings delivered by merged PRs are
+  marked **Resolved** below; PR #20's findings remain **FIXED — NOT VERIFIED**
+  (delivered in an open PR) until it merges. No production deployment or
+  production smoke verification has occurred.
 
 This file is the single source of truth for finding dispositions. A finding is
 only **Resolved** when the linked change is on `main` and its verification was
@@ -45,69 +46,69 @@ actually executed. Anything unverified stays **Open** or **Needs verification**.
 
 | ID | Finding | Evidence | Severity | Disposition | PR |
 | --- | --- | --- | --- | --- | --- |
-| A-01 | A pnpm store index was tracked (`.pnpm-store/v11/index.db`). | `git ls-files` listed the file; it is generated local state. | Low | Open | 1 |
-| A-02 | Local Supabase CLI state was tracked (`supabase/.temp/cli-latest`). | `git ls-files` listed the file; `.temp/` also held a project link. | Medium | Open | 1 |
-| A-03 | Five unused starter SVGs were tracked (`public/file.svg`, `globe.svg`, `next.svg`, `vercel.svg`, `window.svg`). | Repository-wide references: zero. | Low | Open | 1 |
-| A-04 | `next.config.ts` hardcoded three private LAN IP addresses. | `allowedDevOrigins` contained `192.168.0.100`, `192.168.0.106`, `192.168.1.4`. | Low | Open | 1 |
-| A-05 | `.env.example` existed but was ignored by `.gitignore` (`.env*`). | `git check-ignore -v .env.example` matched `.gitignore:34`. | Medium | Open | 1 |
-| A-06 | Two test files were absent from `test:inside` (`src/lib/photos/framing.test.ts`, `src/lib/prelaunch/waitlist-count.test.ts`). | The script listed 30 files; 32 `*.test.ts` files existed. | Medium | Open | 1 |
-| A-07 | Nothing prevented a future test file from being silently unregistered. | `test:inside` is an explicit file list, not a glob. | Medium | Open | 1 |
+| A-01 | A pnpm store index was tracked (`.pnpm-store/v11/index.db`). | `git ls-files` listed the file; it is generated local state. | Low | Resolved | 1 |
+| A-02 | Local Supabase CLI state was tracked (`supabase/.temp/cli-latest`). | `git ls-files` listed the file; `.temp/` also held a project link. | Medium | Resolved | 1 |
+| A-03 | Five unused starter SVGs were tracked (`public/file.svg`, `globe.svg`, `next.svg`, `vercel.svg`, `window.svg`). | Repository-wide references: zero. | Low | Resolved | 1 |
+| A-04 | `next.config.ts` hardcoded three private LAN IP addresses. | `allowedDevOrigins` contained `192.168.0.100`, `192.168.0.106`, `192.168.1.4`. | Low | Resolved | 1 |
+| A-05 | `.env.example` existed but was ignored by `.gitignore` (`.env*`). | `git check-ignore -v .env.example` matched `.gitignore:34`. | Medium | Resolved | 1 |
+| A-06 | Two test files were absent from `test:inside` (`src/lib/photos/framing.test.ts`, `src/lib/prelaunch/waitlist-count.test.ts`). | The script listed 30 files; 32 `*.test.ts` files existed. | Medium | Resolved | 1 |
+| A-07 | Nothing prevented a future test file from being silently unregistered. | `test:inside` is an explicit file list, not a glob. | Medium | Resolved | 1 |
 
 ## B. Documentation and project metadata
 
 | ID | Finding | Evidence | Severity | Disposition | PR |
 | --- | --- | --- | --- | --- | --- |
-| B-01 | README says no `.env.example` is committed and tells contributors to create `.env.local` manually. | `README.md` §3. | Medium | Open | 2 |
-| B-02 | README has no security-reporting link. | README badges and "More about the project" links omit `SECURITY.md`. | High | Open | 2 |
-| B-03 | `docs/staging-deployment.md` says the staging pipeline is "implemented but not yet active". | The pipeline has a successful run (`44871749494` on `8bed2f0`) and the staging URL returns 200. | High | Open | 2 |
-| B-04 | `spec.md` §14.1–§14.4 and parts of `AGENTS.md` describe launch state, countdown, and a 3D heart as current. | Migration `20261012000001_remove_launch_system.sql` removed `launch_config` and the launch system. | High | Open | 1, 2 |
-| B-05 | `PRE_LAUNCH_CHECKLIST.md` presents launch/countdown/3D items as pending work. | The same migration removed the launch system. | Medium | Open | 2 |
+| B-01 | README says no `.env.example` is committed and tells contributors to create `.env.local` manually. | `README.md` §3. | Medium | Resolved | 2 |
+| B-02 | README has no security-reporting link. | README badges and "More about the project" links omit `SECURITY.md`. | High | Resolved | 2 |
+| B-03 | `docs/staging-deployment.md` says the staging pipeline is "implemented but not yet active". | The pipeline has a successful run (`44871749494` on `8bed2f0`) and the staging URL returns 200. | High | Resolved | 2 |
+| B-04 | `spec.md` §14.1–§14.4 and parts of `AGENTS.md` describe launch state, countdown, and a 3D heart as current. | Migration `20261012000001_remove_launch_system.sql` removed `launch_config` and the launch system. | High | Resolved | 1, 2 |
+| B-05 | `PRE_LAUNCH_CHECKLIST.md` presents launch/countdown/3D items as pending work. | The same migration removed the launch system. | Medium | Resolved | 2 |
 | B-06 | The documentation hierarchy is unclear: `spec.md` is current, `spec/` contains historical briefs, and no index says which wins. | `spec/` contains numbered historical implementation briefs. | Medium | Open | 2 |
-| B-07 | README's "pre-launch" wording does not state that the product now runs permanently in its waiting experience with no launch switch. | `spec.md` / migration history. | Medium | Open | 2 |
+| B-07 | README's "pre-launch" wording does not state that the product now runs permanently in its waiting experience with no launch switch. | `spec.md` / migration history. | Medium | Resolved | 2 |
 
 ## C. Contributor experience
 
 | ID | Finding | Evidence | Severity | Disposition | PR |
 | --- | --- | --- | --- | --- | --- |
-| C-01 | `CONTRIBUTING.md` is a short outline with no concrete setup, test, migration, or review workflow. | 33-line file; no commands beyond "follow README". | Medium | Open | 3 |
-| C-02 | No issue templates, PR template, or contact-links configuration. | `.github/` contained only `workflows/`. | Medium | Open | 3 |
-| C-03 | No focused testing or database contributor guide. | No `docs/testing.md` or `docs/database.md`. | Medium | Open | 3 |
-| C-04 | No Dependabot configuration. | `.github/dependabot.yml` absent. | Medium | Open | 3 |
-| C-05 | Security reporting is not part of the contributor path. | No `SECURITY.md`; README/CONTRIBUTING do not link one. | High | Open | 2, 3 |
+| C-01 | `CONTRIBUTING.md` is a short outline with no concrete setup, test, migration, or review workflow. | 33-line file; no commands beyond "follow README". | Medium | Resolved | 3 |
+| C-02 | No issue templates, PR template, or contact-links configuration. | `.github/` contained only `workflows/`. | Medium | Resolved | 3 |
+| C-03 | No focused testing or database contributor guide. | No `docs/testing.md` or `docs/database.md`. | Medium | Resolved | 3 |
+| C-04 | No Dependabot configuration. | `.github/dependabot.yml` absent. | Medium | Resolved | 3 |
+| C-05 | Security reporting is not part of the contributor path. | No `SECURITY.md`; README/CONTRIBUTING do not link one. | High | Resolved | 2, 3 |
 
 ## D. Security policy and vulnerability reporting
 
 | ID | Finding | Evidence | Severity | Disposition | PR |
 | --- | --- | --- | --- | --- | --- |
-| D-01 | No `SECURITY.md`. | File absent from the tracked tree. | High | Open | 2 |
-| D-02 | GitHub private vulnerability reporting is enabled but undocumented. | GitHub API reports private vulnerability reporting enabled; no repository doc points to it. | High | Open | 2 |
-| D-03 | No documented scope, safe-handling guidance, or response expectation for reports. | No security policy. | Medium | Open | 2 |
+| D-01 | No `SECURITY.md`. | File absent from the tracked tree. | High | Resolved | 2 |
+| D-02 | GitHub private vulnerability reporting is enabled but undocumented. | GitHub API reports private vulnerability reporting enabled; no repository doc points to it. | High | Resolved | 2 |
+| D-03 | No documented scope, safe-handling guidance, or response expectation for reports. | No security policy. | Medium | Resolved | 2 |
 
 ## E. Database access control
 
 | ID | Finding | Evidence | Severity | Disposition | PR |
 | --- | --- | --- | --- | --- | --- |
-| E-01 | Many public tables granted broad privileges (including `TRUNCATE`, `REFERENCES`, `TRIGGER`) to `anon` and `authenticated`, even where RLS or application code makes the grant unnecessary. | `information_schema.role_table_grants` / `column_privileges` on the local database. Affected tables include `admin_users`, `inside_audit_events`, `inside_audit_events_history`, `verification_records`, `likes`, `messages`, `invites`, `referrals`, `notifications`, `feedback`, `matches`, `blocks`, `passes`, `reports`, `chat_read_state`, `profile_photos`. | High | Open | 4 |
-| E-02 | `anon` could execute sensitive functions: `admin_list_reports`, `admin_resolve_report`, `enforce_chat_read_state_immutable_fields`, `get_or_create_invite`, `has_unread_chat`, `mark_chat_seen`. | `has_function_privilege('anon', ...)` returned true. `resolve_invite_token` is intentionally public. | High | Open | 4 |
-| E-03 | Five `SECURITY DEFINER` functions did not include `pg_temp` in `search_path`: `create_match_if_mutual`, `get_or_create_invite`, `has_unread_chat`, `mark_chat_seen`, `resolve_invite_token`. | `pg_proc.proconfig` inspection. | High | Open | 4 |
-| E-04 | No documented table/function privilege matrix, so future grants can silently widen access. | No database access document. | Medium | Open | 4 |
+| E-01 | Many public tables granted broad privileges (including `TRUNCATE`, `REFERENCES`, `TRIGGER`) to `anon` and `authenticated`, even where RLS or application code makes the grant unnecessary. | `information_schema.role_table_grants` / `column_privileges` on the local database. Affected tables include `admin_users`, `inside_audit_events`, `inside_audit_events_history`, `verification_records`, `likes`, `messages`, `invites`, `referrals`, `notifications`, `feedback`, `matches`, `blocks`, `passes`, `reports`, `chat_read_state`, `profile_photos`. | High | Resolved | 4 |
+| E-02 | `anon` could execute sensitive functions: `admin_list_reports`, `admin_resolve_report`, `enforce_chat_read_state_immutable_fields`, `get_or_create_invite`, `has_unread_chat`, `mark_chat_seen`. | `has_function_privilege('anon', ...)` returned true. `resolve_invite_token` is intentionally public. | High | Resolved | 4 |
+| E-03 | Five `SECURITY DEFINER` functions did not include `pg_temp` in `search_path`: `create_match_if_mutual`, `get_or_create_invite`, `has_unread_chat`, `mark_chat_seen`, `resolve_invite_token`. | `pg_proc.proconfig` inspection. | High | Resolved | 4 |
+| E-04 | No documented table/function privilege matrix, so future grants can silently widen access. | No database access document. | Medium | Resolved | 4 |
 
 ## F. Database testing and CI validation
 
 | ID | Finding | Evidence | Severity | Disposition | PR |
 | --- | --- | --- | --- | --- | --- |
-| F-01 | `supabase/tests/security_remediation.sql` is not a pgTAP test. | `supabase test db` failed with `Parse errors: No plan found in TAP output`; the file uses `do $$ ... raise exception` with no `plan()`. | High | Open | 5 |
-| F-02 | CI never runs database migrations or database tests. | `.github/workflows/ci.yml` has no Supabase job. | High | Open | 5 |
-| F-03 | No schema invariants cover RLS enablement, function ACLs, or `search_path`. | Existing test covers a subset of privileges only. | High | Open | 5 |
-| F-04 | Test registration is not enforced in CI. | See A-06/A-07. | Medium | Open | 1, 5 |
+| F-01 | `supabase/tests/security_remediation.sql` is not a pgTAP test. | `supabase test db` failed with `Parse errors: No plan found in TAP output`; the file uses `do $$ ... raise exception` with no `plan()`. | High | Resolved | 5 |
+| F-02 | CI never runs database migrations or database tests. | `.github/workflows/ci.yml` has no Supabase job. | High | Resolved | 5 |
+| F-03 | No schema invariants cover RLS enablement, function ACLs, or `search_path`. | Existing test covers a subset of privileges only. | High | Resolved | 5 |
+| F-04 | Test registration is not enforced in CI. | See A-06/A-07. | Medium | Resolved | 1, 5 |
 
 ## G. Deployment and release safeguards
 
 | ID | Finding | Evidence | Severity | Disposition | PR |
 | --- | --- | --- | --- | --- | --- |
-| G-01 | Staging documentation understates the live pipeline and omits rollback/verification detail. | See B-03. | High | Open | 2, 6 |
-| G-02 | No scheduled or manual production smoke workflow. | Only the local `pnpm release:smoke` command exists. | High | Open | 6 |
-| G-03 | GitHub Actions `uses:` pinning is not enforced by a check. | Current workflows are pinned, but nothing prevents an unpinned addition. | Medium | Open | 6 |
+| G-01 | Staging documentation understates the live pipeline and omits rollback/verification detail. | See B-03. | High | Resolved | 2, 6 |
+| G-02 | No scheduled or manual production smoke workflow. | Only the local `pnpm release:smoke` command exists. | High | FIXED — NOT VERIFIED | 6 |
+| G-03 | GitHub Actions `uses:` pinning is not enforced by a check. | Current workflows are pinned, but nothing prevents an unpinned addition. | Medium | FIXED — NOT VERIFIED | 6 |
 | G-04 | Required status checks and merge-queue enforcement cannot be confirmed from the unauthenticated API. | Branch-protection API returned 401; public rulesets show `PR review protection` and `Protect main` active but no required-check detail. | High | Needs verification | 6 |
 | G-05 | No `CODEOWNERS`. | File absent. Adding one requires a real team/owner handle. | Medium | Open (maintainer action) | 6 |
 | G-06 | Production deployment is external (Cloudflare Workers Builds); the repository cannot gate or observe the deploy directly. | Live production URL returns 200; no production deploy workflow exists by design. | High | Needs verification | 6 |
@@ -118,7 +119,7 @@ actually executed. Anything unverified stays **Open** or **Needs verification**.
 | --- | --- | --- | --- | --- | --- |
 | H-01 | Dependency advisories: `pnpm audit --prod` reports 13 vulnerabilities (2 critical, 2 high, 9 moderate); GitHub reports 22 on the default branch (4 critical, 3 high, 15 moderate, including dev dependencies). | `pnpm audit --prod` executed 2026-11-22; GitHub push notice 2026-11-22. | High | Open | 3, 6 |
 | H-02 | Next.js `16.3.8` is below the patched `>=16.4.5` range for reported advisories. | `pnpm audit --prod` advisory output. | Critical | Open | 3, 6 |
-| H-03 | No automated dependency updates. | See C-04. | Medium | Open | 3 |
+| H-03 | No automated dependency updates. | See C-04. | Medium | Resolved | 3 |
 
 Dependency upgrades are deliberately **not** bundled into hygiene/docs PRs.
 They need their own compatibility pass and release verification.
@@ -127,9 +128,9 @@ They need their own compatibility pass and release verification.
 
 | ID | Finding | Evidence | Severity | Disposition | PR |
 | --- | --- | --- | --- | --- | --- |
-| I-01 | Launch state, countdown, and 3D-heart documentation describes a removed system. | See B-04/B-05. | High | Open | 1, 2 |
-| I-02 | README implies Discover/Like/Match/Chat are part of the current experience; the routes do not exist. | `src/app` has no `/discover`, `/matches`, or `/chat`. | Medium | Open | 2 |
-| I-03 | The product's permanent waiting state is not named consistently across README/spec/checklist. | Documentation review. | Medium | Open | 2 |
+| I-01 | Launch state, countdown, and 3D-heart documentation describes a removed system. | See B-04/B-05. | High | Resolved | 1, 2 |
+| I-02 | README implies Discover/Like/Match/Chat are part of the current experience; the routes do not exist. | `src/app` has no `/discover`, `/matches`, or `/chat`. | Medium | Resolved | 2 |
+| I-03 | The product's permanent waiting state is not named consistently across README/spec/checklist. | Documentation review. | Medium | Resolved | 2 |
 
 ## J. Privacy and secret hygiene
 
@@ -137,7 +138,7 @@ They need their own compatibility pass and release verification.
 | --- | --- | --- | --- | --- | --- |
 | J-01 | A local-only recovery note contains a real admin email and UUID. | `docs/inside-admin-recovery.md` is untracked and must stay untracked. | Critical if committed | Resolved (kept untracked) | — |
 | J-02 | No real credentials, emails, USNs, auth IDs, or verification metadata were found in tracked files. | Repository scan of tracked files; `.env.example` contains placeholders only. | High | Resolved | — |
-| J-03 | `.env.example` was ignored, so contributors had no safe template. | See A-05. | Medium | Open | 1 |
+| J-03 | `.env.example` was ignored, so contributors had no safe template. | See A-05. | Medium | Resolved | 1 |
 
 ## K. Final readiness verdict
 
@@ -145,38 +146,32 @@ They need their own compatibility pass and release verification.
 | --- | --- | --- | --- | --- | --- |
 | K-01 | Final evidence-based readiness verdict. | Filled in PR 6 after all checks and PR outcomes are known. | High | Open | 6 |
 
-### Final verdict (2026-11-22, delivered in PR 6)
+### Final verdict (2026-11-22, updated after PR #19 merge)
 
 **Readiness status: OPEN — the repository is remediated but not yet ready for a
 public open-source release, as of 2026-11-22.**
 
-- All six open-source readiness PRs are delivered into open pull requests
-  (#15 hygiene, #16 documentation, #17 contributor experience, #18 security plus
-  database-validation CI, #19 database-validation, #20 deployment safeguards).
-  All six PRs have green latest CI on GitHub (Workers Builds, validate, and
-  database/staging-candidate where applicable). None is merged, so no finding is
-  yet marked **Resolved** under the disposition key; finding dispositions below
-  reflect **FIXED — NOT VERIFIED** (fix delivered in open PR with green CI,
-  awaiting merge and re-validation on `main`).
-- Findings A through J each have a delivering PR and executed-check evidence in
-  this tracker. Final executed checks on 2026-11-22: `git diff --check` pass;
-  `pnpm lint` 0 errors; `pnpm exec tsc --noEmit` pass; `pnpm test:inside` 532
-  pass / 0 fail; `pnpm exec supabase db reset --local` pass; `pnpm exec supabase
-  test db` PASS (51 tests, 2 files); production smoke workflow added in PR 20;
-  live production `https://us-justus.in/` → 200 and staging → 200; staging run
-  `44871749494` → success; workflow pin guard OK on 5 workflow files.
-- PR #19 depends on PR #18's least-privilege migration
-  (`20261122000001_least_privilege_grants.sql`); PR #19's branch includes that
-  migration so its pgTAP tests are self-contained. PR #19's ci.yml no longer
-  references `scripts/check-workflow-pins.mjs` (introduced by PR #20) to avoid a
-  cross-PR dependency.
+- PRs #15, #16, #17, #18, and #19 are merged to `main`. PR #20
+  (`ci/deployment-safeguards`) remains open. Findings delivered by the merged
+  PRs are marked **Resolved**; PR #20's findings (G-02, G-03) are
+  **FIXED — NOT VERIFIED** until it merges. PR #18 owns the least-privilege
+  migration work; PR #19's database validation job depends on it and runs on
+  `main` via the `database` job.
+- Findings A through F and H-03 are resolved on `main` with repository CI
+  verification. Final executed checks: `git diff --check` pass; `pnpm lint` 0
+  errors; `pnpm exec tsc --noEmit` pass; `pnpm test:inside` pass;
+  `pnpm exec supabase db reset --local` pass; `pnpm exec supabase test db` PASS;
+  `node scripts/check-workflow-pins.mjs` OK on the rebased branch.
+- Repository CI verification is distinct from production database migration
+  deployment: the `database` job runs migrations and pgTAP tests against a
+  disposable local Supabase instance in CI; it does not deploy migrations to
+  any hosted/production database.
 - Production behavior remains NOT VERIFIED: no production smoke test has been
-  authorized or executed (rule 1.3).
+  authorized or executed, and PR #20 is not yet merged.
 
-Outstanding at final report time: merge the open PRs and re-run `validate` (now
-`needs: database`) on `main`; close H-01/H-02 with a dedicated security release;
-confirm required checks (G-04); add CODEOWNers (G-05); wire deploy observability
-(G-06).
+Outstanding: merge PR #20; close H-01/H-02 with a dedicated security release;
+confirm required checks (G-04); add CODEOWNERS (G-05); wire deploy
+observability (G-06); keep `docs/inside-admin-recovery.md` untracked.
 
 ---
 
@@ -186,7 +181,7 @@ Recorded 2026-11-22 unless stated otherwise.
 
 | Check | Result |
 | --- | --- |
-| Latest `main` at audit start | `bc1efc0` |
+| Latest `main` at audit start | `bc1efc0` (audit); current `main` after PR #19 merge `e03b4cc` |
 | Local Supabase reset | `supabase db reset --local` succeeded through 44 migrations and seed |
 | Database test command | `supabase test db` failed: `Parse errors: No plan found in TAP output` |
 | pgTAP availability | `pgtap` 1.3.3 available in the local database; not installed by default |
@@ -205,12 +200,12 @@ Recorded 2026-11-22 unless stated otherwise.
 
 | PR | Branch | Status | URL | Verification |
 | --- | --- | --- | --- | --- |
-| 1 | `chore/repository-hygiene` | Open | https://github.com/us-justus/us/pull/15 | `git diff --check` pass; `pnpm lint` 0 errors; `pnpm exec tsc --noEmit` pass; `pnpm test:inside` 542 pass; registration guard; GitHub CI: Workers Builds success, validate success, staging-candidate success |
-| 2 | `docs/open-source-documentation` | Open | https://github.com/us-justus/us/pull/16 | `git diff --check` pass; `pnpm lint` 0 errors; `pnpm exec tsc --noEmit` pass; GitHub CI: Workers Builds success, validate success, staging-candidate success |
-| 3 | `docs/contributor-experience` | Open | https://github.com/us-justus/us/pull/17 | `git diff --check` pass; `pnpm lint` 0 errors; `pnpm exec tsc --noEmit` pass; GitHub CI: Workers Builds success, validate success, staging-candidate success |
-| 4 | `security/database-access-review` | Open | https://github.com/us-justus/us/pull/18 | Least-privilege migration + docs; local `supabase db reset --local` pass; local `supabase test db` PASS (51 tests); GitHub CI: Workers Builds success, validate success, database success, staging-candidate success |
-| 5 | `ci/database-validation` | Open | https://github.com/us-justus/us/pull/19 | pgTAP conversion, schema invariants, `test:db`, CI `database` job, `validate` dependency; local `pnpm test:inside` 532 pass; GitHub CI: Workers Builds success, validate success, database success, staging-candidate success |
-| 6 | `ci/deployment-safeguards` | Open | https://github.com/us-justus/us/pull/20 | Production smoke workflow, workflow pin guard, `docs/deployment.md`; local `node scripts/check-workflow-pins.mjs` OK; `pnpm lint` 0 errors; `pnpm exec tsc --noEmit` pass; GitHub CI: Workers Builds success, validate success, staging-candidate success |
+| 1 | `chore/repository-hygiene` | Merged (#15) | https://github.com/us-justus/us/pull/15 | `git diff --check` pass; `pnpm lint` 0 errors; `pnpm exec tsc --noEmit` pass; `pnpm test:inside` 542 pass; registration guard; GitHub CI: Workers Builds success, validate success, staging-candidate success |
+| 2 | `docs/open-source-documentation` | Merged (#16) | https://github.com/us-justus/us/pull/16 | `git diff --check` pass; `pnpm lint` 0 errors; `pnpm exec tsc --noEmit` pass; GitHub CI: Workers Builds success, validate success, staging-candidate success |
+| 3 | `docs/contributor-experience` | Merged (#17) | https://github.com/us-justus/us/pull/17 | `git diff --check` pass; `pnpm lint` 0 errors; `pnpm exec tsc --noEmit` pass; GitHub CI: Workers Builds success, validate success, staging-candidate success |
+| 4 | `security/database-access-review` | Merged (#18) | https://github.com/us-justus/us/pull/18 | Least-privilege migration + docs; local `supabase db reset --local` pass; local `supabase test db` PASS (51 tests); GitHub CI: Workers Builds success, validate success, database success, staging-candidate success |
+| 5 | `ci/database-validation` | Merged (#19) | https://github.com/us-justus/us/pull/19 | pgTAP conversion, schema invariants, `test:db`, CI `database` job, `validate` dependency; local `pnpm test:inside` 532 pass; GitHub CI: Workers Builds success, validate success, database success, staging-candidate success |
+| 6 | `ci/deployment-safeguards` | Open (#20) | https://github.com/us-justus/us/pull/20 | Production smoke workflow, workflow pin guard, `docs/deployment.md`; local `node scripts/check-workflow-pins.mjs` OK; `pnpm lint` 0 errors; `pnpm exec tsc --noEmit` pass; GitHub CI: Workers Builds success, validate success, staging-candidate success |
 
 ## Maintainer actions that cannot be completed from the repository
 
