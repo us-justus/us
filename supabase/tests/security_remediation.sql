@@ -218,6 +218,18 @@ select ok(has_table_privilege('authenticated', 'public.waitlist_email_queue', 'T
 select ok(has_table_privilege('anon', 'public.login_rate_buckets', 'SELECT') = false, 'login_rate_buckets: anon SELECT denied');
 
 -- ===========================================================================
+-- RLS helper EXECUTE grants: sufficient for authenticated, no anon/public
+-- ===========================================================================
+
+select ok(has_function_privilege('authenticated', 'public.profile_owns_photo_path(uuid, text)', 'EXECUTE') = true, 'profile_owns_photo_path executable by authenticated for RLS');
+select ok(has_function_privilege('authenticated', 'public.owns_profile(uuid)', 'EXECUTE') = true, 'owns_profile executable by authenticated for RLS');
+select ok(has_function_privilege('anon', 'public.profile_owns_photo_path(uuid, text)', 'EXECUTE') = false, 'profile_owns_photo_path not executable by anon');
+select ok(has_function_privilege('public', 'public.profile_owns_photo_path(uuid, text)', 'EXECUTE') = false, 'profile_owns_photo_path not executable by public');
+select ok(has_function_privilege('anon', 'public.owns_profile(uuid)', 'EXECUTE') = false, 'owns_profile not executable by anon');
+select ok(has_function_privilege('public', 'public.owns_profile(uuid)', 'EXECUTE') = false, 'owns_profile not executable by public');
+select ok(has_function_privilege('service_role', 'public.profile_owns_photo_path(uuid, text)', 'EXECUTE') = true, 'profile_owns_photo_path executable by service_role');
+
+-- ===========================================================================
 -- Profile-photo storage_path ownership protections
 -- ===========================================================================
 
@@ -233,13 +245,15 @@ values
   ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid, '22222222-2222-2222-2222-222222222222'::uuid, 'PhotoUserTwo', 21, '3rd', 'ECE');
 
 -- DB-level trigger blocks a mismatched path even for service_role.
+set role service_role;
 select throws_ok(
   $$insert into public.profile_photos (profile_id, storage_path, display_order)
     values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, '22222222-2222-2222-2222-222222222222/evil.jpg', 0)$$,
   '23514',
   'invalid profile photo storage path',
-  'trigger rejects storage_path owned by another user'
+  'trigger rejects storage_path owned by another user (as service_role)'
 );
+reset role;
 
 -- Valid path insert succeeds.
 select lives_ok(
@@ -247,6 +261,91 @@ select lives_ok(
     values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, '11111111-1111-1111-1111-111111111111/ok.jpg', 0)$$,
   'valid own-path photo metadata insert succeeds'
 );
+
+-- Path validation edge cases (trigger is the authority; run as service_role).
+set role service_role;
+
+-- empty segment (repeated slash) rejected
+select throws_ok(
+  $$insert into public.profile_photos (profile_id, storage_path, display_order)
+    values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, '11111111-1111-1111-1111-111111111111//empty.jpg', 10)$$,
+  '23514',
+  'invalid profile photo storage path',
+  'rejects empty path segment (repeated separator)'
+);
+
+-- repeated separators rejected
+select throws_ok(
+  $$insert into public.profile_photos (profile_id, storage_path, display_order)
+    values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, '11111111-1111-1111-1111-111111111111///triple.jpg', 11)$$,
+  '23514',
+  'invalid profile photo storage path',
+  'rejects repeated separators'
+);
+
+-- malformed UUID prefix rejected
+select throws_ok(
+  $$insert into public.profile_photos (profile_id, storage_path, display_order)
+    values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, 'not-a-uuid/file.jpg', 12)$$,
+  '23514',
+  'invalid profile photo storage path',
+  'rejects malformed UUID prefix'
+);
+select throws_ok(
+  $$insert into public.profile_photos (profile_id, storage_path, display_order)
+    values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, '1111/file.jpg', 13)$$,
+  '23514',
+  'invalid profile photo storage path',
+  'rejects short malformed UUID prefix'
+);
+
+-- traversal attempts rejected
+select throws_ok(
+  $$insert into public.profile_photos (profile_id, storage_path, display_order)
+    values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, '11111111-1111-1111-1111-111111111111/../secret.jpg', 14)$$,
+  '23514',
+  'invalid profile photo storage path',
+  'rejects parent traversal segment'
+);
+select throws_ok(
+  $$insert into public.profile_photos (profile_id, storage_path, display_order)
+    values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, '11111111-1111-1111-1111-111111111111/a/../b.jpg', 15)$$,
+  '23514',
+  'invalid profile photo storage path',
+  'rejects embedded traversal'
+);
+
+-- trailing / leading slash rejected
+select throws_ok(
+  $$insert into public.profile_photos (profile_id, storage_path, display_order)
+    values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, '11111111-1111-1111-1111-111111111111/folder/', 16)$$,
+  '23514',
+  'invalid profile photo storage path',
+  'rejects trailing slash'
+);
+select throws_ok(
+  $$insert into public.profile_photos (profile_id, storage_path, display_order)
+    values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, '/11111111-1111-1111-1111-111111111111/file.jpg', 17)$$,
+  '23514',
+  'invalid profile photo storage path',
+  'rejects leading slash'
+);
+
+-- valid nested object path accepted (real storage key may include folders)
+select lives_ok(
+  $$insert into public.profile_photos (profile_id, storage_path, display_order)
+    values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, '11111111-1111-1111-1111-111111111111/folder/sub/file.jpg', 1)$$,
+  'accepts valid nested object path'
+);
+
+-- valid application storage key format accepted
+select lives_ok(
+  $$insert into public.profile_photos (profile_id, storage_path, display_order)
+    values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, '11111111-1111-1111-1111-111111111111/1700000000000-abc123.jpg', 2)$$,
+  'accepts application storage key format'
+);
+
+reset role;
 
 -- RLS: user1 cannot claim user2's path prefix.
 set local role authenticated;

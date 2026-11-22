@@ -22,6 +22,9 @@ set search_path = pg_catalog, public, auth, pg_temp as $$
       and p_storage_path is not null
       and split_part(p_storage_path, '/', 1) = p.user_id::text
       and position('..' in p_storage_path) = 0
+      and p_storage_path not like '%//%'
+      and p_storage_path not like '/%'
+      and p_storage_path not like '%/'
       and length(p_storage_path) > length(p.user_id::text) + 1
   )
 $$;
@@ -40,6 +43,9 @@ begin
   if new.storage_path is null
      or split_part(new.storage_path, '/', 1) <> v_user_id::text
      or new.storage_path ~ '\.\.'
+     or new.storage_path like '%//%'
+     or new.storage_path like '/%'
+     or new.storage_path like '%/'
      or length(new.storage_path) <= length(v_user_id::text) + 1 then
     raise exception 'invalid profile photo storage path' using errcode = '23514';
   end if;
@@ -78,7 +84,7 @@ alter table public.profile_photos
   drop constraint if exists profile_photos_storage_path_format;
 alter table public.profile_photos
   add constraint profile_photos_storage_path_format
-  check (storage_path ~ '^[0-9a-fA-F-]{36}/.+');
+  check (storage_path ~ '^[0-9a-fA-F-]{36}/.+' and storage_path not like '%//%' and storage_path not like '%/');
 
 -- ---------------------------------------------------------------------------
 -- 2) SECURITY DEFINER search_path hardening (add pg_catalog where missing).
