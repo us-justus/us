@@ -66,6 +66,11 @@ grant select, insert, update, delete on table public.profile_photos to authentic
 -- 20250916000006; service_role: SELECT/INSERT/UPDATE via
 -- 20261025000001; DELETE revoked server-side) — no statements are made here.
 
+-- Targeted revokes: drop privileges that are broader than the intended
+-- least-privilege set on verification_records (platform defaults / earlier
+-- grants), without touching the intended SELECT/INSERT/UPDATE grants.
+revoke delete, truncate, references, trigger on table public.verification_records from anon, authenticated, service_role;
+
 -- Like/pass/match write surfaces are server (trigger/RPC) only until a user-facing
 -- feature ships; no client write path is granted yet.
 revoke all on table public.likes from public, anon, authenticated;
