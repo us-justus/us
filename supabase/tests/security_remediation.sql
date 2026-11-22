@@ -7,7 +7,7 @@ create extension if not exists pgtap;
 
 begin;
 
-select plan(44);
+select no_plan();
 
 -- Server-only tables: no client-facing access.
 select ok(has_table_privilege('anon', 'public.profiles', 'SELECT') = false, 'anon cannot read profiles');
@@ -149,6 +149,193 @@ select ok(
       and coalesce(p.proconfig::text, '') ilike '%pg_temp%'
   ),
   'resolve_invite_token must pin search_path with pg_temp'
+);
+
+
+
+-- ===========================================================================
+-- Least-privilege grant matrix (table-driven explicit assertions)
+-- ===========================================================================
+
+-- profiles: server-only (service_role only).
+select ok(has_table_privilege('anon', 'public.profiles', 'SELECT') = false, 'profiles: anon SELECT denied');
+select ok(has_table_privilege('anon', 'public.profiles', 'INSERT') = false, 'profiles: anon INSERT denied');
+select ok(has_table_privilege('anon', 'public.profiles', 'UPDATE') = false, 'profiles: anon UPDATE denied');
+select ok(has_table_privilege('anon', 'public.profiles', 'DELETE') = false, 'profiles: anon DELETE denied');
+select ok(has_table_privilege('anon', 'public.profiles', 'TRUNCATE') = false, 'profiles: anon TRUNCATE denied');
+select ok(has_table_privilege('anon', 'public.profiles', 'REFERENCES') = false, 'profiles: anon REFERENCES denied');
+select ok(has_table_privilege('anon', 'public.profiles', 'TRIGGER') = false, 'profiles: anon TRIGGER denied');
+select ok(has_table_privilege('authenticated', 'public.profiles', 'SELECT') = false, 'profiles: authenticated SELECT denied');
+select ok(has_table_privilege('authenticated', 'public.profiles', 'INSERT') = false, 'profiles: authenticated INSERT denied');
+select ok(has_table_privilege('authenticated', 'public.profiles', 'UPDATE') = false, 'profiles: authenticated UPDATE denied');
+select ok(has_table_privilege('authenticated', 'public.profiles', 'DELETE') = false, 'profiles: authenticated DELETE denied');
+select ok(has_table_privilege('authenticated', 'public.profiles', 'TRUNCATE') = false, 'profiles: authenticated TRUNCATE denied');
+select ok(has_table_privilege('service_role', 'public.profiles', 'SELECT') = true, 'profiles: service_role SELECT allowed');
+select ok(has_table_privilege('service_role', 'public.profiles', 'INSERT') = true, 'profiles: service_role INSERT allowed');
+select ok(has_table_privilege('service_role', 'public.profiles', 'UPDATE') = true, 'profiles: service_role UPDATE allowed');
+select ok(has_table_privilege('service_role', 'public.profiles', 'DELETE') = true, 'profiles: service_role DELETE allowed');
+
+-- profile_photos: authenticated read/write own rows only; no DDL-ish privileges.
+select ok(has_table_privilege('anon', 'public.profile_photos', 'SELECT') = false, 'profile_photos: anon SELECT denied');
+select ok(has_table_privilege('anon', 'public.profile_photos', 'INSERT') = false, 'profile_photos: anon INSERT denied');
+select ok(has_table_privilege('anon', 'public.profile_photos', 'UPDATE') = false, 'profile_photos: anon UPDATE denied');
+select ok(has_table_privilege('anon', 'public.profile_photos', 'DELETE') = false, 'profile_photos: anon DELETE denied');
+select ok(has_table_privilege('anon', 'public.profile_photos', 'TRUNCATE') = false, 'profile_photos: anon TRUNCATE denied');
+select ok(has_table_privilege('anon', 'public.profile_photos', 'REFERENCES') = false, 'profile_photos: anon REFERENCES denied');
+select ok(has_table_privilege('anon', 'public.profile_photos', 'TRIGGER') = false, 'profile_photos: anon TRIGGER denied');
+select ok(has_table_privilege('authenticated', 'public.profile_photos', 'SELECT') = true, 'profile_photos: authenticated SELECT allowed');
+select ok(has_table_privilege('authenticated', 'public.profile_photos', 'INSERT') = true, 'profile_photos: authenticated INSERT allowed');
+select ok(has_table_privilege('authenticated', 'public.profile_photos', 'UPDATE') = true, 'profile_photos: authenticated UPDATE allowed');
+select ok(has_table_privilege('authenticated', 'public.profile_photos', 'DELETE') = true, 'profile_photos: authenticated DELETE allowed');
+select ok(has_table_privilege('authenticated', 'public.profile_photos', 'TRUNCATE') = false, 'profile_photos: authenticated TRUNCATE denied');
+select ok(has_table_privilege('authenticated', 'public.profile_photos', 'REFERENCES') = false, 'profile_photos: authenticated REFERENCES denied');
+select ok(has_table_privilege('authenticated', 'public.profile_photos', 'TRIGGER') = false, 'profile_photos: authenticated TRIGGER denied');
+select ok(has_table_privilege('service_role', 'public.profile_photos', 'SELECT') = true, 'profile_photos: service_role SELECT allowed');
+select ok(has_table_privilege('service_role', 'public.profile_photos', 'INSERT') = true, 'profile_photos: service_role INSERT allowed');
+select ok(has_table_privilege('service_role', 'public.profile_photos', 'UPDATE') = true, 'profile_photos: service_role UPDATE allowed');
+select ok(has_table_privilege('service_role', 'public.profile_photos', 'DELETE') = true, 'profile_photos: service_role DELETE allowed');
+
+-- feedback: exact column-level client privileges.
+select ok(has_column_privilege('authenticated', 'public.feedback', 'user_id', 'INSERT') = true, 'feedback: authenticated can set user_id');
+select ok(has_column_privilege('authenticated', 'public.feedback', 'category', 'INSERT') = true, 'feedback: authenticated can set category');
+select ok(has_column_privilege('authenticated', 'public.feedback', 'message', 'INSERT') = true, 'feedback: authenticated can set message');
+select ok(has_column_privilege('authenticated', 'public.feedback', 'status', 'INSERT') = false, 'feedback: authenticated cannot set status');
+select ok(has_column_privilege('authenticated', 'public.feedback', 'suspension_related', 'INSERT') = false, 'feedback: authenticated cannot set suspension_related');
+select ok(has_column_privilege('authenticated', 'public.feedback', 'related_suspension_at', 'INSERT') = false, 'feedback: authenticated cannot set related_suspension_at');
+select ok(has_column_privilege('authenticated', 'public.feedback', 'admin_reply', 'INSERT') = false, 'feedback: authenticated cannot set admin_reply');
+select ok(has_column_privilege('authenticated', 'public.feedback', 'resolved_at', 'INSERT') = false, 'feedback: authenticated cannot set resolved_at');
+select ok(has_table_privilege('authenticated', 'public.feedback', 'UPDATE') = false, 'feedback: authenticated UPDATE denied');
+select ok(has_table_privilege('authenticated', 'public.feedback', 'DELETE') = false, 'feedback: authenticated DELETE denied');
+select ok(has_table_privilege('authenticated', 'public.feedback', 'TRUNCATE') = false, 'feedback: authenticated TRUNCATE denied');
+select ok(has_table_privilege('service_role', 'public.feedback', 'INSERT') = true, 'feedback: service_role INSERT allowed');
+select ok(has_table_privilege('service_role', 'public.feedback', 'SELECT') = true, 'feedback: service_role SELECT allowed');
+select ok(has_table_privilege('service_role', 'public.feedback', 'UPDATE') = true, 'feedback: service_role UPDATE allowed');
+select ok(has_table_privilege('anon', 'public.feedback', 'INSERT') = false, 'feedback: anon INSERT denied');
+
+-- server-only tables: TRUNCATE/REFERENCES/TRIGGER denied to clients.
+select ok(has_table_privilege('authenticated', 'public.admin_users', 'TRUNCATE') = false, 'admin_users: authenticated TRUNCATE denied');
+select ok(has_table_privilege('authenticated', 'public.waitlist_email_queue', 'TRUNCATE') = false, 'waitlist_email_queue: authenticated TRUNCATE denied');
+select ok(has_table_privilege('anon', 'public.login_rate_buckets', 'SELECT') = false, 'login_rate_buckets: anon SELECT denied');
+
+-- ===========================================================================
+-- Profile-photo storage_path ownership protections
+-- ===========================================================================
+
+-- Seed two users + profiles (transactional, rolled back by finish).
+insert into auth.users (instance_id, id, aud, role, email, created_at, updated_at)
+values
+  ('00000000-0000-0000-0000-000000000000', '11111111-1111-1111-1111-111111111111'::uuid, 'authenticated', 'authenticated', 'pp1@test', now(), now()),
+  ('00000000-0000-0000-0000-000000000000', '22222222-2222-2222-2222-222222222222'::uuid, 'authenticated', 'authenticated', 'pp2@test', now(), now());
+
+insert into public.profiles (id, user_id, nickname, age, year, branch)
+values
+  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, '11111111-1111-1111-1111-111111111111'::uuid, 'PhotoUserOne', 20, '2nd', 'CSE'),
+  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid, '22222222-2222-2222-2222-222222222222'::uuid, 'PhotoUserTwo', 21, '3rd', 'ECE');
+
+-- DB-level trigger blocks a mismatched path even for service_role.
+select throws_ok(
+  $$insert into public.profile_photos (profile_id, storage_path, display_order)
+    values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, '22222222-2222-2222-2222-222222222222/evil.jpg', 0)$$,
+  '23514',
+  'invalid profile photo storage path',
+  'trigger rejects storage_path owned by another user'
+);
+
+-- Valid path insert succeeds.
+select lives_ok(
+  $$insert into public.profile_photos (profile_id, storage_path, display_order)
+    values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, '11111111-1111-1111-1111-111111111111/ok.jpg', 0)$$,
+  'valid own-path photo metadata insert succeeds'
+);
+
+-- RLS: user1 cannot claim user2's path prefix.
+set local role authenticated;
+set local request.jwt.claim.sub to '11111111-1111-1111-1111-111111111111';
+set local request.jwt.claims to '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
+
+select throws_ok(
+  $$insert into public.profile_photos (profile_id, storage_path, display_order)
+    values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, '22222222-2222-2222-2222-222222222222/claim.jpg', 1)$$,
+  null,
+  'authenticated cannot claim another user photo path'
+);
+
+select throws_ok(
+  $$insert into public.profile_photos (profile_id, storage_path, display_order)
+    values ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid, '22222222-2222-2222-2222-222222222222/claim.jpg', 2)$$,
+  null,
+  'authenticated cannot insert metadata into another user profile'
+);
+
+select lives_ok(
+  $$insert into public.profile_photos (profile_id, storage_path, display_order)
+    values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, '11111111-1111-1111-1111-111111111111/own.jpg', 3)$$,
+  'authenticated valid own-path insert succeeds'
+);
+
+select throws_ok(
+  $$update public.profile_photos set storage_path = '22222222-2222-2222-2222-222222222222/hijack.jpg'
+    where profile_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid$$,
+  null,
+  'authenticated cannot re-point own photo to another user path'
+);
+
+reset role;
+
+-- ===========================================================================
+-- Default-privilege scoping
+-- ===========================================================================
+
+-- postgres-owned future tables: no client access (migration owner).
+create table public._dp_owner_test (id int);
+select ok(has_table_privilege('anon', 'public._dp_owner_test', 'SELECT') = false, 'default: anon no SELECT on postgres-created table');
+select ok(has_table_privilege('authenticated', 'public._dp_owner_test', 'SELECT') = false, 'default: authenticated no SELECT on postgres-created table');
+select ok(has_table_privilege('service_role', 'public._dp_owner_test', 'SELECT') = true, 'default: service_role SELECT on postgres-created table');
+drop table public._dp_owner_test;
+
+-- supabase_admin defaults still grant anon/authenticated (documented limitation).
+select ok(
+  exists (
+    select 1 from pg_default_acl d
+    join pg_namespace n on n.oid = d.defaclnamespace
+    join pg_roles r on r.oid = d.defaclrole
+    where r.rolname = 'supabase_admin' and n.nspname = 'public' and d.defaclobjtype = 'r'
+      and d.defaclacl::text ilike '%anon=%'
+  ),
+  'default: supabase_admin future tables still grant anon (documented limitation)'
+);
+select ok(
+  not exists (
+    select 1 from pg_default_acl d
+    join pg_namespace n on n.oid = d.defaclnamespace
+    join pg_roles r on r.oid = d.defaclrole
+    where r.rolname = 'postgres' and n.nspname = 'public' and d.defaclobjtype = 'r'
+      and d.defaclacl::text ilike '%anon=%'
+  ),
+  'default: postgres future tables do not grant anon'
+);
+
+-- ===========================================================================
+-- SECURITY DEFINER search_path: all pinned with pg_catalog + pg_temp
+-- ===========================================================================
+
+select ok(
+  not exists (
+    select 1 from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.prosecdef
+      and (p.proconfig is null or p.proconfig::text not ilike '%pg_temp%')
+  ),
+  'all SECURITY DEFINER functions in public pin pg_temp'
+);
+select ok(
+  not exists (
+    select 1 from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.prosecdef
+      and (p.proconfig is null or p.proconfig::text not ilike '%pg_catalog%')
+  ),
+  'all SECURITY DEFINER functions in public pin pg_catalog'
 );
 
 select * from finish();
