@@ -24,18 +24,59 @@
 
 import { execFileSync } from "node:child_process";
 
-const BASE_URL = (process.argv[2] || process.env.SMOKE_BASE_URL || "https://us-justus.in").replace(/\/+$/, "");
+const RAW_BASE_URL = process.argv[2] || process.env.SMOKE_BASE_URL || "https://us-justus.in";
 
-const USER_AGENT =
+export function validateBaseUrl(raw) {
+  if (typeof raw !== "string" || raw.trim() === "") {
+    throw new Error("base URL is required");
+  }
+  let url;
+  try {
+    url = new URL(raw.trim());
+  } catch {
+    throw new Error(`invalid base URL: ${raw}`);
+  }
+  if (url.username !== "" || url.password !== "") {
+    throw new Error("base URL must not include credentials");
+  }
+  const host = url.hostname.toLowerCase();
+  const isLocal =
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "::1" ||
+    host === "[::1]";
+  if (url.protocol === "http:") {
+    if (!isLocal) {
+      throw new Error("only HTTPS is allowed for external targets");
+    }
+  } else if (url.protocol !== "https:") {
+    throw new Error(`unsupported URL scheme: ${url.protocol}`);
+  }
+  const path = url.pathname.replace(/\/+$/, "");
+  return `${url.origin}${path}`;
+}
+
+export let BASE_URL;
+try {
+  BASE_URL = validateBaseUrl(RAW_BASE_URL);
+} catch (err) {
+  if (import.meta.url === `file://${process.argv[1]}`) {
+    console.error(`smoke-prod: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(2);
+  }
+  throw err;
+}
+
+export const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
 
-const REQUEST_TIMEOUT_MS = 25000;
+export const REQUEST_TIMEOUT_MS = 25000;
 
 // Pass start offsets (ms): first pass immediately, then retries with backoff.
 // Total budget ≈ 2.5 minutes plus request time.
 const PASS_DELAYS_MS = [0, 20000, 30000, 30000, 30000, 30000];
 
-const CHECKS = [
+export const CHECKS = [
   {
     name: "GET /",
     path: "/",
@@ -78,36 +119,33 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function get(url) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      req.destroy(new Error(`request timeout after ${REQUEST_TIMEOUT_MS}ms`));
-    }, REQUEST_TIMEOUT_MS);
-    const req = fetch(url, {
+export async function get(url, options = {}) {
+  const timeoutMs =
+    typeof options.timeoutMs === "number" ? options.timeoutMs : REQUEST_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
       method: "GET",
       headers: { "User-Agent": USER_AGENT, Accept: "*/*" },
       redirect: "manual",
-    }).then(
-      async (res) => {
-        clearTimeout(timer);
-        const body = await res.text().catch(() => "");
-        resolve({
-          status: res.status,
-          contentType: res.headers.get("content-type") ?? "(none)",
-          size: body.length,
-          body,
-        });
-      },
-      (err) => {
-        clearTimeout(timer);
-        reject(err);
-      },
-    );
-    void req;
-  });
+      signal: controller.signal,
+    });
+    // Keep the timeout armed through the full body read so a stalled
+    // response body cannot outlive the intended deadline.
+    const body = await res.text();
+    return {
+      status: res.status,
+      contentType: res.headers.get("content-type") ?? "(none)",
+      size: body.length,
+      body,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
-async function runCheck(check) {
+export async function runCheck(check) {
   const started = Date.now();
   const url = `${BASE_URL}${check.path}`;
   try {
@@ -157,12 +195,13 @@ function localHead() {
   }
 }
 
-const head = localHead();
-console.log(`smoke-prod: base=${BASE_URL} localHEAD=${head}`);
-console.log("smoke-prod: read-only GETs only; no credentials, no secrets, no writes.");
+async function main() {
+  const head = localHead();
+  console.log(`smoke-prod: base=${BASE_URL} localHEAD=${head}`);
+  console.log("smoke-prod: read-only GETs only; no credentials, no secrets, no writes.");
 
-let passResults = [];
-for (let i = 0; i < PASS_DELAYS_MS.length; i += 1) {
+  let passResults = [];
+  for (let i = 0; i < PASS_DELAYS_MS.length; i += 1) {
   if (PASS_DELAYS_MS[i] > 0) {
     console.log(`smoke-prod: pass ${i + 1}/${PASS_DELAYS_MS.length} after waiting ${PASS_DELAYS_MS[i] / 1000}s…`);
     await sleep(PASS_DELAYS_MS[i]);
@@ -188,8 +227,16 @@ for (let i = 0; i < PASS_DELAYS_MS.length; i += 1) {
   }
 }
 
-console.log("smoke-prod: FAIL — live release is not healthy.");
-console.log("smoke-prod: do NOT treat this deployment as a release.");
-console.log("smoke-prod: record the live version ID and follow the rollback runbook (spec.md §12.1).");
-console.log(`smoke-prod: local HEAD was ${head} — confirm what is actually live before rolling back.`);
-process.exit(1);
+  console.log("smoke-prod: FAIL — live release is not healthy.");
+  console.log("smoke-prod: do NOT treat this deployment as a release.");
+  console.log("smoke-prod: record the live version ID and follow the rollback runbook (spec.md §12.1).");
+  console.log(`smoke-prod: local HEAD was ${head} — confirm what is actually live before rolling back.`);
+  process.exit(1);
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((err) => {
+    console.error(`smoke-prod: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  });
+}

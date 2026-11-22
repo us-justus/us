@@ -1,0 +1,51 @@
+name: Production smoke
+
+# Manual, read-only production smoke gate.
+#
+# Runs the repository's production smoke script (`scripts/smoke-prod.mjs`) against
+# a caller-chosen live deployment. It performs GET-only checks and writes nothing.
+#
+# This workflow is intentionally manual: it must never run against production
+# automatically, and it must never hold secrets. The deployment it validates is
+# produced by Cloudflare Workers Builds from `main` (see docs/deployment.md).
+
+on:
+  workflow_dispatch:
+    inputs:
+      base-url:
+        description: "Base URL of the live deployment to smoke."
+        required: false
+        default: "https://us-justus.in"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    name: production-smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js version from repository pin
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # actions/setup-node v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Enable pnpm from package.json packageManager
+        run: corepack enable pnpm
+
+      - name: Production smoke gate
+        env:
+          SMOKE_BASE_URL: ${{ inputs.base-url || 'https://us-justus.in' }}
+        run: node scripts/smoke-prod.mjs
