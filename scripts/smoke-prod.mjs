@@ -80,13 +80,13 @@ function sleep(ms) {
 
 function get(url) {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      req.destroy(new Error(`request timeout after ${REQUEST_TIMEOUT_MS}ms`));
-    }, REQUEST_TIMEOUT_MS);
-    const req = fetch(url, {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    fetch(url, {
       method: "GET",
       headers: { "User-Agent": USER_AGENT, Accept: "*/*" },
       redirect: "manual",
+      signal: controller.signal,
     }).then(
       async (res) => {
         clearTimeout(timer);
@@ -103,7 +103,6 @@ function get(url) {
         reject(err);
       },
     );
-    void req;
   });
 }
 

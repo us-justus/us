@@ -37,17 +37,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Resolve pinned Node.js version
-        id: node
-        run: |
-          set -euo pipefail
-          version="${NODE_VERSION_FALLBACK}"
-          echo "version=${version}" >>"$GITHUB_OUTPUT"
-
-      - name: Use Node.js ${{ steps.node.outputs.version }}
+      - name: Use Node.js version from repository pin
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # actions/setup-node v4.4.0
         with:
-          node-version: ${{ steps.node.outputs.version }}
+          node-version-file: .nvmrc
 
       - name: Enable pnpm from package.json packageManager
         run: corepack enable pnpm
