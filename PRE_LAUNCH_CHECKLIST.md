@@ -1,5 +1,12 @@
 # us — Pre-Launch Checklist
 
+> **Status (2026-11-22): historical.** The launch system was removed by
+> migration `20261012000001_remove_launch_system.sql`. There is no launch
+> state, countdown, launch transition, or 3D launch experience. The checklist
+> is retained as a record of the pre-launch identity/search/invite work; items
+> in sections G, H, I, and J are **not applicable** to the current product.
+> Current readiness work is tracked in `docs/OPEN_SOURCE_READINESS.md`.
+
 ## A. Architecture
 - [x] Repository audit complete
 - [x] Auth/product-state model documented
@@ -61,6 +68,8 @@
 - [x] Privacy audit (STEP 3D: public fields only, no USN/email/auth ID exposed)
 
 ## G. Countdown
+> Not applicable: the launch system was removed.
+
 - [ ] Authoritative launch timestamp
 - [ ] UTC handling
 - [ ] Client countdown
@@ -70,6 +79,8 @@
 - [ ] No unnecessary polling
 
 ## H. Three.js Launch Experience
+> Not applicable: Three.js is not part of the current product.
+
 - [ ] Existing renderer/dependencies audited
 - [ ] Heart implementation
 - [ ] Lazy loading
@@ -80,6 +91,8 @@
 - [ ] No duplicate WebGL context
 
 ## I. Pre-Launch Lock
+> Not applicable: there is no launch gate; Discover/Like/Match/Chat routes do not exist.
+
 - [x] Discover locked
 - [x] Like locked
 - [x] Pass locked
@@ -90,6 +103,8 @@
 - [ ] Device-clock manipulation tested
 
 ## J. Launch Transition
+> Not applicable: there is no launch state to flip.
+
 - [ ] Launch state flips correctly
 - [ ] Discover unlocks
 - [ ] Like/Pass unlocks

@@ -20,6 +20,7 @@ Use descriptive branch names with a suitable prefix:
 - Follow the existing code style and project structure.
 - Do not commit secrets, credentials, personal data, or environment files.
 - Protect user data and preserve the project's access-control and privacy requirements.
+- Report suspected vulnerabilities privately through [SECURITY.md](SECURITY.md); never open a public issue for them.
 - Database changes must include appropriate access controls, including Row Level Security policies where applicable.
 - Avoid adding dependencies unless they are needed.
 
