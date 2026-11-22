@@ -8,6 +8,7 @@
   <a href="https://us-justus.in"><img src="https://img.shields.io/badge/Visit_us-ff6666?style=for-the-badge&logo=heart&logoColor=white" alt="Visit us"></a>
   <a href="https://github.com/us-justus/us/issues"><img src="https://img.shields.io/badge/Report_an_issue-171615?style=for-the-badge&logo=github&logoColor=white" alt="Report an issue"></a>
   <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/Contribute-f4c9c5?style=for-the-badge&logo=github&logoColor=171615" alt="Contribute"></a>
+  <a href="SECURITY.md"><img src="https://img.shields.io/badge/Security-555555?style=for-the-badge&logo=github&logoColor=white" alt="Security policy"></a>
 </p>
 <p align="center"><sub>PRIVATE BY DESIGN · CAMPUS EXCLUSIVE · MADE FOR STUDENTS</sub></p>
 
@@ -25,7 +26,7 @@ College is full of people you see every day but never really get to know.
 
 The idea is simple: make meeting someone feel a little more personal.
 
-> **Current stage:** us is in pre-launch. Student onboarding, profiles, campus search, invitations and account tools are implemented. The full like, match and chat experience is still being built.
+> **Current stage:** us runs in its permanent waiting experience. Student onboarding, profiles, campus search, invitations, account tools, and the internal admin surface are implemented. Discover, likes, matches, and chat are **not built**. There is no launch countdown, launch switch, or 3D launch experience; the launch system was removed in October 2026.
 
 ## ✳ The experience
 
@@ -39,7 +40,7 @@ The product is being built around one simple journey:
 </p>
 <p align="center"><em>Discover someone. Feel a connection. See where it goes.</em></p>
 
-This is the intended product journey, not a list of features that are already live. Likes, matching and chat are not currently completed user-facing flows.
+This is the intended product journey, not a list of features that are already live. Likes, matching and chat are not currently completed user-facing flows. The current product state is the waiting experience described above; there is no launch state to flip.
 
 ## ◇ Built around privacy
 
@@ -66,10 +67,16 @@ Next.js powers the web experience and server-side application logic. Supabase pr
 | <code>src/app/</code> | App Router pages and API route handlers |
 | <code>src/components/</code> | Reusable landing, onboarding, profile, search, settings and admin UI |
 | <code>src/lib/</code> | Authentication, onboarding, Supabase clients, profiles, photos, feedback, verification, security and admin logic |
-| <code>supabase/migrations/</code> | Ordered database migrations |
+| <code>supabase/migrations/</code> | Ordered, append-only database migrations |
+| <code>supabase/tests/</code> | pgTAP database tests (run against the local stack) |
 | <code>supabase/seed.sql</code> | Local seed data |
-| <code>scripts/</code> | Development and release utilities |
+| <code>scripts/</code> | Development, verification, and release utilities |
+| <code>docs/</code> | Staging runbook, database access, testing, deployment, and readiness tracker |
 | <code>wrangler.jsonc</code> · <code>open-next.config.ts</code> | Cloudflare Workers and OpenNext configuration |
+
+<code>spec.md</code> is the current product and engineering specification. The
+files under <code>spec/</code> are historical implementation briefs; they are
+kept for context and are not current requirements.
 
 The main student-facing routes include <code>/</code>, <code>/login</code>, <code>/onboarding/*</code>, <code>/home</code>, <code>/search</code>, <code>/profile</code>, <code>/profile/edit</code>, <code>/u/[username]</code>, <code>/invite/[token]</code>, <code>/feedback</code> and <code>/settings</code>. The <code>/inside</code> area is a protected internal admin surface, not part of normal student navigation.
 
@@ -105,14 +112,14 @@ pnpm exec supabase start
 On the first run, Supabase may need to download its Docker images. Apply the repository's migrations and seed data to the **local** database:
 
 ~~~bash
-pnpm exec supabase db reset
+pnpm exec supabase db reset --local
 ~~~
 
-This resets the local Supabase database and reapplies the migrations and seed file. Do not point this workflow at a hosted staging or production database.
+This resets the local Supabase database and reapplies the migrations and seed file. Always pass <code>--local</code>; do not point this workflow at a hosted staging or production database.
 
 ### 3. Configure local environment variables
 
-The repository does not include a committed <code>.env.example</code>. Create a local <code>.env.local</code> file in the project root. It is ignored by Git.
+Copy the committed <code>.env.example</code> to <code>.env.local</code> and replace the placeholders with local values. <code>.env.local</code> is ignored by Git; <code>.env.example</code> contains placeholders only.
 
 Get the local API URL, anon key and service-role key from:
 
@@ -129,6 +136,10 @@ SUPABASE_SERVICE_ROLE_KEY=<local-service-role-key>
 
 # Required for the /inside admin login locally (16+ characters).
 ADMIN_SECRET_KEY=<random-local-secret-at-least-16-characters>
+
+# Optional: comma-separated LAN hostnames allowed to reach `next dev`
+# (for example 192.168.1.20). Leave empty for localhost-only development.
+ALLOWED_DEV_ORIGINS=
 
 # Set these to test email verification, feedback replies and waitlist email sending.
 BREVO_API_KEY=<brevo-api-key>
@@ -154,16 +165,22 @@ Open [http://localhost:3000](http://localhost:3000).
 pnpm lint
 pnpm exec tsc --noEmit
 pnpm test:inside
+pnpm test:registration
+
+# Database tests (local Supabase must be running)
+pnpm test:db
 
 # Local Supabase
 pnpm exec supabase status
-pnpm exec supabase db reset
+pnpm exec supabase db reset --local
 pnpm exec supabase stop
 ~~~
 
 - <code>pnpm lint</code> runs ESLint.
 - <code>pnpm exec tsc --noEmit</code> runs the TypeScript check without emitting files.
 - <code>pnpm test:inside</code> runs the Node.js test files listed in <code>package.json</code>, covering admin, authentication, onboarding, feedback and related security logic.
+- <code>pnpm test:registration</code> fails if a <code>src/**/*.test.ts</code> file is missing from <code>test:inside</code>.
+- <code>pnpm test:db</code> runs the pgTAP database tests against the local Supabase stack. It requires <code>pnpm exec supabase start</code> and <code>pnpm exec supabase db reset --local</code> first.
 
 Run the relevant checks before opening a pull request. Some tests or application flows may require local environment configuration.
 
@@ -175,6 +192,8 @@ Run the relevant checks before opening a pull request. Some tests or application
 The <code>pnpm dev:staging</code> script loads environment variables from <code>.env.staging.local</code> and then starts Next.js in development mode. This file is Git-ignored and must contain only separately provisioned staging configuration.
 
 Use this only when authorized to work against the staging project. Do not copy production values into it, and do not use it as a substitute for the isolated local Supabase setup above.
+
+The repository's staging pipeline is active: pull requests build an unprivileged candidate, and a separate default-branch workflow deploys it to `us-staging`, smoke-tests it, and publishes `staging/verified` only when that exact commit is healthy. See <code>docs/staging-deployment.md</code> for the trust boundary, required configuration, and rollback steps.
 
 </details>
 
@@ -206,7 +225,12 @@ The admin login also uses the server-side service-role configuration for protect
 
 The production Worker configuration is maintained in <code>wrangler.jsonc</code> and <code>open-next.config.ts</code>. OpenNext generates the Worker entry point and static assets before Wrangler deploys them to Cloudflare Workers.
 
-Deployment credentials and server-side secrets are managed outside the repository. Production deployment is a maintainer-controlled process; contributors should not run deployment or rollback commands unless explicitly asked to do so.
+- **Production:** deployed by **Cloudflare Workers Builds on every push to `main`**, outside GitHub Actions. The live site is [us-justus.in](https://us-justus.in).
+- **Staging:** the repository's candidate → privileged deploy pipeline is active. See <code>docs/staging-deployment.md</code>.
+- **Health check:** <code>pnpm release:smoke</code> runs read-only GETs against the live deployment. Deployment success is not the same as application health.
+- **Rollback:** <code>pnpm release:rollback</code> prints the manual version-list and rollback steps; it does not change anything by itself.
+
+Deployment credentials and server-side secrets are managed outside the repository. Production deployment is a maintainer-controlled process; contributors should not run deployment or rollback commands unless explicitly asked to do so. The repository cannot enforce production branch protection or required checks by itself; those are maintainer settings.
 
 ## ♡ Contributing
 
@@ -220,13 +244,16 @@ If you're interested in helping shape the product or improve the codebase, contr
 4. Keep changes focused and test what you change.
 5. Open a pull request for review.
 
-Please don't commit credentials, environment files, generated build output or local database data.
+Please don't commit credentials, environment files, generated build output or local database data. Report security problems privately through [SECURITY.md](SECURITY.md), never in a public issue.
 
 ## More about the project
 
 <p align="center">
   <a href="spec.md"><img src="https://img.shields.io/badge/Product_Specification-171615?style=flat-square" alt="Product specification"></a>
   <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/Contribution_Guide-555555?style=flat-square" alt="Contribution guide"></a>
+  <a href="SECURITY.md"><img src="https://img.shields.io/badge/Security_Policy-555555?style=flat-square" alt="Security policy"></a>
+  <a href="docs/OPEN_SOURCE_READINESS.md"><img src="https://img.shields.io/badge/Readiness_Tracker-555555?style=flat-square" alt="Open-source readiness tracker"></a>
+  <a href="docs/staging-deployment.md"><img src="https://img.shields.io/badge/Staging_Runbook-555555?style=flat-square" alt="Staging runbook"></a>
   <a href="https://github.com/us-justus/us/issues"><img src="https://img.shields.io/badge/Issues-181717?style=flat-square&logo=github" alt="Issues"></a>
   <a href="https://github.com/us-justus/us/pulls"><img src="https://img.shields.io/badge/Pull_Requests-181717?style=flat-square&logo=github" alt="Pull requests"></a>
 </p>
