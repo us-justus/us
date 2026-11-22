@@ -110,7 +110,7 @@ actually executed. Anything unverified stays **Open** or **Needs verification**.
 
 | ID | Finding | Evidence | Severity | Disposition | PR |
 | --- | --- | --- | --- | --- | --- |
-| H-01 | `pnpm audit --prod` reports 13 vulnerabilities: 2 critical, 2 high, 9 moderate. | Executed 2026-11-22. | High | Open | 3, 6 |
+| H-01 | Dependency advisories: `pnpm audit --prod` reports 13 vulnerabilities (2 critical, 2 high, 9 moderate); GitHub reports 22 on the default branch (4 critical, 3 high, 15 moderate, including dev dependencies). | `pnpm audit --prod` executed 2026-11-22; GitHub push notice 2026-11-22. | High | Open | 3, 6 |
 | H-02 | Next.js `16.3.8` is below the patched `>=16.4.5` range for reported advisories. | `pnpm audit --prod` advisory output. | Critical | Open | 3, 6 |
 | H-03 | No automated dependency updates. | See C-04. | Medium | Open | 3 |
 
@@ -156,7 +156,7 @@ Recorded 2026-11-22 unless stated otherwise.
 | Production URL | `https://us-justus.in/` returned HTTP 200 |
 | Private vulnerability reporting | Enabled (GitHub API) |
 | Branch protection | Rulesets `PR review protection` and `Protect main` active; required checks not confirmable unauthenticated |
-| Dependency audit | `pnpm audit --prod`: 13 vulnerabilities (2 critical, 2 high, 9 moderate) |
+| Dependency audit | `pnpm audit --prod`: 13 vulnerabilities (2 critical, 2 high, 9 moderate); GitHub default-branch alert: 22 (4 critical, 3 high, 15 moderate) |
 | Workflow pinning | Existing `uses:` entries are SHA-pinned; no automated guard |
 | `gh` CLI | Not installed; GitHub API used for repository inspection |
 
@@ -164,7 +164,7 @@ Recorded 2026-11-22 unless stated otherwise.
 
 | PR | Branch | Status | URL | Verification |
 | --- | --- | --- | --- | --- |
-| 1 | `chore/repository-hygiene` | In progress | TBD | TBD |
+| 1 | `chore/repository-hygiene` | Open | https://github.com/us-justus/us/pull/15 | `pnpm lint`, `tsc --noEmit`, 542 tests, registration guard |
 | 2 | `docs/open-source-documentation` | Planned | TBD | TBD |
 | 3 | `docs/contributor-experience` | Planned | TBD | TBD |
 | 4 | `security/database-access-review` | Planned | TBD | TBD |
