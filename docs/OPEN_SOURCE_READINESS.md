@@ -24,6 +24,7 @@ actually executed. Anything unverified stays **Open** or **Needs verification**.
 | Disposition | Meaning |
 | --- | --- |
 | **Open** | Confirmed gap; no fix merged yet. |
+| **FIXED — NOT VERIFIED** | Fix delivered in an open PR with green CI; awaiting merge and re-validation on `main`. |
 | **Resolved** | Fix merged and verified with the recorded evidence. |
 | **Partially resolved** | Meaningful mitigation merged; a documented residual gap remains. |
 | **Needs verification** | Cannot be confirmed from the repository or unauthenticated API. |
@@ -152,20 +153,30 @@ public open-source release, as of 2026-11-22.**
 - All six open-source readiness PRs are delivered into open pull requests
   (#15 hygiene, #16 documentation, #17 contributor experience, #18 security plus
   database-validation CI, #19 database-validation, #20 deployment safeguards).
-  None is merged, so no finding is yet marked **Resolved** under the disposition
-  key.
+  All six PRs have green latest CI on GitHub (Workers Builds, validate, and
+  database/staging-candidate where applicable). None is merged, so no finding is
+  yet marked **Resolved** under the disposition key; finding dispositions below
+  reflect **FIXED — NOT VERIFIED** (fix delivered in open PR with green CI,
+  awaiting merge and re-validation on `main`).
 - Findings A through J each have a delivering PR and executed-check evidence in
-  this tracker; the final checks below were executed on 2026-11-22.
-- Final executed checks on 2026-11-22: `git diff --check` pass; `pnpm lint` 0
-  errors; `pnpm exec tsc --noEmit` pass; `pnpm test:inside` 532 pass / 0 fail;
-  `pnpm exec supabase db reset --local` pass; `pnpm exec supabase test db` PASS
-  (51 tests, 2 files); `node scripts/check-workflow-pins.mjs` OK; production smoke
-  workflow added in PR 20; live production `https://us-justus.in/` → 200 and
-  staging → 200; staging run `44871749494` → success.
+  this tracker. Final executed checks on 2026-11-22: `git diff --check` pass;
+  `pnpm lint` 0 errors; `pnpm exec tsc --noEmit` pass; `pnpm test:inside` 532
+  pass / 0 fail; `pnpm exec supabase db reset --local` pass; `pnpm exec supabase
+  test db` PASS (51 tests, 2 files); production smoke workflow added in PR 20;
+  live production `https://us-justus.in/` → 200 and staging → 200; staging run
+  `44871749494` → success; workflow pin guard OK on 5 workflow files.
+- PR #19 depends on PR #18's least-privilege migration
+  (`20261122000001_least_privilege_grants.sql`); PR #19's branch includes that
+  migration so its pgTAP tests are self-contained. PR #19's ci.yml no longer
+  references `scripts/check-workflow-pins.mjs` (introduced by PR #20) to avoid a
+  cross-PR dependency.
+- Production behavior remains NOT VERIFIED: no production smoke test has been
+  authorized or executed (rule 1.3).
 
 Outstanding at final report time: merge the open PRs and re-run `validate` (now
-`needs: database`); close H-01/H-02 with a dedicated security release; confirm
-required checks (G-04); add CODEOWNers (G-05); wire deploy observability (G-06).
+`needs: database`) on `main`; close H-01/H-02 with a dedicated security release;
+confirm required checks (G-04); add CODEOWNers (G-05); wire deploy observability
+(G-06).
 
 ---
 
@@ -176,7 +187,7 @@ Recorded 2026-11-22 unless stated otherwise.
 | Check | Result |
 | --- | --- |
 | Latest `main` at audit start | `bc1efc0` |
-| Local Supabase reset | `supabase db reset --local` succeeded through 43 migrations and seed |
+| Local Supabase reset | `supabase db reset --local` succeeded through 44 migrations and seed |
 | Database test command | `supabase test db` failed: `Parse errors: No plan found in TAP output` |
 | pgTAP availability | `pgtap` 1.3.3 available in the local database; not installed by default |
 | Staging pipeline | Run `44871749494` on `8bed2f0` concluded success |
@@ -194,12 +205,12 @@ Recorded 2026-11-22 unless stated otherwise.
 
 | PR | Branch | Status | URL | Verification |
 | --- | --- | --- | --- | --- |
-| 1 | `chore/repository-hygiene` | Open | https://github.com/us-justus/us/pull/15 | `pnpm lint`, `tsc --noEmit`, 542 tests, registration guard |
-| 2 | `docs/open-source-documentation` | Open | https://github.com/us-justus/us/pull/16 | `git diff --check`, `pnpm lint`, `pnpm exec tsc --noEmit` |
-| 3 | `docs/contributor-experience` | Open | https://github.com/us-justus/us/pull/17 | `git diff --check`, `pnpm lint`, `pnpm exec tsc --noEmit` |
-| 4 | `security/database-access-review` | Open | https://github.com/us-justus/us/pull/18 | Least-privilege migration + docs; database-validation CI commits also on this branch |
-| 5 | `ci/database-validation` | Open | https://github.com/us-justus/us/pull/19 | pgTAP conversion, schema invariants, `test:db`, CI `database` job, `validate` dependency |
-| 6 | `ci/deployment-safeguards` | Open | https://github.com/us-justus/us/pull/20 | Production smoke workflow, workflow pin guard, `docs/deployment.md` |
+| 1 | `chore/repository-hygiene` | Open | https://github.com/us-justus/us/pull/15 | `git diff --check` pass; `pnpm lint` 0 errors; `pnpm exec tsc --noEmit` pass; `pnpm test:inside` 542 pass; registration guard; GitHub CI: Workers Builds success, validate success, staging-candidate success |
+| 2 | `docs/open-source-documentation` | Open | https://github.com/us-justus/us/pull/16 | `git diff --check` pass; `pnpm lint` 0 errors; `pnpm exec tsc --noEmit` pass; GitHub CI: Workers Builds success, validate success, staging-candidate success |
+| 3 | `docs/contributor-experience` | Open | https://github.com/us-justus/us/pull/17 | `git diff --check` pass; `pnpm lint` 0 errors; `pnpm exec tsc --noEmit` pass; GitHub CI: Workers Builds success, validate success, staging-candidate success |
+| 4 | `security/database-access-review` | Open | https://github.com/us-justus/us/pull/18 | Least-privilege migration + docs; local `supabase db reset --local` pass; local `supabase test db` PASS (51 tests); GitHub CI: Workers Builds success, validate success, database success, staging-candidate success |
+| 5 | `ci/database-validation` | Open | https://github.com/us-justus/us/pull/19 | pgTAP conversion, schema invariants, `test:db`, CI `database` job, `validate` dependency; local `pnpm test:inside` 532 pass; GitHub CI: Workers Builds success, validate success, database success, staging-candidate success |
+| 6 | `ci/deployment-safeguards` | Open | https://github.com/us-justus/us/pull/20 | Production smoke workflow, workflow pin guard, `docs/deployment.md`; local `node scripts/check-workflow-pins.mjs` OK; `pnpm lint` 0 errors; `pnpm exec tsc --noEmit` pass; GitHub CI: Workers Builds success, validate success, staging-candidate success |
 
 ## Maintainer actions that cannot be completed from the repository
 
