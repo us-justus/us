@@ -136,7 +136,7 @@ jobs:
           echo "- CI: all checks on the target commit are green" >>"$GITHUB_STEP_SUMMARY"
 
       - name: Use the pinned Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # actions/setup-node v4.4.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # actions/setup-node v7.1.0
         with:
           node-version-file: .nvmrc
 
