@@ -7,7 +7,7 @@ create extension if not exists pgtap;
 
 begin;
 
-select no_plan();
+select plan(135);
 
 -- Server-only tables: no client-facing access.
 select ok(has_table_privilege('anon', 'public.profiles', 'SELECT') = false, 'anon cannot read profiles');
@@ -211,6 +211,25 @@ select ok(has_table_privilege('service_role', 'public.feedback', 'INSERT') = tru
 select ok(has_table_privilege('service_role', 'public.feedback', 'SELECT') = true, 'feedback: service_role SELECT allowed');
 select ok(has_table_privilege('service_role', 'public.feedback', 'UPDATE') = true, 'feedback: service_role UPDATE allowed');
 select ok(has_table_privilege('anon', 'public.feedback', 'INSERT') = false, 'feedback: anon INSERT denied');
+
+-- service_role feedback column-level privileges (submission + admin reply).
+select ok(has_column_privilege('service_role', 'public.feedback', 'id', 'SELECT') = true, 'feedback: service_role can SELECT id for INSERT ... RETURNING');
+select ok(has_column_privilege('service_role', 'public.feedback', 'user_id', 'SELECT') = true, 'feedback: service_role can SELECT user_id for INSERT ... RETURNING');
+select ok(has_column_privilege('service_role', 'public.feedback', 'category', 'SELECT') = true, 'feedback: service_role can SELECT category for INSERT ... RETURNING');
+select ok(has_column_privilege('service_role', 'public.feedback', 'status', 'SELECT') = true, 'feedback: service_role can SELECT status for INSERT ... RETURNING');
+select ok(has_column_privilege('service_role', 'public.feedback', 'admin_reply', 'UPDATE') = true, 'feedback: service_role can UPDATE admin_reply');
+select ok(has_column_privilege('service_role', 'public.feedback', 'replied_at', 'UPDATE') = true, 'feedback: service_role can UPDATE replied_at');
+select ok(has_column_privilege('service_role', 'public.feedback', 'replied_by', 'UPDATE') = true, 'feedback: service_role can UPDATE replied_by');
+select ok(has_column_privilege('service_role', 'public.feedback', 'brevo_message_id', 'UPDATE') = true, 'feedback: service_role can UPDATE brevo_message_id');
+
+-- Client-facing feedback UPDATE/DELETE policies remain absent.
+select ok(
+  not exists (
+    select 1 from pg_catalog.pg_policies
+    where schemaname = 'public' and tablename = 'feedback' and cmd in ('UPDATE', 'DELETE')
+  ),
+  'feedback: no client UPDATE/DELETE RLS policy exists'
+);
 
 -- server-only tables: TRUNCATE/REFERENCES/TRIGGER denied to clients.
 select ok(has_table_privilege('authenticated', 'public.admin_users', 'TRUNCATE') = false, 'admin_users: authenticated TRUNCATE denied');
