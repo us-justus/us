@@ -9,6 +9,11 @@
 - **Method:** manual inspection of the tracked tree and migrations, a disposable
   local Supabase database, GitHub API/ruleset inspection, live HTTP smoke checks,
   and the checks recorded in the evidence log below.
+- **Final assessment (2026-11-22, PR 6):** all six open-source readiness PRs are
+  delivered into open pull requests (15, 16, 17, 18, 19, 20). The final
+  evidence-based readiness verdict is recorded under §K. A finding counts as
+  **Resolved** only when its delivering PR has merged and its checks were executed;
+  until then the disposition reflects delivery-in-PR.
 
 This file is the single source of truth for finding dispositions. A finding is
 only **Resolved** when the linked change is on `main` and its verification was
@@ -139,6 +144,29 @@ They need their own compatibility pass and release verification.
 | --- | --- | --- | --- | --- | --- |
 | K-01 | Final evidence-based readiness verdict. | Filled in PR 6 after all checks and PR outcomes are known. | High | Open | 6 |
 
+### Final verdict (2026-11-22, delivered in PR 6)
+
+**Readiness status: OPEN — the repository is remediated but not yet ready for a
+public open-source release, as of 2026-11-22.**
+
+- All six open-source readiness PRs are delivered into open pull requests
+  (#15 hygiene, #16 documentation, #17 contributor experience, #18 security plus
+  database-validation CI, #19 database-validation, #20 deployment safeguards).
+  None is merged, so no finding is yet marked **Resolved** under the disposition
+  key.
+- Findings A through J each have a delivering PR and executed-check evidence in
+  this tracker; the final checks below were executed on 2026-11-22.
+- Final executed checks on 2026-11-22: `git diff --check` pass; `pnpm lint` 0
+  errors; `pnpm exec tsc --noEmit` pass; `pnpm test:inside` 532 pass / 0 fail;
+  `pnpm exec supabase db reset --local` pass; `pnpm exec supabase test db` PASS
+  (51 tests, 2 files); `node scripts/check-workflow-pins.mjs` OK; production smoke
+  workflow added in PR 20; live production `https://us-justus.in/` → 200 and
+  staging → 200; staging run `44871749494` → success.
+
+Outstanding at final report time: merge the open PRs and re-run `validate` (now
+`needs: database`); close H-01/H-02 with a dedicated security release; confirm
+required checks (G-04); add CODEOWNers (G-05); wire deploy observability (G-06).
+
 ---
 
 ## Evidence log
@@ -157,7 +185,9 @@ Recorded 2026-11-22 unless stated otherwise.
 | Private vulnerability reporting | Enabled (GitHub API) |
 | Branch protection | Rulesets `PR review protection` and `Protect main` active; required checks not confirmable unauthenticated |
 | Dependency audit | `pnpm audit --prod`: 13 vulnerabilities (2 critical, 2 high, 9 moderate); GitHub default-branch alert: 22 (4 critical, 3 high, 15 moderate) |
-| Workflow pinning | Existing `uses:` entries are SHA-pinned; no automated guard |
+| Workflow pinning | Existing `uses:` entries are SHA-pinned; automated guard added in PR 20 (`scripts/check-workflow-pins.mjs` + CI step) |
+| Production smoke workflow | Added in PR 20 (`.github/workflows/production-smoke.yml`, `workflow_dispatch`, `scripts/smoke-prod.mjs`) |
+| Database tests (final) | PASS — 51 tests, 2 files (`security_remediation.sql` + `schema_invariants.sql`) via `pnpm test:db` |
 | `gh` CLI | Not installed; GitHub API used for repository inspection |
 
 ## PR log
@@ -165,11 +195,11 @@ Recorded 2026-11-22 unless stated otherwise.
 | PR | Branch | Status | URL | Verification |
 | --- | --- | --- | --- | --- |
 | 1 | `chore/repository-hygiene` | Open | https://github.com/us-justus/us/pull/15 | `pnpm lint`, `tsc --noEmit`, 542 tests, registration guard |
-| 2 | `docs/open-source-documentation` | Planned | TBD | TBD |
-| 3 | `docs/contributor-experience` | Planned | TBD | TBD |
-| 4 | `security/database-access-review` | Planned | TBD | TBD |
-| 5 | `ci/database-validation` | Planned | TBD | TBD |
-| 6 | `ci/deployment-safeguards` | Planned | TBD | TBD |
+| 2 | `docs/open-source-documentation` | Open | https://github.com/us-justus/us/pull/16 | `git diff --check`, `pnpm lint`, `pnpm exec tsc --noEmit` |
+| 3 | `docs/contributor-experience` | Open | https://github.com/us-justus/us/pull/17 | `git diff --check`, `pnpm lint`, `pnpm exec tsc --noEmit` |
+| 4 | `security/database-access-review` | Open | https://github.com/us-justus/us/pull/18 | Least-privilege migration + docs; database-validation CI commits also on this branch |
+| 5 | `ci/database-validation` | Open | https://github.com/us-justus/us/pull/19 | pgTAP conversion, schema invariants, `test:db`, CI `database` job, `validate` dependency |
+| 6 | `ci/deployment-safeguards` | Open | https://github.com/us-justus/us/pull/20 | Production smoke workflow, workflow pin guard, `docs/deployment.md` |
 
 ## Maintainer actions that cannot be completed from the repository
 
