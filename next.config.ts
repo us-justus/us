@@ -1,6 +1,16 @@
 import type { NextConfig } from "next";
 
+// LAN hostnames allowed to reach the dev server (comma-separated). Keep this
+// environment-driven: committed machine-specific IPs are a privacy and
+// portability leak. Empty means "no extra origins", which is correct for CI
+// and for anyone using localhost only.
+const allowedDevOrigins = (process.env.ALLOWED_DEV_ORIGINS ?? "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 const nextConfig: NextConfig = {
+  ...(allowedDevOrigins.length > 0 ? { allowedDevOrigins } : {}),
   async headers() {
     return [{
       source: "/:path*",
@@ -13,7 +23,6 @@ const nextConfig: NextConfig = {
       ],
     }];
   },
-  allowedDevOrigins: ["192.168.0.100", "192.168.0.106", "192.168.1.4"],
   // Supabase Storage hosts profile photos. Declared here so a future
   // migration from raw <img> to next/image works without a config change;
   // AVIF/WebP first keeps mobile decode + bandwidth minimal.

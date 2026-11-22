@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerabilities
+    url: https://github.com/us-justus/us/security/advisories/new
+    about: >-
+      Report security issues privately through GitHub private vulnerability
+      reporting. Do not open public issues, discussions, or pull requests for
+      suspected vulnerabilities.

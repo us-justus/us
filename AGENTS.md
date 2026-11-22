@@ -11,9 +11,26 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 # us — Agent Rules (STRICT)
 
 These rules encode the measured 2026-09 performance + mobile-first audit
-(see spec.md §4–§12 for rationale). Follow them automatically. SPEC.md is the
+(see spec.md §4–§12 for rationale). Follow them automatically. spec.md is the
 source of truth; this file is its enforcement checklist. If the two ever
-conflict, SPEC.md wins — flag the conflict, do not silently pick one.
+conflict, spec.md wins — flag the conflict, do not silently pick one.
+
+## Repository instructions
+
+- Toolchain: Node `24.22.1` (`.nvmrc`) and pnpm `11.21.0` (`packageManager`).
+  Install with `pnpm install --frozen-lockfile`.
+- Checks: `pnpm lint`, `pnpm exec tsc --noEmit`, `pnpm test:inside`, and
+  `pnpm test:db` (requires the local Supabase stack).
+- Local database: `pnpm exec supabase start` then
+  `pnpm exec supabase db reset --local`. Never run `supabase db push`, and
+  never point a reset at a hosted project.
+- Migrations are append-only. Add a new timestamped file under
+  `supabase/migrations/`; never edit an applied migration.
+- Every `src/**/*.test.ts` file must be listed in the `test:inside` script.
+  `pnpm test:registration` enforces this.
+- Do not commit `.env*` files. `.env.example` contains placeholders only.
+  `docs/inside-admin-recovery.md` is local-only and must stay untracked.
+- Security reports go through `SECURITY.md`, never a public issue.
 
 ## DO
 
@@ -23,7 +40,7 @@ conflict, SPEC.md wins — flag the conflict, do not silently pick one.
 - Preserve the session architecture: `ensureAnonymousSession()` is the only
   place that may create a session; `useAnonymousSession()` for onboarding,
   `useExistingSession()` (never creates) for login/settings/auth pages.
-- Follow the product state model (SPEC.md §5.1): PUBLIC (log in + enter, no
+- Follow the product state model (spec.md §5.1): PUBLIC (log in + enter, no
   product nav) / ONBOARDING (minimal header, no product nav, no
   "isn't secured yet") / CAMPUS PRODUCT SESSION (full nav; secure-account
   messaging lives in Settings) / PERMANENT ACCOUNT (full nav + sign out).
@@ -36,7 +53,7 @@ conflict, SPEC.md wins — flag the conflict, do not silently pick one.
 - Reuse the known user within a request (`getOnboardingState(user)` in
   API routes); never pay for a second `auth.getUser()` on one request.
 - Preserve the onboarding order usn → email → password → profile → photos:
-  EMAIL IS REQUIRED AND MUST BE VERIFIED FOR EVERY USER (SPEC.md wins on
+  EMAIL IS REQUIRED AND MUST BE VERIFIED FOR EVERY USER (spec.md wins on
   conflict); the password step converts the CURRENT anonymous user (real
   email via `updateUser()` verify-then-password — never `signUp`, UID
   preserved; the legacy skip path is removed: POST /api/onboarding/email
@@ -63,7 +80,7 @@ conflict, SPEC.md wins — flag the conflict, do not silently pick one.
 - Test every change at 360px with keyboard, safe areas, loading/error states,
   and reduced motion before finishing.
 - Verify critical live routes after every production deploy (`pnpm
-  release:smoke`): deployment success != application health (SPEC.md §12.1).
+  release:smoke`): deployment success != application health (spec.md §12.1).
 
 ## DO NOT
 
@@ -85,11 +102,11 @@ conflict, SPEC.md wins — flag the conflict, do not silently pick one.
 - Do not optimize from assumptions, present targets as measured results, or
   add Cloudflare/edge complexity without a measured benefit (spec.md §12).
 - Do not build Matches/Chat-scope features inside unrelated tasks, and do not
-  create parallel rule docs — SPEC.md + this file are the only rule sources.
+  create parallel rule docs — spec.md + this file are the only rule sources.
 
 # VISUAL IDENTITY CONTRACT — `us / just us.`
 
-This section is the implementation contract for visual identity. SPEC.md §2
+This section is the implementation contract for visual identity. spec.md §2
 and §13 give rationale; this section gives enforceable rules. If a requested
 feature conflicts with the identity, adapt the implementation to the identity
 — never silently weaken the identity to fit the feature.
@@ -138,7 +155,7 @@ color system may be created. Tailwind v4 CSS-first — there is no
 
 Hard rules: no neon; no saturated rainbow palettes; no random blue/green/purple
 status colors; no one-off red error boxes; no green success boxes (success is
-conveyed by copy, not hue — see SPEC.md §13.5); bright coral never used as body
+conveyed by copy, not hue — see spec.md §13.5); bright coral never used as body
 text. Do not introduce arbitrary hex inside components; if a genuinely new
 color is needed, add a token. Known intentional exceptions (do not cargo-cult):
 `hover:bg-black` darkening on ink CTAs, canvas JPEG `fillStyle #ffffff` (not CSS),
@@ -174,7 +191,7 @@ because every piece of UI needs a card (onboarding/login/search are flat —
 no card). Avoid: heavy shadows, glassmorphism, frosted glass everywhere,
 decorative gradients, floating SaaS panels, dark panels on the light
 experience. Intentional exceptions only: sticky header translucency
-(`bg-paper/80` + 8px blur — never inside stacked cards per SPEC.md §8),
+(`bg-paper/80` + 8px blur — never inside stacked cards per spec.md §8),
 photo-overlay badges/gradients for legibility, dim scrims on sheets/overlays.
 
 ## Borders / radii (locked scale)
@@ -256,7 +273,7 @@ Motion communicates emotion, depth, or interaction — never decoration. Subtle,
 slow when ambient, responsive when interactive, organic, purposeful. No
 excessive bounce, elastic-everywhere, confetti, particles, generic
 landing-page motion, parallax. Swipe stays on Motion values + CSS transforms
-(SPEC.md §8). JS/motion animations must honor reduced motion via
+(spec.md §8). JS/motion animations must honor reduced motion via
 `useReducedMotion()` — the CSS reset alone does not cover them
 (`MatchOverlay` is the reference; `Shell`, the landing hero, and the mobile
 menu follow the same guard). Swipe springs are user-driven interaction
@@ -264,7 +281,11 @@ feedback and stay physical; decorative reveals collapse to zero-motion.
 
 ## Three.js / ambient visual system
 
-Three.js is gated by SPEC.md §9 (all constraints must hold; never
+> **Current status:** Three.js is not part of the product (`spec.md` §9). The
+> dependency remains in `package.json` only as historical residue; do not add
+> Three.js/R3F code without an approved spec that satisfies every §9 constraint.
+
+Three.js is gated by spec.md §9 (all constraints must hold; never
 load-bearing, never swipe physics, never on auth/onboarding/search/chat
 without explicit justification). IF approved, it is a reusable ambient visual
 system, not a one-off landing effect, with this identity: chemistry,
@@ -352,6 +373,15 @@ decorated, more generic, more technically impressive. "More" is not better.
 - [ ] No unrelated UI redesigned (fix only what the task asks; record the rest as findings).
 
 # PRE-LAUNCH / LAUNCH PRODUCT RULES
+
+> **Status: superseded (2026-10-12).** Migration
+> `20261012000001_remove_launch_system.sql` removed `public.launch_config`,
+> the launch-state/countdown/3D-heart system, and every launch-gated route.
+> The product now operates permanently in its waiting experience; Discover,
+> Like/Pass, Match, and Chat are not built. Keep the rules below only as
+> historical context for the identity, privacy, search, invite, and
+> least-privilege invariants that still apply. Do not reintroduce launch
+> gating or a countdown without a new approved spec.
 
 1. Product phases
 

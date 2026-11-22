@@ -1,9 +1,15 @@
 # Staging verification runbook
 
-Status: **implemented but not yet active.** The staging workflows only become
-live once this file and `.github/workflows/` are on `main`, because
-`workflow_run` resolves its workflow definition from the default branch. Until
-then, nothing here can deploy.
+Status: **active.** The candidate → privileged deploy pipeline is live on
+`main`. The evidence recorded for this audit:
+
+- candidate/deploy run `44871749494` on commit `8bed2f0` concluded successfully;
+- the staging Worker `https://us-staging.atharvaspatil2005-d16.workers.dev`
+  returned HTTP 200;
+- the production site `https://us-justus.in/` returned HTTP 200.
+
+These are point-in-time observations (2026-11-22), not a permanent guarantee.
+Re-run the pipeline or `pnpm release:smoke` for current health.
 
 Production (`us`) is deployed by **Cloudflare Workers Builds on every push to
 `main`** and is deliberately not touched by any workflow in this repository.
@@ -259,6 +265,11 @@ pipeline's job.
 
 ## 7. Required GitHub settings (manual — not applied by this PR)
 
+> **Verification status (2026-11-22):** the public rulesets `PR review
+> protection` and `Protect main` are active, but the unauthenticated GitHub API
+> could not read their required-check configuration. Treat every item below as
+> a maintainer action to confirm, not as an observed setting.
+
 - Ruleset / branch protection for `main`:
   - Pull requests: require `validate`.
   - Require branches to be up to date before merging.
@@ -275,8 +286,9 @@ pipeline's job.
 
 ## 8. Known limitations
 
-- `workflow_run` requires this workflow to exist on `main`, so the pipeline is
-  inert until this PR merges. PRs opened before that have no candidate builds.
+- `workflow_run` requires this workflow to exist on `main`. PRs opened before
+  the pipeline landed have no candidate builds; re-run the candidate or use the
+  manual fallback.
 - Fork pull requests and Dependabot PRs receive a read-only `GITHUB_TOKEN`, so
   the artifact upload fails. Such candidates fail closed (no PR-level
   `staging/verified`). A maintainer can push a fork branch into this repository,
@@ -293,3 +305,42 @@ pipeline's job.
   (the existing `wrangler secret list` preflight already requires read access).
 - This pipeline verifies staging. It does not deploy production and does not
   change Cloudflare Workers Builds.
+
+## 9. Production deployment, smoke, and rollback
+
+Production is intentionally outside GitHub Actions:
+
+1. A push to `main` triggers Cloudflare Workers Builds.
+2. Cloudflare builds and deploys the `us` Worker.
+3. A maintainer runs `pnpm release:smoke` (or the scheduled
+   `production-smoke` workflow, once added) against `https://us-justus.in`.
+
+`pnpm release:smoke` performs read-only GETs against `/`, `/login`, `/inside`,
+`/api/account/state`, and `/api/inside/health`. It retries with backoff for
+roughly 2.5 minutes. A passing deployment build is not a passing smoke test.
+
+Rollback is manual and version-based:
+
+```bash
+pnpm exec wrangler versions list
+pnpm exec wrangler rollback <version-id> -m "<reason>"
+pnpm release:smoke
+```
+
+`pnpm release:rollback` prints the same steps without changing anything.
+Rollback restores code, **not secret values**; rotate a leaked secret
+separately in Cloudflare and Supabase.
+
+Secret rotation (maintainer-only, never in a PR):
+
+- Cloudflare Worker secrets: `ADMIN_SECRET_KEY`, `BREVO_API_KEY`,
+  `BREVO_SENDER_EMAIL`, `SUPABASE_SERVICE_ROLE_KEY`.
+- Supabase: rotate the service-role key in the project dashboard, update the
+  Worker secret, and redeploy.
+- After rotation, run `pnpm release:smoke` and verify `/inside` login and the
+  feedback/verification email paths.
+
+Branch protection and required checks are repository settings, not code. The
+repository cannot prove their current configuration from an unauthenticated
+API; confirm `validate` (and optionally `staging/verified` in the merge queue)
+in the ruleset before relying on them.

@@ -4,6 +4,15 @@
 >
 > *just us.*
 
+> **Status correction (2026-11-22):** The launch system described in
+> §14.1–§14.4 was removed by migration
+> `20261012000001_remove_launch_system.sql`. There is no launch state,
+> countdown, launch gate, or 3D launch experience. The product runs
+> permanently in its waiting experience; Discover, Like/Pass, Match, and Chat
+> are not built. Later §14 "STEP" notes are historical implementation logs;
+> the current code, migrations, and `AGENTS.md` enforcement rules win where
+> they conflict.
+
 ## 1. Product
 
 us is a private, campus-only dating web app.
@@ -28,9 +37,10 @@ The core loop is:
 
 **Discover → Like → Match → Chat**
 
-The product ships in two phases (see §14): PRE-LAUNCH first (verify,
-username, profile, permanent #spot, search, invites, countdown), then the
-core loop unlocks at launch. Launch state is authoritative server-side.
+The core loop is the intended product direction, not a current feature set.
+The current product runs permanently in its waiting experience (see §14):
+verification, username, profile, permanent #spot, search, invites, and
+account tools. There is no launch state.
 
 ---
 
@@ -85,7 +95,7 @@ The product must NOT feel:
 - Email — REQUIRED for every account and must be VERIFIED. Every user
   supplies a real email address and completes verification before
   registration can finish. There is NO skip-email path. Verified emails
-  enable cross-device sign-in + recovery + launch notification. Legacy
+  enable cross-device sign-in + recovery + account email follow-up. Legacy
   skipped-email rows may still exist in staging history (a server-attached
   confirmed internal sign-in identity `u-<uidhex>@us.signin.invalid`,
   derived from the authenticated UID only, never displayed); no NEW
@@ -103,9 +113,10 @@ The product must NOT feel:
   verification is canonical Supabase Auth state
   (`auth.users.email_confirmed_at IS NOT NULL`, via `/auth/confirm`) — not a
   custom flag, not a client param. Completion additionally requires a real
-  non-internal verified Auth email plus profile + photos. Launch-email
-  eligibility is therefore: completed onboarding AND real verified email AND
-  active account AND not already sent (launch mailer itself not built here).
+  non-internal verified Auth email plus profile + photos. Account-email
+  follow-up eligibility is therefore: completed onboarding AND real verified
+  email AND active account AND not already sent (the account-email follow-up
+  itself is not part of the current implementation).
 - First-year / email-first onboarding (Slice 2 — IMPLEMENTED, email now
   required on BOTH tracks): students without a USN yet enter via a quiet
   "don't have a USN yet? continue with email" affordance on
@@ -289,17 +300,14 @@ account is permanent. Implemented in `src/lib/auth/product-state.ts`
   nav; Settings shows verified email, change password, sign out. Sign-out →
   `/` with public navigation restored.
 
-Protected routes (`/discover`, `/matches`, `/chat`, `/profile`,
-`/profile/edit`, `/settings`) enforce this server-side: public → `/login`,
+Protected routes (`/profile`, `/profile/edit`, `/settings`, `/search`,
+`/home`, and the account APIs) enforce this server-side: public → `/login`,
 onboarding-incomplete → the `stepPath()` step, campus/permanent → allowed.
 Hiding navigation alone is never sufficient; browser back after logout must
 still hit the server guard (no cached authenticated content).
 
-Two-phase mapping (see §14): `campus` / `permanent` sessions are PRE_LAUNCH
-while `launch_config.launched = false` and LAUNCHED once true. The pure
-`productPhaseFor()` helper (`src/lib/auth/product-state.ts`) maps the
-preserved primitives to `public | onboarding | pre-launch | launched` —
-onboarding, login, and account semantics are unchanged.
+There is no launch mapping. `campus` / `permanent` sessions are the current
+product states; onboarding, login, and account semantics are unchanged.
 
 ## 5.2 Session mechanics
 
@@ -461,7 +469,8 @@ Target: 60 FPS during drag on low-end mobile.
 - Dismissal decides on distance AND velocity (fast flick dismisses below the
   distance threshold; slow drag must cross it).
 - UI responds instantly: card animation starts before persistence;
-  `swipeAction()` is fire-and-forget async. Never gate animation on network.
+  user-action persistence is fire-and-forget async. Never gate animation on
+  network.
 - No network requests during pointer movement.
 - Card exit animation completion and stack advancement are one event — no
   extra timeout gaps between exit and promotion.
@@ -780,62 +789,55 @@ logic changed; no dependencies added; no new color system created.
 
 ---
 
-# 14. Pre-Launch Architecture (STEP 1 rebaseline)
+# 14. Waiting-Experience Architecture (current)
 
 Status labels: IMPLEMENTED = live in code/migrations; DESIGNED = schema +
-conventions decided, UI/APIs deferred; PLANNED = documented intent only.
+conventions decided, UI/APIs deferred; PLANNED = documented intent only;
+REMOVED = deleted by an applied migration.
 
-## 14.1 Product phases — IMPLEMENTED (mapping) / UI PENDING
+## 14.1 Product phases — IMPLEMENTED (current)
 
-- PUBLIC → ONBOARDING → PRE_LAUNCH → LAUNCHED. Account state stays
-  separate: `anonymous` / `permanent-unverified` / `permanent-verified`
-  (via `getAccountState()`). No combined enum.
-- PRE_LAUNCH includes: USN verification, permanent account, username,
-  profile, permanent #spot, profile/photos, search, friend discovery,
-  public profile/invite link, invite/referral, countdown, subtle
-  launch-page atmosphere.
-- LOCKED UNTIL LAUNCH: Discover, swiping, likes, passes, matching, chat.
-- POST-LAUNCH: Discover, Like/Pass, Match, Chat, persistent history,
-  realtime messaging, lightweight interaction.
+- PUBLIC → ONBOARDING → CAMPUS PRODUCT SESSION → PERMANENT ACCOUNT. Account
+  state stays separate: `anonymous` / `permanent-unverified` /
+  `permanent-verified` (via `getAccountState()`). No combined enum.
+- The waiting experience includes: USN verification, permanent account,
+  username, profile, permanent #spot, profile/photos, search, friend
+  discovery, public profile/invite link, invite/referral, and account tools.
+- Discover, swiping, likes, passes, matching, chat, countdown, and the 3D
+  launch experience are **not built**. There is no launch state to unlock
+  them. The UI still uses the word "pre-launch" in places; that is product
+  copy for the waiting experience, not a state machine.
 
-## 14.2 Launch state — IMPLEMENTED
+## 14.2 Launch state — REMOVED
 
-- `public.launch_config` (migration `20250930000001_prelaunch_foundation`):
-  singleton `id = 1`, `launched boolean default false`,
-  `launched_at timestamptz NULL` (UTC), `updated_at` via the existing
-  `handle_updated_at()` trigger. Seeded `(1, false, NULL)`.
-- RLS enabled; one read-only SELECT policy for `anon, authenticated`;
-  no write policies — clients cannot modify launch state. No admin UI yet;
-  no service-role credentials in client code.
-- `getLaunchState()` (`src/lib/auth/launch.ts`) is the single helper,
-  returning `{ launched, launchAt }`. No duplicated launch queries, no
-  global state library, no polling, no localStorage, no cookie truth,
-  no `Date.now()` authorization. `launchAt` is countdown DISPLAY only.
+- Migration `20261012000001_remove_launch_system.sql` dropped
+  `public.launch_config`, removed the launch-only audit actions, and deleted
+  the launch helpers/routes.
+- There is no `getLaunchState()`, no `guardLaunch()`, no `launchAt`, and no
+  countdown. Do not reintroduce launch gating without a new approved spec.
 
-## 14.3 Product-state integration — IMPLEMENTED
+## 14.3 Product-state integration — IMPLEMENTED (current)
 
 - `getProductSession()` / `guardProductSession()` /
-  `destinationForStep()` / `stepPath()` are preserved exactly; login semantics
-  unchanged. `getOnboardingState()` is extended (Slice 2) with the email-first
-  track — row-exists-without-USN resolves past `usn` via the pure
+  `destinationForStep()` / `stepPath()` are preserved; login semantics are
+  unchanged. `getOnboardingState()` keeps the email-first track —
+  row-exists-without-USN resolves past `usn` via the pure
   `decideOnboardingTrack()` helper; email is REQUIRED on both tracks
   (no row → `usn`; missing email including legacy skip → `email`;
   recorded email → shared tail after the real-verified Auth gate).
-- Additive-only `productPhaseFor(session, launch)` maps to
-  `public | onboarding | pre-launch | launched`.
-- `/api/account/state` additionally returns `launched` + `launchAt`
-  (resolved via `Promise.all` with onboarding state; single `getUser()`).
-  No private fields exposed (never USN, email from profile tables,
+- `/api/account/state` returns account/onboarding state and safe display
+  fields only. It does not return any product-phase field.
+- No private fields are exposed (never USN, email from profile tables,
   auth IDs, or verification metadata).
 
-## 14.4 Server-side launch gating — IMPLEMENTED
+## 14.4 Route gating — IMPLEMENTED (current)
 
-- `/discover`, `/matches`, `/chat` resolve product session + launch state
-  together (`Promise.all`) and redirect PRE_LAUNCH (`guardLaunch()` → `/`)
-  server-side. Direct URL access cannot bypass.
-- `swipeAction()` (like/pass) checks `getLaunchState()` server-side and
-  rejects while PRE_LAUNCH. Match creation stays trigger-driven; message
-  operations remain match-scoped (see §14.7). Browser clock never unlocks.
+- Protected product routes resolve the product session server-side and
+  redirect public → `/login`, incomplete → `stepPath()`, and suspended →
+  `/suspended`.
+- `/discover`, `/matches`, and `/chat` do not exist. There is no
+  `swipeAction()` and no user-action gate. Direct URL access cannot reach an
+  unbuilt feature.
 
 ## 14.5 Permanent user identity — IMPLEMENTED (preserved)
 
@@ -915,13 +917,12 @@ persistent messages
   `allocate_campus_spot()` (NULL → spot guarded write). A retry reuses the
   existing spot; a `23505` username race at profile time costs no number
   (spots are unique, never reassigned, never renumbered, never reclaimed).
-- Surfaced minimally: pre-launch panel on `/` (`@username` + `#spot`,
-  current eligible waiting-student count, locked-feature messaging) and one
+- Surfaced minimally: waiting-experience panel on `/` (`@username` + `#spot`,
+  current eligible waiting-student count, waiting-feature messaging) and one
   identity line on `/profile`. The count is the live aggregate of active
   profiles with at least one photo; it does not affect the permanent spot. `/`
-  renders the panel for campus/permanent sessions while PRE_LAUNCH
-  (redirecting to /discover would loop back via the launch guard);
-  once launched it redirects to /discover as before.
+  renders the panel for campus/permanent sessions. There is no redirect and
+  no `/discover` route (it is unbuilt).
 
 ## 14.8 Profile/photos — IMPLEMENTED (gender added)
 
@@ -947,17 +948,21 @@ persistent messages
   service-role-only; client reads stay on the guarded search and public-profile
   routes.
 
-## 14.9 Likes/passes — IMPLEMENTED (existing schema + PRE_LAUNCH lock)
+## 14.9 Likes/passes — DATA MODEL PRESENT (no user-facing flow)
 
-- `likes` / `passes` keyed by `from_user_id → auth.users.id`; gated by
-  `swipeAction()` launch check. Data model unchanged.
+- `likes` / `passes` keyed by `from_user_id → auth.users.id` exist as durable
+  data; no user-facing swipe/like/pass flow exists yet, so no launch check is
+  wired to them. A future server-gated implementation must enforce product
+  gating server-side before exposing any user action. Data model unchanged.
 
 ## 14.10 Match — IMPLEMENTED (existing persistence preserved)
 
 - `matches(user_a_id, user_b_id)` via the `create_match_if_mutual()`
   trigger; match lifecycle stays like → mutual like → MATCH → chat.
   Messages link `match_id` + `sender_id → auth.users.id` (never username,
-  email, USN). Chat UI + realtime are NOT YET IMPLEMENTED (post-launch slice).
+  email, USN).
+- Chat UI + realtime are NOT BUILT (the post-launch slice never shipped; the
+  launch system was removed, and no chat implementation landed).
 
 ### Existing completed users at matching time
 
@@ -968,17 +973,17 @@ persistent messages
   requires exactly `Male` or `Female`; profile edits accept them but never
   coerce or infer a value. The only selectable values are `Male` and
   `Female`; there is no `Prefer not to say` option.
-- When Discover/matching launches, prompt completed users whose gender is
+- When a future matching feature ships, prompt completed users whose gender is
   still `NULL` to select `Male` or `Female` before matching is enabled. That
-  prompt is not part of this change, and it must not modify existing data or
-  re-run onboarding.
+  prompt is not part of any current change, and it must not modify existing
+  data or re-run onboarding.
 - Gender and discovery preferences are never inferred from names, photos,
   USN, or any other profile data. `NULL` means unanswered.
-- The future prompt must be backed by a real server-side launch gate in the
+- The future access guard must be backed by a real server-side check in the
   future matching implementation; client-side UI alone is insufficient.
   Server-side matching access stays denied until the required gender is set.
-  (This gate is a prerequisite of the future matching implementation, not the
-  removed launch system, which no longer exists.)
+  (This guard is a prerequisite of the future matching implementation, not a
+  feature of the removed launch system, which no longer exists.)
 - Discovery preferences (`interested_in` / who the user wants to meet) and
   matching logic are out of scope for this change. No matching preferences
   ship now.
@@ -986,7 +991,7 @@ persistent messages
 ## 14.11 Persistent chat history — DESIGNED
 
 - `messages(match_id, sender_id, body, created_at)` with match-scoped RLS
-  already exists and is untouched. History/realtime UI NOT YET IMPLEMENTED.
+  already exists and is untouched. History/realtime UI NOT BUILT.
 
 ## 14.12 Search — IMPLEMENTED (STEP 3B)
 
@@ -998,18 +1003,19 @@ persistent messages
   migration, no new index, no RLS change (runs under the existing
   authenticated "discover profiles select" policy).
 - Auth: completed campus/permanent sessions only (public → 401, incomplete
-  → 403, single `getUser()` reused). No launch gate — search survives
-  launch. Self excluded server-side via `auth.uid()`; blocks in either
-  direction and `is_active = false` rows excluded.
+  → 403, single `getUser()` reused). No launch gate; search is
+  product-guarded by session state only. Self excluded server-side via
+  `auth.uid()`; blocks in either direction and `is_active = false` rows
+  excluded.
 - Response projects public fields only (`username`, `spot`, `nickname`,
   `age`, `year`, `branch`, `gender`) — `user_id` resolved internally and
   stripped. Gender is public by explicit disclosure and may be `NULL` for
   legacy profiles. Never USN/email/phone/auth ID/verification metadata. No
   `SELECT *`.
-- UI: `/search` (pre-launch + post-launch nav, debounced 250ms, stale
-  responses ignored, idle/searching/results/empty/error states, 44px
-  targets, mobile-first) → minimal public `/u/[username]` (server-resolved,
-  public fields + photos only, username-only URL).
+- UI: `/search` (debounced 250ms, stale responses ignored, idle/searching/
+  results/empty/error states, 44px targets, mobile-first) → minimal public
+  `/u/[username]` (server-resolved, public fields + photos only, username-only
+  URL).
 - Client: no search dependency, no polling, no photos in result rows.
 
 ## 14.13 Invite architecture — IMPLEMENTED (STEP 3D)
@@ -1034,8 +1040,9 @@ persistent messages
 - RLS: `invites` has authenticated-only policies (own select/insert/update).
   No anon select policy — token resolution is server-side only. `referrals`
   has inviter/invitee select policies. No public access.
-- Pre-launch availability: invite route is NOT launch-gated. Discover/Matches/
-  Chat remain server-locked.
+- Invite availability: the invite route is NOT gated by a launch state and
+  is product-guarded by the invite resolver; Discover/Matches/Chat remain
+  unbuilt (not server-locked — they simply do not exist).
 - Sharing: polished share-card sheet (STEP 3D.1: `InviteShareCard` preview
   with dynamic username/#spot, canvas-rendered PNG for native file share,
   Web Share → clipboard → legacy → manual fallbacks). No sharing dependency.
@@ -1066,9 +1073,9 @@ persistent messages
 - Mobile-first, measure-before-optimizing (`[perf]` labels + durations),
   transform/opacity animations, bounded discover batches, paginated +
   debounced search, optimized images without visible quality loss.
-- Launch load: concentrated traffic assumed; no unbounded queries, no
-  duplicate auth per request, no per-user countdown polling, lightweight
-  launch page. DB/storage/API bottlenecks to be measured before launch.
+- Waiting-experience load: no unbounded queries, no duplicate auth per
+  request, no per-user polling, lightweight pages. DB/storage/API
+  bottlenecks must be measured before any future feature ships.
 
 ## 14.16 STEP 2 learnings (username + permanent #spot)
 
@@ -1129,6 +1136,11 @@ persistent messages
   retry-safe — verify + allocate + persist in one transaction, short-circuit
   when the spot exists, and converge on re-entry — so a successful photo
   cannot permanently leave a completed user without a spot.
+
+> **Historical STEP logs:** the STEP 2/3 notes below record the implementation
+> sequence. Their references to PRE_LAUNCH/LAUNCHED, countdown, and a future
+> `/discover` are superseded by §14.1–§14.4; current routes and behavior are
+> described there.
 
 ### STEP 2 status (vs. the STEP 2 brief)
 
@@ -1501,7 +1513,7 @@ IMPLEMENTED (hardening only — no UI, no audit log, no new auth system,
 no RLS change, prod untouched): rate-limit on `POST /api/inside/login`
 reusing `check_login_rate_limit` (distinct `admin-ip:*` buckets, hashed
 only, throttle-before-key-check, targeted-bucket reset on success);
-Origin-vs-Host check (`src/lib/inside/origin.ts`) on login/launch/logout
+Origin-vs-Host check (`src/lib/inside/origin.ts`) on login/logout
 (foreign/malformed rejected; absent Origin allowed, auth authoritative);
 `inside_admin` cookie verified as-is (HttpOnly, Secure-in-prod, Lax,
 Path=/ — required for `/api/inside/*`; no `__Host-`, incompatible with
@@ -1647,9 +1659,10 @@ USN ownership check); valid non-internal emails sign in directly with
 Supabase Auth (password verified by Supabase, no USN resolver, no USN
 required, no fake/internal USN). Internal sign-in identities are never valid
 login input. A completed first-year account (verified email + password, no
-USN) signs in and resolves through the existing onboarding/launch machinery
-to `/` while PRE_LAUNCH; incomplete accounts land on their existing
-onboarding step; `/discover` was not reintroduced. The existing rate limiter
+USN) signs in and resolves through the existing onboarding/product-state
+machinery to the waiting-experience home (`/`); incomplete accounts land on
+their existing onboarding step; no new product surface was reintroduced. The
+existing rate limiter
 gates both identifier types before credential work (`ip-usn:` / `ip-email:`
 hashed buckets via the same `check_login_rate_limit` /
 `clear_login_rate_limit` RPCs — raw IP/email/password never stored, same
@@ -1661,7 +1674,7 @@ no `signUp` (verified by source scan). Recovery is unchanged:
 for first-year accounts as-is. Tests:
 `src/lib/auth/login-email.test.ts` (classifier, both paths, no-USN auth,
 no-`signUp()` scan, generic-failure/enumeration tripwires, both-bucket rate
-limiting, safe-`next`, PRE_LAUNCH → `/`, UI shape) wired into
+limiting, safe-`next`, product-state destination → `/`, UI shape) wired into
 `pnpm test:inside`; `tsc` + `eslint` + production build clean.
 
 ### SLICE 3 learnings (email login without a migration)
@@ -1678,7 +1691,7 @@ limiting, safe-`next`, PRE_LAUNCH → `/`, UI shape) wired into
   held again.
 - Shared-tail beat duplicated destinations: both paths converge on one
   `respondWithDestination()` (existing `getOnboardingState()` +
-  `getLaunchState()` + `resolveLoginNext()`), so first-year completion
+  `resolveLoginNext()`), so first-year completion
   cannot drift from normal-account routing.
 
 ### Settings IA (account/settings refinement) — IMPLEMENTED
