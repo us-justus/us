@@ -46,10 +46,75 @@ env:
   NODE_VERSION_FALLBACK: "24.22.1"
 
 jobs:
+  database:
+    name: database
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # actions/checkout v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Resolve pinned Node.js version
+        id: node
+        run: |
+          set -euo pipefail
+          if [ -f .nvmrc ]; then
+            version="$(tr -d '[:space:]' < .nvmrc)"
+            echo "Using Node.js ${version} from .nvmrc"
+          else
+            version="${NODE_VERSION_FALLBACK}"
+            echo "::warning::.nvmrc is absent on this branch; falling back to ${version}"
+          fi
+          case "$version" in
+            "" | *[!0-9.]*)
+              echo "::error::invalid Node.js version '${version}'"
+              exit 1
+              ;;
+          esac
+          echo "version=${version}" >>"$GITHUB_OUTPUT"
+
+      - name: Use Node.js ${{ steps.node.outputs.version }}
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # actions/setup-node v4.4.0
+        with:
+          node-version: ${{ steps.node.outputs.version }}
+
+      - name: Enable pnpm from package.json packageManager
+        run: corepack enable pnpm
+
+      - name: Cache pnpm store and Corepack downloads
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # actions/cache v4.2.3
+        with:
+          path: |
+            ~/.local/share/pnpm/store
+            ~/.cache/node/corepack
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-
+
+      - name: Install dependencies with frozen lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Start local Supabase
+        run: pnpm exec supabase start
+
+      - name: Reset local database
+        run: pnpm exec supabase db reset --local
+
+      - name: Database tests
+        run: pnpm test:db
+
+      - name: Stop local Supabase
+        if: always()
+        run: pnpm exec supabase stop --no-backup
+
   validate:
     name: validate
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    needs: database
 
     steps:
       - name: Checkout
