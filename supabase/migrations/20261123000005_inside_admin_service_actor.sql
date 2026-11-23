@@ -7,7 +7,7 @@ create or replace function public.inside_admin_actor_ok(p_actor_id uuid)
 returns boolean
 language sql
 security definer
-set search_path = public, auth, pg_temp
+set search_path = pg_catalog, public, auth, pg_temp
 as $$
   select p_actor_id is not null
      and exists (select 1 from public.admin_users where user_id = p_actor_id);
@@ -38,7 +38,7 @@ create or replace function public.admin_overview_counts(p_actor_id uuid)
 returns jsonb
 language plpgsql
 security definer
-set search_path = public, auth, pg_temp
+set search_path = pg_catalog, public, auth, pg_temp
 as $$
 declare
   v_waiting integer;
@@ -65,7 +65,7 @@ create or replace function public.admin_list_students(
   p_offset integer default 0,
   p_status text default 'all'
 )
-returns jsonb language plpgsql security definer set search_path = public, auth, pg_temp as $$
+returns jsonb language plpgsql security definer set search_path = pg_catalog, public, auth, pg_temp as $$
 declare
   v_limit int := least(greatest(coalesce(p_limit, 20), 1), 50);
   v_offset int := greatest(coalesce(p_offset, 0), 0);
@@ -114,7 +114,7 @@ create or replace function public.admin_list_reports(
 returns jsonb
 language plpgsql
 security definer
-set search_path = public, auth, pg_temp
+set search_path = pg_catalog, public, auth, pg_temp
 as $$
 declare
   v_limit int := least(greatest(coalesce(p_limit, 20), 1), 50);
@@ -181,7 +181,7 @@ create or replace function public.admin_list_feedback(
   p_limit integer default 20,
   p_offset integer default 0
 )
-returns jsonb language plpgsql security definer set search_path = public, auth, pg_temp as $$
+returns jsonb language plpgsql security definer set search_path = pg_catalog, public, auth, pg_temp as $$
 declare
   v_limit int := least(greatest(coalesce(p_limit, 20), 1), 50);
   v_offset int := greatest(coalesce(p_offset, 0), 0);
@@ -215,7 +215,7 @@ returns jsonb
 language plpgsql
 stable
 security definer
-set search_path = public, auth, pg_temp
+set search_path = pg_catalog, public, auth, pg_temp
 as $$
 declare
   v_result jsonb;
@@ -288,7 +288,7 @@ create or replace function public.admin_prepare_waitlist_email_queue(p_actor_id 
 returns jsonb
 language plpgsql
 security definer
-set search_path = public, auth, pg_temp
+set search_path = pg_catalog, public, auth, pg_temp
 as $$
 declare
   v_waiting_student_count integer;
@@ -365,7 +365,7 @@ $$;
 create or replace function public.admin_set_student_active(
   p_actor_id uuid, p_target_user_id uuid, p_active boolean, p_reason text default null
 )
-returns jsonb language plpgsql security definer set search_path = public, auth, pg_temp as $$
+returns jsonb language plpgsql security definer set search_path = pg_catalog, public, auth, pg_temp as $$
 declare v_prev boolean; v_next boolean; v_reason text := nullif(btrim(coalesce(p_reason, '')), '');
 begin
   if p_actor_id is null or not exists (select 1 from public.admin_users where user_id = p_actor_id) then
@@ -394,7 +394,7 @@ create or replace function public.admin_resolve_report(p_report_id uuid, p_resol
 returns jsonb
 language plpgsql
 security definer
-set search_path = public, auth, pg_temp
+set search_path = pg_catalog, public, auth, pg_temp
 as $$
 declare
   v_prev text;
@@ -423,7 +423,7 @@ create or replace function public.admin_resolve_feedback(p_feedback_id uuid, p_a
 returns jsonb
 language plpgsql
 security definer
-set search_path = public, auth, pg_temp
+set search_path = pg_catalog, public, auth, pg_temp
 as $$
 declare
   v_prev text;
