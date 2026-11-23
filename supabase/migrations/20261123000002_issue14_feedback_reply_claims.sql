@@ -47,11 +47,13 @@ grant select on table public.feedback_reply_attempts to service_role;
 comment on table public.feedback_reply_attempts is
   'Server-only idempotency claims for admin feedback email replies. One row per feedback; SENDING is never auto-reclaimed (ambiguous provider outcomes require explicit recovery).';
 
+drop function if exists public.admin_claim_feedback_reply(uuid, uuid, text, uuid);
+
 create or replace function public.admin_claim_feedback_reply(
   p_feedback_id uuid,
   p_claim_token uuid,
   p_reply_body text,
-  p_replied_by uuid
+  p_actor_id uuid
 )
 returns jsonb
 language plpgsql
@@ -67,16 +69,15 @@ begin
   if auth.role() is distinct from 'service_role' then
     raise exception 'not authorized' using errcode = '42501';
   end if;
-  if p_feedback_id is null or p_claim_token is null or p_replied_by is null then
+  if p_feedback_id is null or p_claim_token is null or p_actor_id is null then
     raise exception 'feedback, claim, and replier are required' using errcode = '22000';
   end if;
   if p_reply_body is null
      or char_length(btrim(p_reply_body)) not between 1 and 2000 then
     raise exception 'invalid reply body' using errcode = '22000';
   end if;
-  if not exists (
-    select 1 from public.admin_users where user_id = p_replied_by
-  ) then
+  if not exists (select 1 from public.admin_users where user_id = p_actor_id)
+     or not public.is_admin() then
     raise exception 'not authorized' using errcode = '42501';
   end if;
 
@@ -100,7 +101,7 @@ begin
     feedback_id, claim_token, state, reply_body, replied_by,
     claimed_at, settled_at, provider_message_id, last_error
   ) values (
-    p_feedback_id, p_claim_token, 'SENDING', btrim(p_reply_body), p_replied_by,
+    p_feedback_id, p_claim_token, 'SENDING', btrim(p_reply_body), p_actor_id,
     now(), null, null, null
   )
   on conflict (feedback_id) do update
@@ -138,7 +139,8 @@ comment on function public.admin_claim_feedback_reply(uuid, uuid, text, uuid) is
 create or replace function public.admin_finalize_feedback_reply(
   p_feedback_id uuid,
   p_claim_token uuid,
-  p_provider_message_id text default null
+  p_provider_message_id text,
+  p_actor_id uuid
 )
 returns jsonb
 language plpgsql
@@ -150,7 +152,8 @@ declare
   v_by uuid;
   v_state text;
 begin
-  if auth.role() is distinct from 'service_role' then
+  if not exists (select 1 from public.admin_users where user_id = p_actor_id)
+     or not public.is_admin() then
     raise exception 'not authorized' using errcode = '42501';
   end if;
   if p_feedback_id is null or p_claim_token is null then
@@ -194,17 +197,19 @@ begin
 end;
 $$;
 
-revoke all on function public.admin_finalize_feedback_reply(uuid, uuid, text) from public, anon, authenticated;
-grant execute on function public.admin_finalize_feedback_reply(uuid, uuid, text) to service_role;
+drop function if exists public.admin_finalize_feedback_reply(uuid, uuid, text);
+revoke all on function public.admin_finalize_feedback_reply(uuid, uuid, text, uuid) from public, anon, authenticated;
+grant execute on function public.admin_finalize_feedback_reply(uuid, uuid, text, uuid) to service_role;
 
-comment on function public.admin_finalize_feedback_reply(uuid, uuid, text) is
+comment on function public.admin_finalize_feedback_reply(uuid, uuid, text, uuid) is
   'Record a delivered feedback reply and settle its claim atomically. Service-role only; only the current SENDING claim token may finalize.';
 
 create or replace function public.admin_settle_feedback_reply_claim(
   p_feedback_id uuid,
   p_claim_token uuid,
   p_state text,
-  p_last_error text default null
+  p_last_error text,
+  p_actor_id uuid
 )
 returns jsonb
 language plpgsql
@@ -212,7 +217,8 @@ security definer
 set search_path = public, auth, pg_temp
 as $$
 begin
-  if auth.role() is distinct from 'service_role' then
+  if not exists (select 1 from public.admin_users where user_id = p_actor_id)
+     or not public.is_admin() then
     raise exception 'not authorized' using errcode = '42501';
   end if;
   if p_state is null or p_state not in ('RELEASED', 'UNCONFIRMED') then
@@ -234,15 +240,17 @@ begin
 end;
 $$;
 
-revoke all on function public.admin_settle_feedback_reply_claim(uuid, uuid, text, text) from public, anon, authenticated;
-grant execute on function public.admin_settle_feedback_reply_claim(uuid, uuid, text, text) to service_role;
+drop function if exists public.admin_settle_feedback_reply_claim(uuid, uuid, text, text);
+revoke all on function public.admin_settle_feedback_reply_claim(uuid, uuid, text, text, uuid) from public, anon, authenticated;
+grant execute on function public.admin_settle_feedback_reply_claim(uuid, uuid, text, text, uuid) to service_role;
 
-comment on function public.admin_settle_feedback_reply_claim(uuid, uuid, text, text) is
+comment on function public.admin_settle_feedback_reply_claim(uuid, uuid, text, text, uuid) is
   'Settle a failed feedback reply claim: RELEASED (definitely not sent, retry safe) or UNCONFIRMED (provider outcome ambiguous, no automatic resend). Service-role only.';
 
 create or replace function public.admin_recover_feedback_reply(
   p_feedback_id uuid,
-  p_outcome text
+  p_outcome text,
+  p_actor_id uuid
 )
 returns jsonb
 language plpgsql
@@ -255,7 +263,8 @@ declare
   v_by uuid;
   v_provider text;
 begin
-  if auth.role() is distinct from 'service_role' then
+  if not exists (select 1 from public.admin_users where user_id = p_actor_id)
+     or not public.is_admin() then
     raise exception 'not authorized' using errcode = '42501';
   end if;
   if p_outcome is null or p_outcome not in ('sent', 'not_sent') then
@@ -303,8 +312,9 @@ begin
 end;
 $$;
 
-revoke all on function public.admin_recover_feedback_reply(uuid, text) from public, anon, authenticated;
-grant execute on function public.admin_recover_feedback_reply(uuid, text) to service_role;
+drop function if exists public.admin_recover_feedback_reply(uuid, text);
+revoke all on function public.admin_recover_feedback_reply(uuid, text, uuid) from public, anon, authenticated;
+grant execute on function public.admin_recover_feedback_reply(uuid, text, uuid) to service_role;
 
-comment on function public.admin_recover_feedback_reply(uuid, text) is
+comment on function public.admin_recover_feedback_reply(uuid, text, uuid) is
   'Explicit admin recovery for an unconfirmed feedback reply claim. sent records the stored reply without resending; not_sent releases the claim for a normal retry. Service-role only.';

@@ -152,9 +152,9 @@ export async function POST(req: Request) {
     "admin_claim_feedback_reply",
     {
       p_feedback_id: row.id,
-      p_claim_token: claimToken,
-      p_reply_body: cleanReply,
-      p_replied_by: gate.userId,
+        p_claim_token: claimToken,
+        p_reply_body: cleanReply,
+        p_actor_id: gate.userId,
     },
   );
   if (claimError) {
@@ -192,6 +192,7 @@ export async function POST(req: Request) {
           plan.settle === "UNCONFIRMED"
             ? `unconfirmed: ${sent.detail}`.slice(0, 500)
             : `${sent.kind}: ${sent.detail}`.slice(0, 500),
+        p_actor_id: gate.userId,
       },
     );
     if ((settled as { ok?: unknown } | null)?.ok !== true) {
@@ -216,6 +217,7 @@ export async function POST(req: Request) {
       p_feedback_id: row.id,
       p_claim_token: claimToken,
       p_provider_message_id: sent.providerMessageId || null,
+      p_actor_id: gate.userId,
     },
   );
   if (finalizeError || (finalized as { ok?: unknown } | null)?.ok !== true) {

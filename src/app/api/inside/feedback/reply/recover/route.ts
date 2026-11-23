@@ -57,6 +57,7 @@ export async function POST(req: Request) {
   const { data, error } = await service.rpc("admin_recover_feedback_reply", {
     p_feedback_id: feedbackId.trim(),
     p_outcome: outcome,
+    p_actor_id: gate.userId,
   });
   if (error) {
     if (error.code === "02000") {

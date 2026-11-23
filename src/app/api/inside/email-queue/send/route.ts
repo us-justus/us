@@ -262,7 +262,7 @@ export async function POST(req: Request) {
         message: cleanMessage,
       }),
   });
-  const { attempted, sent, failed, skipped, unrecorded } = counts;
+  const { attempted, sent, failed, skipped, unrecorded, unconfirmed } = counts;
 
   // Fresh durable counts are the source of truth for `remaining`.
   const { count: remainingCount } = await service
@@ -276,11 +276,11 @@ export async function POST(req: Request) {
   // completed send into a retry prompt.
   const audited = await recordInsideAuditEvent("WAITLIST_EMAIL_SENT", {
     targetType: "waitlist_email_queue",
-    metadata: { attempted, sent, failed, skipped, unrecorded },
+    metadata: { attempted, sent, failed, skipped, unrecorded, unconfirmed },
   });
   if (!audited.ok) {
     console.error("[inside] waitlist email sent but audit failed");
   }
 
-  return respond({ attempted, sent, failed, skipped, unrecorded, remaining });
+  return respond({ attempted, sent, failed, skipped, unrecorded, unconfirmed, remaining });
 }

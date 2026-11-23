@@ -59,6 +59,7 @@ export type QueueSendCounts = {
   failed: number;
   skipped: number;
   unrecorded: number;
+  unconfirmed: number;
 };
 
 export const STALE_SENDING_MS = 10 * 60 * 1000;
@@ -113,6 +114,7 @@ export async function runEmailQueueSend(
     failed: 0,
     skipped: 0,
     unrecorded: 0,
+    unconfirmed: 0,
   };
 
   for (const row of selectSendCandidates(deps.rows, now)) {
@@ -157,6 +159,14 @@ export async function runEmailQueueSend(
     }
 
     const permanent = outcome.kind === "permanent_failure";
+    if (outcome.kind === "temporary_failure" && outcome.ambiguous) {
+      if (await deps.store.markUnconfirmed(row, `unconfirmed: ${outcome.detail}`)) {
+        counts.unconfirmed += 1;
+      } else {
+        counts.unrecorded += 1;
+      }
+      continue;
+    }
     if (await deps.store.settleFailed(row, permanent, outcome.detail)) {
       counts.failed += 1;
     } else {

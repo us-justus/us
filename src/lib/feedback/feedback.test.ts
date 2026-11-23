@@ -44,7 +44,7 @@ const LIST_ROUTE = "src/app/api/inside/feedback/route.ts";
 const REPLY_ROUTE = "src/app/api/inside/feedback/reply/route.ts";
 const RESOLVE_ROUTE = "src/app/api/inside/feedback/resolve/route.ts";
 const GRANTS_MIG = "supabase/migrations/20261027000001_feedback_service_role_grants.sql";
-const CLAIMS_MIG = "supabase/migrations/20261124000001_issue14_feedback_reply_claims.sql";
+const CLAIMS_MIG = "supabase/migrations/20261123000002_issue14_feedback_reply_claims.sql";
 const RECOVER_ROUTE = "src/app/api/inside/feedback/reply/recover/route.ts";
 
 /** Comma-separated SQL column list → sorted names. */
@@ -458,7 +458,7 @@ describe("feedback — reply flow (recipient, order, failure behavior)", () => {
 
   it("stores the replier + reply body on the claim, never in the request", () => {
     const body = code(src(REPLY_ROUTE));
-    assert.ok(body.includes("p_replied_by: gate.userId"), "replier comes from the admin gate");
+    assert.ok(body.includes("p_actor_id: gate.userId"), "replier comes from the admin gate");
     assert.ok(body.includes("p_reply_body: cleanReply"), "claim stores the intended reply body");
     assert.ok(!body.includes("recipient_email"), "no client recipient field");
     const claims = code(src(CLAIMS_MIG));

@@ -97,6 +97,7 @@ describe("email-queue send runner — persisted failure accounting", () => {
       failed: 0,
       skipped: 0,
       unrecorded: 0,
+      unconfirmed: 0,
     });
     assert.equal(sent, 0);
   });
@@ -145,6 +146,27 @@ describe("email-queue send runner — persisted failure accounting", () => {
     assert.equal(counts.unrecorded, 1);
   });
 
+  it("persists ambiguous provider outcomes as unconfirmed and never retries them", async () => {
+    let marked = "";
+    const candidate = row();
+    const counts = await runEmailQueueSend({
+      rows: [candidate],
+      store: store({
+        markUnconfirmed: async (_row, detail) => {
+          marked = detail;
+          return true;
+        },
+      }),
+      send: async () => ({ kind: "temporary_failure", detail: "timeout", ambiguous: true }),
+    });
+    assert.equal(counts.failed, 0);
+    assert.equal(counts.unconfirmed, 1);
+    assert.match(marked, /^unconfirmed:/);
+    assert.deepEqual(selectSendCandidates([
+      row({ status: "SENDING", last_error: marked, updated_at: new Date(0).toISOString() }),
+    ], Date.now()), []);
+  });
+
   it("undoes the attempt when a config release persists", async () => {
     let secondSent = false;
     const counts = await runEmailQueueSend({
@@ -172,6 +194,7 @@ describe("email-queue send runner — persisted failure accounting", () => {
       failed: 0,
       skipped: 0,
       unrecorded: 0,
+      unconfirmed: 0,
     });
   });
 });
