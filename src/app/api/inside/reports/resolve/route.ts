@@ -5,6 +5,12 @@ import { requireInsideAdmin } from "@/lib/inside/auth";
 import { recordInsideAuditEvent } from "@/lib/inside/audit";
 import { verifySameOrigin } from "@/lib/inside/origin";
 import { insideMutationRateLimit } from "@/lib/inside/mutation-rate-limit";
+import { SUSPENSION_REASON_MAX, validateSuspensionReason } from "@/lib/auth/suspension";
+import {
+  cleanSuspensionReason,
+  moderationCompensationArgs,
+  parseReportModeration,
+} from "@/lib/inside/report-moderation";
 
 /**
  * POST /api/inside/reports/resolve — resolve a report, optionally with a
@@ -14,7 +20,7 @@ import { insideMutationRateLimit } from "@/lib/inside/mutation-rate-limit";
  *   reportId: string,
  *   resolution: "resolved" | "dismissed",
  *   moderate?: "suspend" | "restore",   // applied to the reported student
- *   reason?: string                      // short note, audit metadata only
+ *   reason?: string                      // required for suspend, max 280
  * }.
  *
  * Server-authorized: signed inside gate + admin_resolve_report() /
@@ -30,10 +36,10 @@ import { insideMutationRateLimit } from "@/lib/inside/mutation-rate-limit";
  *     route restores the pre-mutation state (report status via the
  *     server-only service-role client — the sanctioned resolver only moves
  *     toward terminal states — moderation via the sanctioned writer) and
- *     returns 500 instead of success.
+ *     returns 500 instead of success. Restore compensation re-suspends
+ *     with the PRE-restore reason.
  */
 const GENERIC = "Not available.";
-const MAX_REASON = 280;
 
 export async function POST(req: Request) {
   if (!verifySameOrigin(req).ok) {
@@ -59,14 +65,18 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
-  if (moderate !== undefined && moderate !== "suspend" && moderate !== "restore") {
-    return NextResponse.json(
-      { error: 'Pass moderate as "suspend" or "restore", or omit it.' },
-      { status: 400 },
-    );
+  const parsedModeration = parseReportModeration(moderate);
+  if (!parsedModeration.ok) {
+    return NextResponse.json({ error: parsedModeration.error }, { status: 400 });
   }
-  const cleanReason =
-    typeof reason === "string" && reason.trim() ? reason.trim().slice(0, MAX_REASON) : null;
+  const moderationMode = parsedModeration.mode;
+  const cleanReason = cleanSuspensionReason(reason, SUSPENSION_REASON_MAX);
+  if (moderationMode === "suspend") {
+    const reasonError = validateSuspensionReason(reason);
+    if (reasonError) {
+      return NextResponse.json({ error: reasonError }, { status: 400 });
+    }
+  }
 
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("admin_resolve_report", {
@@ -119,15 +129,40 @@ export async function POST(req: Request) {
 
   // Optional moderation of the reported student: an explicit second
   // mutation with its own audit event (same fail-closed contract).
-  if (moderate === undefined) {
+  if (moderationMode === null) {
     return NextResponse.json({ ok: true, changed: true, status: row.new_status });
   }
-  const wantActive = moderate === "restore";
+  const wantActive = moderationMode === "restore";
+  // Restore compensation may need to re-suspend, which requires a reason:
+  // remember the current reason before the write clears it. The restore
+  // itself must NOT reuse the report's reason text.
+  let priorReason: string | null = null;
+  if (wantActive) {
+    try {
+      const service = createServiceRoleClient();
+      const { data: prior } = await service
+        .from("profiles")
+        .select("suspension_reason")
+        .eq("user_id", row.reported_id)
+        .maybeSingle();
+      priorReason = cleanSuspensionReason(
+        (prior as { suspension_reason?: unknown } | null)?.suspension_reason,
+        SUSPENSION_REASON_MAX,
+      );
+    } catch {}
+  }
   const { data: modData, error: modError } = await supabase.rpc("admin_set_student_active", {
     p_target_user_id: row.reported_id,
     p_active: wantActive,
+    ...(cleanReason && !wantActive ? { p_reason: cleanReason } : {}),
   });
   if (modError) {
+    if (modError.code === "22000") {
+      return NextResponse.json(
+        { error: "Tell the student why they're suspended." },
+        { status: 400 },
+      );
+    }
     // The resolution above succeeded and is audited; only the moderation
     // half failed, so report honestly without inventing an audit event.
     return NextResponse.json(
@@ -160,7 +195,11 @@ export async function POST(req: Request) {
       try {
         await supabase.rpc("admin_set_student_active", {
           p_target_user_id: mod.user_id,
-          p_active: mod.previous_active,
+          ...moderationCompensationArgs({
+            previousActive: mod.previous_active,
+            priorReason,
+            suspendReason: wantActive ? null : cleanReason,
+          }),
         });
       } catch {}
       return NextResponse.json({ error: "Could not update the reported student." }, { status: 500 });

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { requireInsideAdmin } from "@/lib/inside/auth";
@@ -7,6 +8,7 @@ import { insideMutationRateLimit } from "@/lib/inside/mutation-rate-limit";
 import { validateFeedbackReply } from "@/lib/feedback/constants";
 import { sendFeedbackReplyEmail } from "@/lib/feedback/reply-email";
 import { isInternalEmail } from "@/lib/auth/internal-email";
+import { claimFailureResponse, providerFailurePlan } from "@/lib/feedback/reply-state";
 
 /**
  * POST /api/inside/feedback/reply — reply to feedback by email
@@ -17,21 +19,28 @@ import { isInternalEmail } from "@/lib/auth/internal-email";
  * state — recipient_email / student_id / admin_id are never accepted
  * from the client.
  *
- * Safe order: authenticate → authorize → load feedback → resolve the
- * student email from verification_records → validate the reply → send
- * through Brevo → persist reply metadata ONLY on success.
+ * Safe order: authenticate → authorize → load feedback → reject
+ * resolved/already-replied rows → resolve the student email from
+ * verification_records → validate the reply → atomically claim the
+ * feedback → send through Brevo → finalize the claim + reply metadata in
+ * ONE database transaction.
  *
  * Failure contract:
- *   - Brevo unavailable / invalid recipient: the row is unchanged, the
- *     admin sees the failure (502 / 422).
- *   - Brevo accepted but the persist failed: the email is already out
- *     and cannot be unsent — the route returns emailSent:true with a
- *     do-not-blindly-retry message instead of an ambiguous error, so a
- *     retry does not silently double-send. (Documented Step 3
- *     limitation: no queue/idempotency layer is built here.)
- *   - The reply audit event is best-effort for the same reason: failing
- *     the whole operation on an audit outage would invite a resend of an
- *     already-delivered email. The gap is covered by server-side logs.
+ *   - Resolved feedback, an existing reply, or a concurrent in-flight
+ *     claim is refused with 409 BEFORE any provider call.
+ *   - Definite Brevo failure (config, 4xx, 5xx response): the claim is
+ *     RELEASED and the admin sees a 502; a retry is safe.
+ *   - Ambiguous provider outcome (timeout/network): the claim is kept
+ *     UNCONFIRMED, never auto-released, so a retry cannot silently
+ *     double-send. Recovery requires the explicit recover route after
+ *     checking the provider.
+ *   - Brevo accepted but finalization failed: the email is already out;
+ *     the claim remains SENDING with the reply body durably stored so the
+ *     recover route can record it without sending again. The response
+ *     says emailSent:true + persistPending:true.
+ *   - The reply audit event is best-effort: failing the whole operation
+ *     on an audit outage would invite a resend of an already-delivered
+ *     email. The gap is covered by server-side logs.
  *
  * Replying never resolves: status is untouched here.
  */
@@ -93,6 +102,12 @@ export async function POST(req: Request) {
     category: string;
     status: string;
   };
+  if (row.status !== "OPEN") {
+    return NextResponse.json(
+      { error: "This feedback is resolved — reply not sent." },
+      { status: 409 },
+    );
+  }
 
   // Resolve the recipient from the trusted onboarding email record —
   // never client input, never the internal sign-in identity.
@@ -129,40 +144,91 @@ export async function POST(req: Request) {
       ? ((prof as { username: string }).username ?? null)
       : null;
 
+  // Idempotency gate: one atomic claim per feedback. The reply body and
+  // server-derived admin id are stored with the claim itself, so a
+  // provider-success/database-failure can be recovered without resending.
+  const claimToken = randomUUID();
+  const { data: claimData, error: claimError } = await service.rpc(
+    "admin_claim_feedback_reply",
+    {
+      p_feedback_id: row.id,
+      p_claim_token: claimToken,
+      p_reply_body: cleanReply,
+      p_replied_by: gate.userId,
+    },
+  );
+  if (claimError) {
+    if (claimError.code === "02000") {
+      return NextResponse.json({ error: "Feedback not found." }, { status: 404 });
+    }
+    if (claimError.code === "42501") {
+      return NextResponse.json({ error: GENERIC }, { status: 403 });
+    }
+    return NextResponse.json({ error: "Could not start the reply." }, { status: 500 });
+  }
+  const claim = claimData as { ok?: unknown; reason?: unknown } | null;
+  if (claim?.ok !== true) {
+    const failure = claimFailureResponse(claim?.reason);
+    return NextResponse.json(
+      { error: failure.error, replyState: failure.reason },
+      { status: failure.status },
+    );
+  }
+
   const sent = await sendFeedbackReplyEmail({
     to: recipient.trim(),
     username,
     replyBody: cleanReply,
   });
   if (sent.kind !== "success") {
-    // Nothing persisted: the row is unchanged and a retry is safe.
-    const msg =
-      sent.kind === "config_error"
-        ? "Email is not configured — reply not sent."
-        : "Could not send the reply. Nothing was recorded — try again.";
-    return NextResponse.json({ error: msg }, { status: 502 });
+    const plan = providerFailurePlan(sent);
+    const { data: settled } = await service.rpc(
+      "admin_settle_feedback_reply_claim",
+      {
+        p_feedback_id: row.id,
+        p_claim_token: claimToken,
+        p_state: plan.settle,
+        p_last_error:
+          plan.settle === "UNCONFIRMED"
+            ? `unconfirmed: ${sent.detail}`.slice(0, 500)
+            : `${sent.kind}: ${sent.detail}`.slice(0, 500),
+      },
+    );
+    if ((settled as { ok?: unknown } | null)?.ok !== true) {
+      console.error("[inside] feedback reply claim could not be settled");
+    }
+    return NextResponse.json(
+      {
+        error: plan.error,
+        emailSent: plan.emailSent,
+        ...(plan.unconfirmed ? { unconfirmed: true } : {}),
+      },
+      { status: plan.status },
+    );
   }
 
-  // Persist reply metadata only after Brevo accepted the message.
-  const { error: persistError } = await service
-    .from("feedback")
-    .update({
-      admin_reply: cleanReply,
-      replied_at: new Date().toISOString(),
-      replied_by: gate.userId,
-      brevo_message_id: sent.providerMessageId || null,
-    })
-    .eq("id", row.id);
-  if (persistError) {
+  // Provider accepted the message. Finalize the claim and the feedback
+  // reply metadata in ONE transaction; if this fails, the stored claim is
+  // the recovery source and no resend is required.
+  const { data: finalized, error: finalizeError } = await service.rpc(
+    "admin_finalize_feedback_reply",
+    {
+      p_feedback_id: row.id,
+      p_claim_token: claimToken,
+      p_provider_message_id: sent.providerMessageId || null,
+    },
+  );
+  if (finalizeError || (finalized as { ok?: unknown } | null)?.ok !== true) {
     // The email is already delivered and cannot be unsent: say so
     // explicitly (emailSent:true) instead of an ambiguous error that
-    // invites a double-send. The admin checks the row before resending.
+    // invites a double-send. The stored claim blocks blind retries.
     console.error("[inside] feedback reply sent but not recorded");
     return NextResponse.json(
       {
         error:
-          "The email was sent but recording it failed — check the feedback row before resending.",
+          "The email was sent but recording it failed — check the feedback row before recovering.",
         emailSent: true,
+        persistPending: true,
       },
       { status: 500 },
     );

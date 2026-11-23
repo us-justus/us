@@ -1,6 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
+import {
+  COMPENSATION_FALLBACK_REASON,
+  cleanSuspensionReason,
+  moderationCompensationArgs,
+  parseReportModeration,
+} from "./report-moderation.ts";
 
 /**
  * Static regression guards for `/inside` Step 3 (students + moderation).
@@ -362,11 +368,83 @@ describe("inside step 3 — validation and response hygiene", () => {
     assert.ok(!moderateBody.includes('.from("profiles").update('));
     const resolveBody = code(src(RESOLVE_ROUTE));
     assert.ok(resolveBody.includes("createServiceRoleClient"));
-    // The import line also names it — inspect the usage, not the import.
-    const i = resolveBody.lastIndexOf("createServiceRoleClient");
     assert.ok(
-      resolveBody.slice(Math.max(0, i - 400), i).includes("restoring previous state"),
-      "service-role in resolve must serve compensation only",
+      resolveBody.includes("suspension_reason"),
+      "restore compensation must read the pre-restore reason",
     );
+    assert.ok(
+      resolveBody.includes('.from("reports").update('),
+      "service-role must serve report compensation",
+    );
+  });
+});
+
+describe("report resolution — moderation reason + compensation behavior", () => {
+  it("parses omitted/suspend/restore and rejects other values", () => {
+    assert.deepEqual(parseReportModeration(undefined), {
+      ok: true,
+      mode: null,
+    });
+    assert.deepEqual(parseReportModeration("suspend"), {
+      ok: true,
+      mode: "suspend",
+    });
+    assert.deepEqual(parseReportModeration("restore"), {
+      ok: true,
+      mode: "restore",
+    });
+    const bad = parseReportModeration("ban");
+    assert.equal(bad.ok, false);
+  });
+
+  it("cleans and bounds the reason", () => {
+    assert.equal(cleanSuspensionReason("  unsafe  ", 280), "unsafe");
+    assert.equal(cleanSuspensionReason("   ", 280), null);
+    assert.equal(cleanSuspensionReason(null, 280), null);
+    assert.equal(cleanSuspensionReason("abcdef", 3), "abc");
+  });
+
+  it("re-suspends with the PRE-restore reason when undoing a restore", () => {
+    assert.deepEqual(
+      moderationCompensationArgs({
+        previousActive: false,
+        priorReason: "harassment",
+        suspendReason: null,
+      }),
+      { p_active: false, p_reason: "harassment" },
+    );
+  });
+
+  it("restores active state without inventing a reason", () => {
+    assert.deepEqual(
+      moderationCompensationArgs({
+        previousActive: true,
+        priorReason: null,
+        suspendReason: "note",
+      }),
+      { p_active: true },
+    );
+  });
+
+  it("falls back to an explicit suspend reason only when provided", () => {
+    assert.deepEqual(
+      moderationCompensationArgs({
+        previousActive: false,
+        priorReason: null,
+        suspendReason: "explicit",
+      }),
+      { p_active: false, p_reason: "explicit" },
+    );
+  });
+
+  it("still re-suspends when the prior reason was missing", () => {
+    const args = moderationCompensationArgs({
+      previousActive: false,
+      priorReason: null,
+      suspendReason: null,
+    });
+    assert.equal(args.p_active, false);
+    assert.ok(args.p_reason && args.p_reason.length > 0);
+    assert.equal(args.p_reason, COMPENSATION_FALLBACK_REASON);
   });
 });

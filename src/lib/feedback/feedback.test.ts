@@ -44,6 +44,8 @@ const LIST_ROUTE = "src/app/api/inside/feedback/route.ts";
 const REPLY_ROUTE = "src/app/api/inside/feedback/reply/route.ts";
 const RESOLVE_ROUTE = "src/app/api/inside/feedback/resolve/route.ts";
 const GRANTS_MIG = "supabase/migrations/20261027000001_feedback_service_role_grants.sql";
+const CLAIMS_MIG = "supabase/migrations/20261124000001_issue14_feedback_reply_claims.sql";
+const RECOVER_ROUTE = "src/app/api/inside/feedback/reply/recover/route.ts";
 
 /** Comma-separated SQL column list → sorted names. */
 function columnsOf(body: string, statement: RegExp): string[] {
@@ -254,12 +256,13 @@ describe("feedback — service-role grants (production 42501 regression)", () =>
     for (const col of lookup.split(",").map((c) => c.trim())) {
       assert.ok(selectCols.includes(col), `reply lookup reads ungranted column ${col}`);
     }
-    // Reply persist payload must be fully covered by the column UPDATE grant.
-    const persistAt = reply.indexOf(".update({");
-    assert.ok(persistAt >= 0);
-    const persist = reply.slice(persistAt, reply.indexOf("})", persistAt));
+    // Reply finalization is a service-role-only RPC that writes the same
+    // four columns atomically with the claim transition.
+    const finalizeAt = reply.indexOf("admin_finalize_feedback_reply");
+    assert.ok(finalizeAt >= 0, "reply must finalize through the atomic RPC");
+    const claims = code(src(CLAIMS_MIG));
     for (const col of ["admin_reply", "replied_at", "replied_by", "brevo_message_id"]) {
-      assert.ok(persist.includes(col), `reply persist must record ${col}`);
+      assert.ok(claims.includes(col), `reply finalize must record ${col}`);
       assert.ok(updateCols.includes(col), `reply persist writes ungranted column ${col}`);
     }
   });
@@ -437,25 +440,61 @@ describe("feedback — reply flow (recipient, order, failure behavior)", () => {
     assert.ok(!body.includes("u-") || body.indexOf("isInternalEmail") < sendAt, "internal check must precede the send");
   });
 
-  it("send happens before persist (row unchanged when Brevo fails)", () => {
+  it("claims before send and finalizes only after provider success", () => {
     const body = code(src(REPLY_ROUTE));
+    const claimAt = body.indexOf("admin_claim_feedback_reply");
     const sendAt = body.indexOf("await sendFeedbackReplyEmail(");
-    assert.ok(sendAt >= 0, "must send through Brevo");
-    // The persist is the UPDATE after the send (the earlier .from("feedback")
-    // is the pre-send load) — anchor on the update, not the first select.
-    const persistAt = body.indexOf(".update({", sendAt);
-    assert.ok(persistAt > sendAt, "persist must run only after the send");
-    const failBlock = body.slice(sendAt, persistAt + 200);
-    assert.ok(failBlock.includes("status: 502"), "Brevo failure must surface a 502 with nothing persisted");
-    assert.ok(body.includes("emailSent: true"), "post-send persist failure must flag the delivered email");
+    const finalizeAt = body.indexOf("admin_finalize_feedback_reply");
+    assert.ok(claimAt >= 0, "must atomically claim before sending");
+    assert.ok(sendAt > claimAt, "claim must precede the Brevo call");
+    assert.ok(finalizeAt > sendAt, "finalize/persist must run only after the send");
+    const failBlock = body.slice(sendAt, finalizeAt);
+    assert.ok(failBlock.includes("providerFailurePlan"), "Brevo failures must use the safe settlement plan");
+    assert.ok(failBlock.includes("status: plan.status"), "Brevo failures must return the planned status");
+    assert.ok(failBlock.includes("admin_settle_feedback_reply_claim"), "failed provider calls must settle the claim");
+    assert.ok(body.includes("emailSent: true"), "post-send finalize failure must flag the delivered email");
+    assert.ok(body.includes("persistPending: true"), "post-send finalize failure must expose recovery state");
   });
 
-  it("persists reply metadata including the provider message id", () => {
+  it("stores the replier + reply body on the claim, never in the request", () => {
     const body = code(src(REPLY_ROUTE));
-    for (const f of ["admin_reply", "replied_at", "replied_by", "brevo_message_id"]) {
-      assert.ok(body.includes(f), `persist must record ${f}`);
+    assert.ok(body.includes("p_replied_by: gate.userId"), "replier comes from the admin gate");
+    assert.ok(body.includes("p_reply_body: cleanReply"), "claim stores the intended reply body");
+    assert.ok(!body.includes("recipient_email"), "no client recipient field");
+    const claims = code(src(CLAIMS_MIG));
+    for (const f of ["reply_body", "replied_by", "claim_token", "provider_message_id"]) {
+      assert.ok(claims.includes(f), `claim must store ${f}`);
     }
-    assert.ok(body.includes("replied_by: gate.userId"), "replier comes from the admin gate");
+  });
+
+  it("refuses resolved, already-replied, and concurrent duplicate sends", () => {
+    const body = code(src(REPLY_ROUTE));
+    assert.ok(body.includes('row.status !== "OPEN"'), "resolved feedback must be refused");
+    assert.ok(body.includes("claimFailureResponse"), "claim failures map to explicit 409s");
+    assert.ok(body.includes("replyState"), "client receives the claim state");
+    const claims = code(src(CLAIMS_MIG));
+    assert.ok(claims.includes("for update"), "claim must serialize per feedback row");
+    assert.ok(claims.includes("'in_progress'"), "concurrent claims must be refused");
+    assert.ok(claims.includes("'already_replied'"), "existing replies must be refused");
+    assert.ok(claims.includes("'resolved'"), "resolved feedback must be refused in SQL");
+  });
+
+  it("keeps ambiguous provider outcomes out of automatic retry", () => {
+    const body = code(src(REPLY_ROUTE));
+    assert.ok(body.includes("providerFailurePlan"), "provider failures must use the safe settlement plan");
+    assert.ok(body.includes("UNCONFIRMED"), "ambiguous outcomes stay unconfirmed");
+    const claims = code(src(CLAIMS_MIG));
+    assert.ok(claims.includes("UNCONFIRMED"), "claim state must represent uncertainty");
+    assert.ok(claims.includes("no automatic resend"), "unconfirmed claims are never auto-reclaimed");
+  });
+
+  it("provides explicit recovery without calling the provider", () => {
+    const body = code(src(RECOVER_ROUTE));
+    assert.ok(body.includes("requireInsideAdmin()"), "recovery is admin-only");
+    assert.ok(body.includes("verifySameOrigin"), "recovery is origin-protected");
+    assert.ok(body.includes("admin_recover_feedback_reply"), "recovery uses the service-role RPC");
+    assert.ok(!body.includes("sendFeedbackReplyEmail"), "recovery must never resend");
+    assert.ok(body.includes('outcome !== "sent" && outcome !== "not_sent"'), "outcome must be explicit");
   });
 
   it("reply audit is best-effort (a delivered email is never failed for audit)", () => {

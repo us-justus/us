@@ -15,6 +15,7 @@ const ROOT = new URL("../../../", import.meta.url);
 const SEND_MIGRATION = "supabase/migrations/20261018000001_waitlist_email_send.sql";
 const PREPARE_MIGRATION = "supabase/migrations/20261017000001_email_queue_audience_consistency.sql";
 const SEND_ROUTE = "src/app/api/inside/email-queue/send/route.ts";
+const SEND_RUNNER = "src/lib/inside/email-queue-send-runner.ts";
 const PREPARE_ROUTE = "src/app/api/inside/email-queue/route.ts";
 const SENDER = "src/lib/inside/waitlist-email.ts";
 const CLIENT = "src/app/inside/inside-client.tsx";
@@ -213,9 +214,11 @@ describe("waitlist send — race-safe idempotency and partial failure", () => {
 
   it("never resends SENT rows and never rolls back successes", () => {
     const body = code(src(SEND_ROUTE));
+    const runner = code(src(SEND_RUNNER));
     assert.ok(body.includes('["PENDING", "SENDING", "FAILED"]'), "SENT rows are never candidates");
-    assert.ok(body.includes("isRetryableFailed"), "only temporary FAILED rows are retryable");
-    assert.ok(body.includes("isStaleSending"), "stale SENDING claims recover crashes");
+    assert.ok(runner.includes("isRetryableFailed"), "only temporary FAILED rows are retryable");
+    assert.ok(runner.includes("isStaleSending"), "stale SENDING claims recover crashes");
+    assert.ok(runner.includes("isUnconfirmedSending"), "unconfirmed provider successes are excluded");
     assert.ok(!/rollback/i.test(body), "successful sends are never rolled back");
     assert.ok(body.includes('.eq("status", "SENDING")'), "final transitions only leave SENDING");
   });
@@ -229,6 +232,7 @@ describe("waitlist send — race-safe idempotency and partial failure", () => {
     assert.ok(body.includes("temporary:"), "temporary failures stay retryable with backoff");
     assert.ok(body.includes("permanent:"), "permanent rejections are terminal");
     assert.ok(body.includes("attempted") && body.includes("remaining"), "result reports attempted and remaining");
+    assert.ok(body.includes("unrecorded"), "result reports unpersisted terminal updates");
   });
 });
 
@@ -238,7 +242,7 @@ describe("waitlist send — audit hygiene", () => {
     assert.ok(body.includes('recordInsideAuditEvent("WAITLIST_EMAIL_SENT"'), "send is audited");
     const auditAt = body.indexOf('recordInsideAuditEvent("WAITLIST_EMAIL_SENT"');
     const auditBlock = body.slice(auditAt, auditAt + 400);
-    for (const field of ["attempted", "sent", "failed", "skipped"]) {
+    for (const field of ["attempted", "sent", "failed", "skipped", "unrecorded"]) {
       assert.ok(auditBlock.includes(field), `audit metadata has ${field}`);
     }
     // Scope to the metadata object literal: only aggregate counters may
@@ -278,7 +282,7 @@ describe("waitlist send — confirmation UX", () => {
     assert.ok(section.includes("disabled={sending"), "duplicate sends are disabled");
     assert.ok(section.includes("Email sent."), "full success is reported");
     assert.ok(section.includes("Email partially sent."), "partial success is reported");
-    for (const field of ["attempted", "sent", "failed", "skipped", "remaining"]) {
+    for (const field of ["attempted", "sent", "failed", "skipped", "unrecorded", "remaining"]) {
       assert.ok(section.includes(`sendResult.${field}`), `result shows ${field}`);
     }
   });

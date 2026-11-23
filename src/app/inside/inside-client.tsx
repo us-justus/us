@@ -243,6 +243,7 @@ type EmailQueueSendResult = {
   sent: number;
   failed: number;
   skipped: number;
+  unrecorded: number;
   remaining: number;
 };
 
@@ -386,6 +387,7 @@ function EmailQueuePanel() {
         sent: result.sent,
         failed: result.failed,
         skipped: result.skipped,
+        unrecorded: result.unrecorded,
         remaining: result.remaining,
       });
       setSendConfirming(false);
@@ -695,7 +697,9 @@ function EmailQueuePanel() {
               aria-live="polite"
             >
               <p className="text-[13px] text-ink">
-                {sendResult.failed === 0 && sendResult.skipped === 0
+                {sendResult.failed === 0 &&
+                sendResult.skipped === 0 &&
+                sendResult.unrecorded === 0
                   ? "✓ Email sent."
                   : "Email partially sent."}
               </p>
@@ -703,8 +707,11 @@ function EmailQueuePanel() {
                 {sendResult.attempted.toLocaleString()} attempted ·{" "}
                 {sendResult.sent.toLocaleString()} sent ·{" "}
                 {sendResult.failed.toLocaleString()} failed ·{" "}
-                {sendResult.skipped.toLocaleString()} skipped ·{" "}
-                {sendResult.remaining.toLocaleString()} remaining
+                {sendResult.skipped.toLocaleString()} skipped
+                {sendResult.unrecorded > 0
+                  ? ` · ${sendResult.unrecorded.toLocaleString()} unrecorded`
+                  : ""}{" "}
+                · {sendResult.remaining.toLocaleString()} remaining
               </p>
               {queueFullySent && (
                 <p className="mt-1 text-[12px] leading-5 text-ink-soft">
@@ -1588,10 +1595,19 @@ function FeedbackPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ feedbackId: f.id, replyBody: reply.trim() }),
       });
-      const j = (await res.json().catch(() => null)) as { error?: unknown; emailSent?: unknown } | null;
+      const j = (await res.json().catch(() => null)) as {
+        error?: unknown;
+        emailSent?: unknown;
+        unconfirmed?: unknown;
+      } | null;
       if (!res.ok) {
         const errMsg: unknown = j?.error;
-        const suffix = j?.emailSent === true ? " (the email went out — check the row before resending)" : "";
+        const suffix =
+          j?.emailSent === true
+            ? " (the email went out — check the row before recovering)"
+            : j?.unconfirmed === true
+              ? " (delivery could not be confirmed — check before retrying)"
+              : "";
         throw new Error(`${typeof errMsg === "string" && errMsg ? errMsg : "Could not send the reply."}${suffix}`);
       }
       setRows((prev) =>
@@ -1777,7 +1793,7 @@ function FeedbackPanel() {
                         </div>
                       )}
 
-                      {f.status !== "RESOLVED" && (
+                      {f.status !== "RESOLVED" && !f.admin_reply && (
                         <>
                           <label
                             htmlFor={`feedback-reply-${f.id}`}
@@ -1793,7 +1809,11 @@ function FeedbackPanel() {
                             placeholder="write to the student…"
                             className="mt-2 w-full resize-y rounded-2xl border border-line bg-paper px-4 py-3 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft"
                           />
-                          <div className="mt-3 flex flex-wrap gap-2">
+                        </>
+                      )}
+                      {f.status !== "RESOLVED" && (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {!f.admin_reply && (
                             <button
                               type="button"
                               onClick={() => void sendReply(f)}
@@ -1802,16 +1822,16 @@ function FeedbackPanel() {
                             >
                               {acting === `reply:${f.id}` ? "sending…" : "reply by email"}
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => void resolve(f)}
-                              disabled={acting !== null}
-                              className="inline-flex min-h-[44px] items-center rounded-full border border-line px-5 py-2 text-[12px] uppercase tracking-[0.12em] text-ink-soft transition-colors hover:border-accent-soft hover:bg-accent-wash hover:text-accent-deep disabled:opacity-40"
-                            >
-                              {acting === `resolve:${f.id}` ? "…" : "resolve"}
-                            </button>
-                          </div>
-                        </>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => void resolve(f)}
+                            disabled={acting !== null}
+                            className="inline-flex min-h-[44px] items-center rounded-full border border-line px-5 py-2 text-[12px] uppercase tracking-[0.12em] text-ink-soft transition-colors hover:border-accent-soft hover:bg-accent-wash hover:text-accent-deep disabled:opacity-40"
+                          >
+                            {acting === `resolve:${f.id}` ? "…" : "resolve"}
+                          </button>
+                        </div>
                       )}
                     </div>
                   )}
