@@ -58,7 +58,7 @@ create or replace function public.admin_claim_feedback_reply(
 returns jsonb
 language plpgsql
 security definer
-set search_path = pg_catalog, public, auth, pg_temp
+set search_path = public, auth, pg_temp
 as $$
 declare
   v_status text;
@@ -144,7 +144,7 @@ create or replace function public.admin_finalize_feedback_reply(
 returns jsonb
 language plpgsql
 security definer
-set search_path = pg_catalog, public, auth, pg_temp
+set search_path = public, auth, pg_temp
 as $$
 declare
   v_body text;
@@ -212,7 +212,7 @@ create or replace function public.admin_settle_feedback_reply_claim(
 returns jsonb
 language plpgsql
 security definer
-set search_path = pg_catalog, public, auth, pg_temp
+set search_path = public, auth, pg_temp
 as $$
 begin
   if not exists (select 1 from public.admin_users where user_id = p_actor_id) then
@@ -252,7 +252,7 @@ create or replace function public.admin_recover_feedback_reply(
 returns jsonb
 language plpgsql
 security definer
-set search_path = pg_catalog, public, auth, pg_temp
+set search_path = public, auth, pg_temp
 as $$
 declare
   v_state text;
