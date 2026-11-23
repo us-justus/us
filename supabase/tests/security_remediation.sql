@@ -74,14 +74,14 @@ select ok(
 );
 
 -- Least privilege (2026-11-22 tightening): admin RPCs are service-role only.
-select ok(has_function_privilege('anon', 'public.admin_list_reports(text, integer, integer)', 'EXECUTE') = false, 'anon cannot list reports');
-select ok(has_function_privilege('authenticated', 'public.admin_list_reports(text, integer, integer)', 'EXECUTE') = false, 'authenticated cannot list reports');
-select ok(has_function_privilege('service_role', 'public.admin_list_reports(text, integer, integer)', 'EXECUTE') = true, 'service_role can list reports');
-select ok(has_function_privilege('anon', 'public.admin_resolve_report(uuid, text)', 'EXECUTE') = false, 'anon cannot resolve reports');
-select ok(has_function_privilege('authenticated', 'public.admin_resolve_report(uuid, text)', 'EXECUTE') = false, 'authenticated cannot resolve reports');
-select ok(has_function_privilege('service_role', 'public.admin_resolve_report(uuid, text)', 'EXECUTE') = true, 'service_role can resolve reports');
-select ok(has_function_privilege('authenticated', 'public.admin_overview_counts()', 'EXECUTE') = false, 'authenticated cannot call admin overview counts');
-select ok(has_function_privilege('service_role', 'public.admin_overview_counts()', 'EXECUTE') = true, 'service_role can call admin overview counts');
+select ok(has_function_privilege('anon', 'public.admin_list_reports(uuid, text, integer, integer)', 'EXECUTE') = false, 'anon cannot list reports');
+select ok(has_function_privilege('authenticated', 'public.admin_list_reports(uuid, text, integer, integer)', 'EXECUTE') = false, 'authenticated cannot list reports');
+select ok(has_function_privilege('service_role', 'public.admin_list_reports(uuid, text, integer, integer)', 'EXECUTE') = true, 'service_role can list reports');
+select ok(has_function_privilege('anon', 'public.admin_resolve_report(uuid, text, uuid)', 'EXECUTE') = false, 'anon cannot resolve reports');
+select ok(has_function_privilege('authenticated', 'public.admin_resolve_report(uuid, text, uuid)', 'EXECUTE') = false, 'authenticated cannot resolve reports');
+select ok(has_function_privilege('service_role', 'public.admin_resolve_report(uuid, text, uuid)', 'EXECUTE') = true, 'service_role can resolve reports');
+select ok(has_function_privilege('authenticated', 'public.admin_overview_counts(uuid)', 'EXECUTE') = false, 'authenticated cannot call admin overview counts');
+select ok(has_function_privilege('service_role', 'public.admin_overview_counts(uuid)', 'EXECUTE') = true, 'service_role can call admin overview counts');
 select ok(has_function_privilege('anon', 'public.get_or_create_invite()', 'EXECUTE') = false, 'anon cannot create invites');
 select ok(has_function_privilege('authenticated', 'public.get_or_create_invite()', 'EXECUTE') = true, 'authenticated can create invites');
 select ok(has_function_privilege('anon', 'public.mark_chat_seen(uuid)', 'EXECUTE') = false, 'anon cannot mark chat seen');
