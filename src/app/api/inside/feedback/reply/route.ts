@@ -5,6 +5,7 @@ import { requireInsideAdmin } from "@/lib/inside/auth";
 import { recordInsideAuditEvent } from "@/lib/inside/audit";
 import { verifySameOrigin } from "@/lib/inside/origin";
 import { insideMutationRateLimit } from "@/lib/inside/mutation-rate-limit";
+import { readJsonBounded } from "@/lib/http/read-json-bounded";
 import { validateFeedbackReply } from "@/lib/feedback/constants";
 import { sendFeedbackReplyEmail } from "@/lib/feedback/reply-email";
 import { isInternalEmail } from "@/lib/auth/internal-email";
@@ -63,7 +64,9 @@ export async function POST(req: Request) {
   const rate = await insideMutationRateLimit(req, gate.userId);
   if (!rate.allowed) return NextResponse.json({ error: GENERIC }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds ?? 60) } });
 
-  const { feedbackId, replyBody } = (await req.json().catch(() => ({}))) as {
+  const parsed = await readJsonBounded<Record<string, unknown>>(req, 16_384);
+  if (!parsed) return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+  const { feedbackId, replyBody } = parsed as {
     feedbackId?: unknown;
     replyBody?: unknown;
   };

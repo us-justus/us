@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { requireInsideAdmin } from "@/lib/inside/auth";
 import { recordInsideAuditEvent } from "@/lib/inside/audit";
 import { verifySameOrigin } from "@/lib/inside/origin";
+import { readJsonBounded } from "@/lib/http/read-json-bounded";
 import { insideMutationRateLimit } from "@/lib/inside/mutation-rate-limit";
 import { SUSPENSION_REASON_MAX, validateSuspensionReason } from "@/lib/auth/suspension";
 import {
@@ -50,7 +50,9 @@ export async function POST(req: Request) {
   const rate = await insideMutationRateLimit(req, gate.userId);
   if (!rate.allowed) return NextResponse.json({ error: GENERIC }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds ?? 60) } });
 
-  const { reportId, resolution, moderate, reason } = (await req.json().catch(() => ({}))) as {
+  const parsed = await readJsonBounded<Record<string, unknown>>(req, 16_384);
+  if (!parsed) return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+  const { reportId, resolution, moderate, reason } = parsed as {
     reportId?: unknown;
     resolution?: unknown;
     moderate?: unknown;
@@ -78,8 +80,9 @@ export async function POST(req: Request) {
     }
   }
 
-  const supabase = await createClient();
+  const supabase = createServiceRoleClient();
   const { data, error } = await supabase.rpc("admin_resolve_report", {
+    p_actor_id: gate.userId,
     p_report_id: reportId,
     p_resolution: resolution,
   });
@@ -152,9 +155,10 @@ export async function POST(req: Request) {
     } catch {}
   }
   const { data: modData, error: modError } = await supabase.rpc("admin_set_student_active", {
+    p_actor_id: gate.userId,
     p_target_user_id: row.reported_id,
     p_active: wantActive,
-    ...(cleanReason && !wantActive ? { p_reason: cleanReason } : {}),
+    p_reason: cleanReason && !wantActive ? cleanReason : null,
   });
   if (modError) {
     if (modError.code === "22000") {
@@ -194,12 +198,18 @@ export async function POST(req: Request) {
       console.error("[inside] report moderation audit failed; restoring previous state");
       try {
         await supabase.rpc("admin_set_student_active", {
+          p_actor_id: gate.userId,
           p_target_user_id: mod.user_id,
           ...moderationCompensationArgs({
             previousActive: mod.previous_active,
             priorReason,
             suspendReason: wantActive ? null : cleanReason,
           }),
+          p_reason: moderationCompensationArgs({
+            previousActive: mod.previous_active,
+            priorReason,
+            suspendReason: wantActive ? null : cleanReason,
+          }).p_reason ?? null,
         });
       } catch {}
       return NextResponse.json({ error: "Could not update the reported student." }, { status: 500 });

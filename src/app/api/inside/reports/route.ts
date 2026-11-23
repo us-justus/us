@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { requireInsideAdmin } from "@/lib/inside/auth";
 
 /**
@@ -16,6 +16,7 @@ import { requireInsideAdmin } from "@/lib/inside/auth";
  * or auth internals.
  */
 const GENERIC = "Not available.";
+const REPORT_STATUSES = new Set(["unresolved", "pending", "reviewed", "resolved", "dismissed", "all"]);
 
 export async function GET(req: Request) {
   const gate = await requireInsideAdmin();
@@ -23,12 +24,14 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const status = url.searchParams.get("status") ?? "unresolved";
+  if (!REPORT_STATUSES.has(status)) return NextResponse.json({ error: "Unsupported report status." }, { status: 400 });
   const limit = Number(url.searchParams.get("limit") ?? "20");
   const offset = Number(url.searchParams.get("offset") ?? "0");
 
-  const supabase = await createClient();
+  const supabase = createServiceRoleClient();
   const { data, error } = await supabase.rpc("admin_list_reports", {
-    p_status: status.slice(0, 20),
+    p_actor_id: gate.userId,
+    p_status: status,
     p_limit: Number.isFinite(limit) ? Math.trunc(limit) : 20,
     p_offset: Number.isFinite(offset) ? Math.trunc(offset) : 0,
   });

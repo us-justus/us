@@ -1,10 +1,10 @@
 -- Issue #14 feedback reply claim authorization behavior.
 -- The RPCs intentionally remain service_role-only. The service-role test
--- context below carries a JWT subject so is_admin() evaluates the caller.
+-- context below passes the server-verified actor explicitly.
 create extension if not exists pgtap;
 
 begin;
-select plan(20);
+select plan(19);
 
 -- Isolated users and feedback rows. The enclosing transaction rolls all of
 -- this back, including admin membership changes.
@@ -23,21 +23,14 @@ values
   ('cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid, '22222222-2222-2222-2222-222222222222'::uuid, 'OTHER', 'issue14 recover'),
   ('dddddddd-dddd-dddd-dddd-dddddddddddd'::uuid, '22222222-2222-2222-2222-222222222222'::uuid, 'OTHER', 'issue14 revoke');
 
--- Non-admin JWT subject is denied by the claim RPC, despite service-role
--- transport. This tests the database authorization boundary, not SQL text.
+-- Service-role transport does not identify the web-session actor. Authorization
+-- therefore depends on the explicit server-verified actor membership.
 set local role service_role;
-select set_config('request.jwt.claim.sub', '22222222-2222-2222-2222-222222222222', true);
 select throws_ok(
   $$select public.admin_claim_feedback_reply('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaa0001', 'reply', '22222222-2222-2222-2222-222222222222')$$,
   '42501', 'not authorized', 'authenticated non-admin cannot claim a reply'
 );
-select throws_ok(
-  $$select public.admin_claim_feedback_reply('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaa0002', 'reply', '11111111-1111-1111-1111-111111111111')$$,
-  '42501', 'not authorized', 'authenticated non-admin cannot claim using another admin actor id'
-);
-
 -- Current admin can claim, finalize, settle, and recover valid claims.
-select set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', true);
 select ok(
   (select public.admin_claim_feedback_reply('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaa0001', 'reply one', '11111111-1111-1111-1111-111111111111')->>'ok') = 'true',
   'current admin can claim a reply'
@@ -67,11 +60,9 @@ select ok(
   'current admin can recover a claim'
 );
 
-select set_config('request.jwt.claim.sub', '22222222-2222-2222-2222-222222222222', true);
 select throws_ok($$select public.admin_finalize_feedback_reply('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaa0001', 'brevo-1', '22222222-2222-2222-2222-222222222222')$$, '42501', 'not authorized', 'non-admin cannot finalize an admin claim');
 select throws_ok($$select public.admin_settle_feedback_reply_claim('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbb0001', 'UNCONFIRMED', 'changed', '22222222-2222-2222-2222-222222222222')$$, '42501', 'not authorized', 'non-admin cannot settle an admin claim');
 select throws_ok($$select public.admin_recover_feedback_reply('cccccccc-cccc-cccc-cccc-cccccccccccc', 'not_sent', '22222222-2222-2222-2222-222222222222')$$, '42501', 'not authorized', 'non-admin cannot recover an admin claim');
-select set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', true);
 select throws_ok($$select public.admin_claim_feedback_reply('dddddddd-dddd-dddd-dddd-dddddddddddd', 'dddddddd-dddd-dddd-dddd-dddddddd0001', 'reply four', '22222222-2222-2222-2222-222222222222')$$, '42501', 'not authorized', 'admin cannot impersonate a mismatched actor id');
 
 -- Revoke the membership and verify every privileged RPC rejects subsequent

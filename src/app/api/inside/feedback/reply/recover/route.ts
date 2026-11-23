@@ -4,6 +4,7 @@ import { requireInsideAdmin } from "@/lib/inside/auth";
 import { recordInsideAuditEvent } from "@/lib/inside/audit";
 import { verifySameOrigin } from "@/lib/inside/origin";
 import { insideMutationRateLimit } from "@/lib/inside/mutation-rate-limit";
+import { readJsonBounded } from "@/lib/http/read-json-bounded";
 
 /**
  * POST /api/inside/feedback/reply/recover — explicit recovery for a reply
@@ -33,7 +34,9 @@ export async function POST(req: Request) {
     );
   }
 
-  const { feedbackId, outcome } = (await req.json().catch(() => ({}))) as {
+  const parsed = await readJsonBounded<Record<string, unknown>>(req, 16_384);
+  if (!parsed) return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+  const { feedbackId, outcome } = parsed as {
     feedbackId?: unknown;
     outcome?: unknown;
   };

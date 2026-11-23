@@ -211,7 +211,8 @@ export async function POST(req: Request) {
   // sufficient — the user must hold a current admin_users membership.
   const { data: admin, error: adminError } = await supabase.rpc("is_admin");
   if (adminError || admin !== true) {
-    await supabase.auth.signOut();
+    // Do not destroy a valid product session when the same account is not an
+    // inside admin. The signed inside cookie is minted only below.
     await auditFailure();
     return NextResponse.json({ error: GENERIC }, { status: 401 });
   }

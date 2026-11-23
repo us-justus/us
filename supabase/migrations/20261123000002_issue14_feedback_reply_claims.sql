@@ -70,14 +70,13 @@ begin
     raise exception 'not authorized' using errcode = '42501';
   end if;
   if p_feedback_id is null or p_claim_token is null or p_actor_id is null then
-    raise exception 'feedback, claim, and replier are required' using errcode = '22000';
+    raise exception 'feedback, claim, and actor are required' using errcode = '22000';
   end if;
   if p_reply_body is null
      or char_length(btrim(p_reply_body)) not between 1 and 2000 then
     raise exception 'invalid reply body' using errcode = '22000';
   end if;
-  if not exists (select 1 from public.admin_users where user_id = p_actor_id)
-     or not public.is_admin() then
+  if not exists (select 1 from public.admin_users where user_id = p_actor_id) then
     raise exception 'not authorized' using errcode = '42501';
   end if;
 
@@ -134,7 +133,7 @@ revoke all on function public.admin_claim_feedback_reply(uuid, uuid, text, uuid)
 grant execute on function public.admin_claim_feedback_reply(uuid, uuid, text, uuid) to service_role;
 
 comment on function public.admin_claim_feedback_reply(uuid, uuid, text, uuid) is
-  'Atomically claim an OPEN feedback row for one email reply. Service-role only; replier must be a current admin_users member; resolved/already-replied/in-progress claims are refused.';
+  'Atomically claim an OPEN feedback row for one email reply. Service-role only; actor must be a current admin_users member; resolved/already-replied/in-progress claims are refused.';
 
 create or replace function public.admin_finalize_feedback_reply(
   p_feedback_id uuid,
@@ -152,8 +151,7 @@ declare
   v_by uuid;
   v_state text;
 begin
-  if not exists (select 1 from public.admin_users where user_id = p_actor_id)
-     or not public.is_admin() then
+  if not exists (select 1 from public.admin_users where user_id = p_actor_id) then
     raise exception 'not authorized' using errcode = '42501';
   end if;
   if p_feedback_id is null or p_claim_token is null then
@@ -217,8 +215,7 @@ security definer
 set search_path = public, auth, pg_temp
 as $$
 begin
-  if not exists (select 1 from public.admin_users where user_id = p_actor_id)
-     or not public.is_admin() then
+  if not exists (select 1 from public.admin_users where user_id = p_actor_id) then
     raise exception 'not authorized' using errcode = '42501';
   end if;
   if p_state is null or p_state not in ('RELEASED', 'UNCONFIRMED') then
@@ -263,8 +260,7 @@ declare
   v_by uuid;
   v_provider text;
 begin
-  if not exists (select 1 from public.admin_users where user_id = p_actor_id)
-     or not public.is_admin() then
+  if not exists (select 1 from public.admin_users where user_id = p_actor_id) then
     raise exception 'not authorized' using errcode = '42501';
   end if;
   if p_outcome is null or p_outcome not in ('sent', 'not_sent') then

@@ -126,17 +126,16 @@ describe("waitlist email queue audience and snapshot", () => {
 });
 
 describe("waitlist email queue admin API", () => {
-  it("returns the database audience and rejects inconsistent count/snapshot shapes", () => {
+  it("returns bounded queue counts without exposing the database audience", () => {
     assert.ok(existsSync(new URL(API, ROOT)));
     const api = code(src(API)).replace(/\s+/g, " ");
     assert.equal((api.match(/requireInsideAdmin\(\)/g) ?? []).length, 2);
     assert.ok(api.includes("verifySameOrigin(req)"));
     assert.ok(api.includes('rpc( "admin_waitlist_email_queue_summary"'));
     assert.ok(api.includes('rpc( "admin_prepare_waitlist_email_queue"'));
-    assert.ok(api.includes("isAudienceStudents(summary.students, summary.waitingStudentCount)"));
-    assert.ok(api.includes("isRecipientSnapshot(result.recipients, result.uniqueRecipientCount)"));
     assert.ok(api.includes("result.addedCount + result.alreadyPreparedCount !== result.uniqueRecipientCount"));
-    assert.ok(api.includes("new Set(value).size === count"));
+    assert.ok(!api.includes("summary.students"));
+    assert.ok(!api.includes("result.recipients"));
     assert.ok(api.includes("status: 403"));
     assert.ok(!/verification_records|email_verification_queue|BREVO|sendFeedbackReplyEmail/i.test(api));
     assert.ok(!api.includes("admin_list_students"));
@@ -146,7 +145,7 @@ describe("waitlist email queue admin API", () => {
     const api = code(src(API));
     assert.ok(api.includes("requireInsideAdmin()"));
     assert.ok(api.includes("verifySameOrigin(req)"));
-    assert.ok(api.includes("summary.students"));
+    assert.ok(api.includes("uniqueRecipientCount"));
     assert.ok(!api.includes("user_id"));
   });
 });
@@ -166,7 +165,7 @@ describe("waitlist email queue UI", () => {
     assert.ok(!section.includes("slice(0, 50)"));
   });
 
-  it("renders the exact server-prepared recipient snapshot and explicit counts", () => {
+  it("renders bounded preparation counts without a recipient snapshot", () => {
     const client = code(src(CLIENT));
     const section = client.slice(
       client.indexOf("function EmailQueuePanel()"),
@@ -181,7 +180,7 @@ describe("waitlist email queue UI", () => {
     ]) {
       assert.ok(section.includes(`preparation.${field}`), `UI consumes server ${field}`);
     }
-    assert.ok(section.includes("preparation.recipients.map((email)"));
+    assert.ok(!section.includes("preparation.recipients.map((email)"));
     assert.ok(!section.includes("student.email?.trim()"));
     assert.ok(!section.includes("new Set("), "the browser must not deduplicate recipients");
     assert.ok(section.includes("No emails were sent."));

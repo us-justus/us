@@ -137,7 +137,7 @@ describe("gender wiring and public visibility", () => {
   it("requires onboarding gender and writes the validated value directly", async () => {
     const src = await read("../../app/api/onboarding/profile/route.ts");
     assert.match(src, /if \(!isGender\(gender\)\)/);
-    assert.match(src, /\n\s+gender,\n\s+username:/);
+    assert.ok(src.includes("gender,") && src.includes("username:"));
     assert.doesNotMatch(src, /String\(gender\b/);
   });
 

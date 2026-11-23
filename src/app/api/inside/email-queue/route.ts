@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { requireInsideAdmin } from "@/lib/inside/auth";
 import { verifySameOrigin } from "@/lib/inside/origin";
 import { insideMutationRateLimit } from "@/lib/inside/mutation-rate-limit";
@@ -10,7 +10,6 @@ type QueueSummary = {
   waitingStudentCount: number;
   uniqueRecipientCount: number;
   skippedCount: number;
-  students: EmailAudienceStudent[];
   pending: number;
   sent: number;
   failed: number;
@@ -19,54 +18,16 @@ type QueueSummary = {
   lastPreparedAt: string | null;
 };
 
-type EmailAudienceStudent = {
-  username: string | null;
-  nickname: string | null;
-  usn: string | null;
-  spot: number | null;
-  email: string;
-};
-
 type EmailQueuePreparation = {
   waitingStudentCount: number;
   uniqueRecipientCount: number;
   addedCount: number;
   alreadyPreparedCount: number;
   skippedCount: number;
-  students: EmailAudienceStudent[];
-  recipients: string[];
 };
 
 function isCount(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0;
-}
-
-function isAudienceStudent(value: unknown): value is EmailAudienceStudent {
-  if (!value || typeof value !== "object") return false;
-  const student = value as Record<string, unknown>;
-  return (
-    (student.username === null || typeof student.username === "string") &&
-    (student.nickname === null || typeof student.nickname === "string") &&
-    (student.usn === null || typeof student.usn === "string") &&
-    (student.spot === null || isCount(student.spot)) &&
-    typeof student.email === "string" &&
-    student.email === student.email.trim().toLowerCase()
-  );
-}
-
-function isAudienceStudents(value: unknown, count: number): value is EmailAudienceStudent[] {
-  return Array.isArray(value) && value.length === count && value.every(isAudienceStudent);
-}
-
-function isRecipientSnapshot(value: unknown, count: number): value is string[] {
-  if (!Array.isArray(value) || value.length !== count) return false;
-  return (
-    value.every(
-      (email) =>
-        typeof email === "string" && email === email.trim().toLowerCase(),
-    ) &&
-    new Set(value).size === count
-  );
 }
 
 function queueRpcError(code?: string) {
@@ -83,9 +44,10 @@ export async function GET() {
   const gate = await requireInsideAdmin();
   if (!gate) return NextResponse.json({ error: GENERIC }, { status: 403 });
 
-  const supabase = await createClient();
+  const supabase = createServiceRoleClient();
   const { data, error } = await supabase.rpc(
     "admin_waitlist_email_queue_summary",
+    { p_actor_id: gate.userId },
   );
   if (error) return queueRpcError(error.code);
 
@@ -96,7 +58,6 @@ export async function GET() {
     !isCount(summary.uniqueRecipientCount) ||
     summary.uniqueRecipientCount > summary.waitingStudentCount ||
     !isCount(summary.skippedCount) ||
-    !isAudienceStudents(summary.students, summary.waitingStudentCount) ||
     !isCount(summary.pending) ||
     !isCount(summary.sent) ||
     !isCount(summary.failed) ||
@@ -123,9 +84,10 @@ export async function POST(req: Request) {
   const rate = await insideMutationRateLimit(req, gate.userId);
   if (!rate.allowed) return NextResponse.json({ error: GENERIC }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds ?? 60) } });
 
-  const supabase = await createClient();
+  const supabase = createServiceRoleClient();
   const { data, error } = await supabase.rpc(
     "admin_prepare_waitlist_email_queue",
+    { p_actor_id: gate.userId },
   );
   if (error) {
     if (error.code === "42501") {
@@ -147,9 +109,7 @@ export async function POST(req: Request) {
     !isCount(result.alreadyPreparedCount) ||
     result.addedCount + result.alreadyPreparedCount !==
       result.uniqueRecipientCount ||
-    !isCount(result.skippedCount) ||
-    !isAudienceStudents(result.students, result.waitingStudentCount) ||
-    !isRecipientSnapshot(result.recipients, result.uniqueRecipientCount)
+     !isCount(result.skippedCount)
   ) {
     return NextResponse.json(
       { error: "Could not prepare the email queue." },
@@ -163,7 +123,5 @@ export async function POST(req: Request) {
     addedCount: result.addedCount,
     alreadyPreparedCount: result.alreadyPreparedCount,
     skippedCount: result.skippedCount,
-    students: result.students,
-    recipients: result.recipients,
   });
 }

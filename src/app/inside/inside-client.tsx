@@ -341,7 +341,11 @@ function EmailQueuePanel() {
             : "Could not prepare the email queue.",
         );
       }
-      const prepared = json as unknown as EmailQueuePreparation;
+       const prepared = {
+         ...(json as unknown as Omit<EmailQueuePreparation, "students" | "recipients">),
+         students: [],
+         recipients: [],
+       } as EmailQueuePreparation;
       setPreparation(prepared);
       setSummary((current) =>
         current
@@ -350,7 +354,7 @@ function EmailQueuePanel() {
               waitingStudentCount: prepared.waitingStudentCount,
               uniqueRecipientCount: prepared.uniqueRecipientCount,
               skippedCount: prepared.skippedCount,
-              students: prepared.students,
+               students: [],
             }
           : current,
       );
@@ -618,21 +622,6 @@ function EmailQueuePanel() {
             {preparation.uniqueRecipientCount.toLocaleString()}{" "}
             {preparation.uniqueRecipientCount === 1 ? "recipient" : "recipients"}
           </p>
-          <p className="mt-4 text-[11px] uppercase tracking-[0.18em] text-ink-faint">
-            recipients
-          </p>
-          <ul className="mt-3 space-y-2">
-            {preparation.recipients.length === 0 ? (
-              <li className="text-[12px] leading-5 text-ink-faint">No recipients prepared.</li>
-            ) : (
-              preparation.recipients.map((email) => (
-                <li key={email} className="text-[12px] leading-5 text-ink-soft">
-                  ✓ {email}
-                </li>
-              ))
-            )}
-          </ul>
-
           <div className="mt-4">
             <label htmlFor="waitlist-subject" className="block text-[11px] uppercase tracking-[0.14em] text-ink-faint">
               subject
@@ -811,7 +800,7 @@ function EmailQueuePanel() {
               type="button"
               className="mt-4"
               onClick={() => setSendConfirming(true)}
-              disabled={sending || preparation.recipients.length === 0}
+              disabled={sending || preparation.uniqueRecipientCount === 0}
               aria-label="send email"
             >
               {sending ? "sending…" : "send email"}
@@ -1523,6 +1512,7 @@ function FeedbackPanel() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [reply, setReply] = useState("");
   const [acting, setActing] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<string | null>(null);
 
   async function load(next: FeedbackFilter) {
     setLoading(true);
@@ -1825,13 +1815,23 @@ function FeedbackPanel() {
                           )}
                           <button
                             type="button"
-                            onClick={() => void resolve(f)}
-                            disabled={acting !== null}
+                           onClick={() => setConfirming(f.id)}
+                           disabled={acting !== null}
                             className="inline-flex min-h-[44px] items-center rounded-full border border-line px-5 py-2 text-[12px] uppercase tracking-[0.12em] text-ink-soft transition-colors hover:border-accent-soft hover:bg-accent-wash hover:text-accent-deep disabled:opacity-40"
                           >
-                            {acting === `resolve:${f.id}` ? "…" : "resolve"}
-                          </button>
-                        </div>
+                             {acting === `resolve:${f.id}` ? "…" : "resolve"}
+                           </button>
+                           {confirming === f.id && (
+                             <div className="basis-full rounded-2xl border border-accent-soft bg-accent-wash px-4 py-3">
+                               <p className="text-[13px] text-ink">Resolve this feedback?</p>
+                               <p className="mt-1 text-[12px] leading-5 text-ink-soft">This removes it from the open inbox.</p>
+                               <div className="mt-3 flex flex-wrap gap-2">
+                                 <Button type="button" variant="ghost" onClick={() => setConfirming(null)} disabled={acting !== null}>cancel</Button>
+                                 <Button type="button" onClick={() => { setConfirming(null); void resolve(f); }} disabled={acting !== null}>confirm resolve</Button>
+                               </div>
+                             </div>
+                           )}
+                         </div>
                       )}
                     </div>
                   )}
@@ -1863,17 +1863,23 @@ type ReportRow = {
 };
 
 function ReportsPanel() {
+  const PAGE_SIZE = 20;
   const [rows, setRows] = useState<ReportRow[]>([]);
   const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [acting, setActing] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<{ id: string; action: "resolved" | "dismissed" } | null>(null);
+  const [suspendId, setSuspendId] = useState<string | null>(null);
+  const [suspendReason, setSuspendReason] = useState("");
 
-  async function load() {
+  async function load(nextPage = 0) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/inside/reports?status=unresolved&limit=20&offset=0");
+      const res = await fetch(`/api/inside/reports?status=unresolved&limit=${PAGE_SIZE}&offset=${nextPage * PAGE_SIZE}`);
       const j = (await res.json().catch(() => null)) as {
         error?: unknown;
         reports?: unknown;
@@ -1887,6 +1893,8 @@ function ReportsPanel() {
       const total = j?.total;
       setRows(Array.isArray(rows) ? (rows as ReportRow[]) : []);
       setTotal(typeof total === "number" ? total : 0);
+      setPage(nextPage);
+      setLoaded(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load reports.");
     } finally {
@@ -1910,6 +1918,7 @@ function ReportsPanel() {
       }
       setRows((prev) => prev.filter((r) => r.id !== report.id));
       setTotal((t) => Math.max(0, t - 1));
+      setConfirming(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not resolve the report.");
     } finally {
@@ -1917,12 +1926,7 @@ function ReportsPanel() {
     }
   }
 
-  async function suspendReported(report: ReportRow) {
-    const label = report.reported_username ? `@${report.reported_username}` : "the reported student";
-    // Suspension requires a reason the student will see — no silent
-    // one-click suspends, even from the report queue.
-    const reason = window.prompt(`Why are you suspending ${label}? They disappear from discover, search, and profiles.`);
-    if (reason === null) return;
+  async function suspendReported(report: ReportRow, reason: string) {
     if (!reason.trim()) {
       setError("Tell the student why they're suspended.");
       return;
@@ -1947,6 +1951,8 @@ function ReportsPanel() {
       setRows((prev) =>
         prev.map((r) => (r.id === report.id ? { ...r, reported_is_active: false } : r)),
       );
+      setSuspendId(null);
+      setSuspendReason("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not update the student.");
     } finally {
@@ -1966,17 +1972,19 @@ function ReportsPanel() {
           disabled={loading}
           className="inline-flex min-h-[44px] items-center rounded-full px-4 py-2 text-[11px] uppercase tracking-[0.12em] text-ink-soft transition-colors hover:bg-accent-wash hover:text-accent-deep disabled:opacity-40"
         >
-          {loading ? "loading…" : rows.length ? "refresh" : "load queue"}
+           {loading ? "loading…" : loaded ? "refresh" : "load queue"}
         </button>
       </div>
 
       {error && <FieldError msg={error} />}
 
       <div className="mt-2">
-        {rows.length === 0 && !loading ? (
+         {loaded && rows.length === 0 && !loading ? (
           <p className="text-[12px] leading-5 text-ink-faint">
-            {total === 0 && !error ? "the queue is clear." : "load the queue to review reports."}
+            {total === 0 && !error ? "the queue is clear." : "no reports on this page."}
           </p>
+        ) : !loaded && !loading ? (
+          <p className="text-[12px] leading-5 text-ink-faint">load the queue to review reports.</p>
         ) : (
           <ul className="divide-y divide-line">
             {rows.map((r) => (
@@ -1990,7 +1998,7 @@ function ReportsPanel() {
                 <div className="mt-2 flex flex-wrap gap-2">
                   <button
                     type="button"
-                    onClick={() => void resolve(r, "resolved")}
+                     onClick={() => setConfirming({ id: r.id, action: "resolved" })}
                     disabled={acting === r.id}
                     className="inline-flex min-h-[44px] items-center rounded-full border border-line px-4 py-2 text-[11px] uppercase tracking-[0.12em] text-ink-soft transition-colors hover:border-accent-soft hover:bg-accent-wash hover:text-accent-deep disabled:opacity-40"
                   >
@@ -1998,7 +2006,7 @@ function ReportsPanel() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => void resolve(r, "dismissed")}
+                     onClick={() => setConfirming({ id: r.id, action: "dismissed" })}
                     disabled={acting === r.id}
                     className="inline-flex min-h-[44px] items-center rounded-full border border-line px-4 py-2 text-[11px] uppercase tracking-[0.12em] text-ink-soft transition-colors hover:border-accent-soft hover:bg-accent-wash hover:text-accent-deep disabled:opacity-40"
                   >
@@ -2007,19 +2015,43 @@ function ReportsPanel() {
                   {r.reported_is_active !== false && (
                     <button
                       type="button"
-                      onClick={() => void suspendReported(r)}
+                       onClick={() => { setSuspendId(suspendId === r.id ? null : r.id); setSuspendReason(""); setError(null); }}
                       disabled={acting === r.id}
                       className="inline-flex min-h-[44px] items-center rounded-full border border-line px-4 py-2 text-[11px] uppercase tracking-[0.12em] text-ink-soft transition-colors hover:border-accent-soft hover:bg-accent-wash hover:text-accent-deep disabled:opacity-40"
-                    >
-                      suspend reported
-                    </button>
-                  )}
+                     >
+                       {suspendId === r.id ? "cancel suspension" : "suspend reported"}
+                     </button>
+                   )}
+                   {confirming?.id === r.id && (
+                     <div className="mt-3 rounded-2xl border border-accent-soft bg-accent-wash px-4 py-3">
+                       <p className="text-[13px] text-ink">{confirming.action === "resolved" ? "Resolve this report?" : "Dismiss this report?"}</p>
+                       <div className="mt-3 flex flex-wrap gap-2">
+                         <Button type="button" variant="ghost" onClick={() => setConfirming(null)}>cancel</Button>
+                         <Button type="button" onClick={() => void resolve(r, confirming.action)}>confirm {confirming.action === "resolved" ? "resolve" : "dismiss"}</Button>
+                       </div>
+                     </div>
+                   )}
+                   {suspendId === r.id && (
+                     <form className="mt-3 rounded-2xl border border-line bg-paper px-4 py-4" onSubmit={(e) => { e.preventDefault(); void suspendReported(r, suspendReason); }}>
+                       <label htmlFor={`report-suspend-reason-${r.id}`} className="block text-[11px] uppercase tracking-[0.14em] text-ink-faint">why are you suspending {r.reported_username ? `@${r.reported_username}` : "this student"}?</label>
+                       <textarea id={`report-suspend-reason-${r.id}`} value={suspendReason} onChange={(e) => setSuspendReason(e.target.value)} rows={2} maxLength={300} placeholder="the student sees this…" className="mt-2 w-full resize-y rounded-2xl border border-line bg-paper px-4 py-3 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft" />
+                       <p className="mt-1.5 text-[11px] text-ink-faint">{suspendReason.trim().length}/280 · they disappear from discover, search, and profiles.</p>
+                       <Button type="submit" className="mt-3" disabled={acting === r.id}>{acting === r.id ? "suspending…" : "confirm suspension"}</Button>
+                     </form>
+                   )}
                 </div>
               </li>
             ))}
-          </ul>
-        )}
+         </ul>
+       )}
       </div>
+      {loaded && total > PAGE_SIZE && (
+        <div className="mt-4 flex items-center justify-between">
+          <Button variant="subtle" disabled={loading || page === 0} onClick={() => void load(page - 1)}>← prev</Button>
+          <p className="text-[12px] text-ink-faint">{page + 1} / {Math.ceil(total / PAGE_SIZE)} · {total.toLocaleString()}</p>
+          <Button variant="subtle" disabled={loading || page + 1 >= Math.ceil(total / PAGE_SIZE)} onClick={() => void load(page + 1)}>next →</Button>
+        </div>
+      )}
     </section>
   );
 }

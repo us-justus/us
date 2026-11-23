@@ -10,6 +10,7 @@ import {
 } from "@/lib/inside/waitlist-email";
 import { perfLog, perfStart } from "@/lib/utils/perf";
 import { insideMutationRateLimit } from "@/lib/inside/mutation-rate-limit";
+import { readJsonBounded } from "@/lib/http/read-json-bounded";
 import {
   TEMPORARY_RETRY_MS,
   runEmailQueueSend,
@@ -89,7 +90,9 @@ export async function POST(req: Request) {
   const rate = await insideMutationRateLimit(req, gate.userId);
   if (!rate.allowed) return respond({ error: GENERIC }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds ?? 60) } });
 
-  const { subject, message } = (await req.json().catch(() => ({}))) as {
+  const parsed = await readJsonBounded<Record<string, unknown>>(req, 16_384);
+  if (!parsed) return respond({ error: "Invalid request body." }, { status: 400 });
+  const { subject, message } = parsed as {
     subject?: unknown;
     message?: unknown;
   };

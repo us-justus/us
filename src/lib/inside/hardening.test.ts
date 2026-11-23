@@ -36,6 +36,15 @@ describe("inside hardening — route wiring", () => {
     );
   });
 
+  it("does not clear the admin cookie when revocation fails", () => {
+    const body = logout.slice(logout.indexOf("export async function POST"));
+    assert.ok(body.includes('service.rpc("revoke_inside_session"'));
+    assert.ok(body.includes('status: 503'));
+    assert.ok(body.includes('Could not end the admin session.'));
+    assert.ok(body.includes('recordInsideAuditEvent("ADMIN_LOGOUT")'));
+    assert.ok(body.indexOf('status: 503') < body.indexOf('clearInsideCookieHeader()'));
+  });
+
   it("login rate-limits before credential verification", () => {
     const body = login.slice(login.indexOf("export async function POST"));
     assert.ok(

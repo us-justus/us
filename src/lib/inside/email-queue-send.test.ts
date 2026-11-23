@@ -289,7 +289,8 @@ describe("waitlist send — confirmation UX", () => {
 
   it("preserves prepare idempotency cues, editing, and preview with no provider touch", () => {
     const section = emailQueueSection();
-    assert.ok(section.includes("preparation.recipients.map((email)"), "server snapshot still rendered");
+    assert.ok(section.includes("preparation.uniqueRecipientCount"), "bounded preparation count still rendered");
+    assert.ok(!section.includes("preparation.recipients.map((email)"), "recipient addresses stay server-side");
     assert.ok(section.includes("No emails have been sent."), "pre-send state is explicit");
     assert.ok(section.includes("waitlist-subject") && section.includes("waitlist-body"), "subject/message stay editable");
     assert.ok(section.includes("preview"), "preview is preserved");

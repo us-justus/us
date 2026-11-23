@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { requireInsideAdmin } from "@/lib/inside/auth";
 
 /**
@@ -29,8 +29,9 @@ export async function GET(req: Request) {
   const limit = Number(url.searchParams.get("limit") ?? "20");
   const offset = Number(url.searchParams.get("offset") ?? "0");
 
-  const supabase = await createClient();
+  const supabase = createServiceRoleClient();
   const { data, error } = await supabase.rpc("admin_list_feedback", {
+    p_actor_id: gate.userId,
     p_status: status,
     p_limit: Number.isFinite(limit) ? Math.trunc(limit) : 20,
     p_offset: Number.isFinite(offset) ? Math.trunc(offset) : 0,

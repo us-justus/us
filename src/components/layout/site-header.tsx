@@ -117,12 +117,13 @@ export function SiteChrome({ children }: { children: ReactNode }) {
   // nav / settings) even when a session already exists.
   const isAuthRoute = pathname === "/login" || pathname.startsWith("/auth/");
   const isLanding = pathname === "/";
+  const isInsideRoute = pathname === "/inside" || pathname.startsWith("/inside/");
 
   // Onboarding/auth routes force the effective snapshot (see below), so the
   // ambient resolution is skipped there — its result would be discarded.
   // The resolve refires on leaving (pathname change), and the auth + chat
   // subscriptions below stay active, so no transition is missed.
-  const skipAmbientResolve = isOnboardingRoute || isAuthRoute;
+  const skipAmbientResolve = isOnboardingRoute || isAuthRoute || isInsideRoute;
 
   // Server (/api/account/state) remains the single decider — this only
   // re-resolves it. The chrome instance outlives client-side navigations
@@ -171,7 +172,7 @@ export function SiteChrome({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     // No auth-driven chrome behavior on the public landing page.
-    if (isLanding) return;
+    if (isLanding || isInsideRoute) return;
     const supabase = createClient();
     const { data: sub } = supabase.auth.onAuthStateChange(() => {
       void resolve();
@@ -179,7 +180,7 @@ export function SiteChrome({ children }: { children: ReactNode }) {
     return () => {
       sub.subscription.unsubscribe();
     };
-  }, [resolve, isLanding]);
+  }, [resolve, isLanding, isInsideRoute]);
 
   // Chat activity elsewhere (the /chat inbox listener, the open
   // conversation island) re-resolves the same server truth so the 💬 dot
@@ -187,13 +188,13 @@ export function SiteChrome({ children }: { children: ReactNode }) {
   // "re-check" signal, never message content.
   useEffect(() => {
     // No account-state-driven subscriptions on the public landing page.
-    if (isLanding) return;
+    if (isLanding || isInsideRoute) return;
     const onChatActivity = () => {
       void resolve();
     };
     window.addEventListener("us:chat-activity", onChatActivity);
     return () => window.removeEventListener("us:chat-activity", onChatActivity);
-  }, [resolve, isLanding]);
+  }, [resolve, isLanding, isInsideRoute]);
 
   // Onboarding routes are always minimal, even before the session resolves —
   // the USN page must never show product navigation. Login/auth routes are
@@ -206,6 +207,8 @@ export function SiteChrome({ children }: { children: ReactNode }) {
     : isAuthRoute
       ? { ...snapshot, status: "loading" }
       : snapshot;
+
+  if (isInsideRoute) return <>{children}</>;
   const prelaunchHome = pathname === "/home" && effective.status === "product";
 
   // The public landing hero owns its wordmark and its two actions. Keep the
