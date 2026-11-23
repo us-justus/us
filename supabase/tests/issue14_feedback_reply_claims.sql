@@ -26,6 +26,7 @@ values
 -- Service-role transport does not identify the web-session actor. Authorization
 -- therefore depends on the explicit server-verified actor membership.
 set local role service_role;
+select set_config('request.jwt.claim.role', 'service_role', true);
 select throws_ok(
   $$select public.admin_claim_feedback_reply('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaa0001', 'reply', '22222222-2222-2222-2222-222222222222')$$,
   '42501', 'not authorized', 'authenticated non-admin cannot claim a reply'
