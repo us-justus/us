@@ -206,9 +206,9 @@ describe("inside step 4 — unhealthy dependency handling", () => {
   it("every check is isolated in try/catch and degrades to error", () => {
     const body = code(src(ROUTE));
     const catches = body.match(/catch\s*\{/g) ?? [];
-    assert.ok(catches.length >= 3, `each check needs isolation, found ${catches.length}`);
+    assert.ok(catches.length >= 2, `each remaining dependency check needs isolation, found ${catches.length}`);
     const errors = body.match(/=\s*"error"/g) ?? [];
-    assert.ok(errors.length >= 3, "each check must degrade to error");
+    assert.ok(errors.length >= 2, "each remaining dependency check must degrade to error");
   });
 
   it("database check is a lightweight probe (no writes, no user enumeration, no launch state)", () => {
@@ -221,9 +221,10 @@ describe("inside step 4 — unhealthy dependency handling", () => {
     assert.ok(!/auth\.admin/i.test(body), "no admin user enumeration");
   });
 
-  it("auth check reads only the caller's session", () => {
+  it("reuses the gate's caller session check", () => {
     const body = code(src(ROUTE));
-    assert.ok(body.includes("auth.getUser()"), "lightweight session lookup");
+    assert.ok(body.includes("requireInsideAdmin()"), "the gate owns the session lookup");
+    assert.ok(body.includes('const auth: Status = "ok"'), "reuses the gate's successful session check");
     assert.ok(!/listUsers|getUserById/i.test(body), "no user enumeration");
   });
 
