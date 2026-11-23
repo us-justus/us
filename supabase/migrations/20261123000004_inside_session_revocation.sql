@@ -13,7 +13,7 @@ create or replace function public.revoke_inside_session(p_token text, p_expires_
 returns void
 language plpgsql
 security definer
-set search_path = public, extensions, pg_temp
+set search_path = pg_catalog, public, extensions, pg_temp
 as $$
 begin
   if auth.role() is distinct from 'service_role' or p_token is null or p_expires_at is null then
@@ -29,7 +29,7 @@ create or replace function public.is_inside_session_revoked(p_token text)
 returns boolean
 language sql
 security definer
-set search_path = public, extensions, pg_temp
+set search_path = pg_catalog, public, extensions, pg_temp
 as $$
   select exists (
     select 1 from public.inside_session_revocations
