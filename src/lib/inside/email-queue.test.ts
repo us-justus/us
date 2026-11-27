@@ -134,7 +134,11 @@ describe("waitlist email queue admin API", () => {
     assert.ok(api.includes('rpc( "admin_waitlist_email_queue_summary"'));
     assert.ok(api.includes('rpc( "admin_prepare_waitlist_email_queue"'));
     assert.ok(api.includes("result.addedCount + result.alreadyPreparedCount !== result.uniqueRecipientCount"));
+    assert.ok(api.includes("waitingStudentCount: summary.waitingStudentCount"));
+    assert.ok(api.includes("lastPreparedAt: summary.lastPreparedAt"));
+    assert.ok(!api.includes("NextResponse.json(summary)"), "never serialize the raw RPC object");
     assert.ok(!api.includes("summary.students"));
+    assert.ok(!api.includes("summary.recipients"));
     assert.ok(!api.includes("result.recipients"));
     assert.ok(api.includes("status: 403"));
     assert.ok(!/verification_records|email_verification_queue|BREVO|sendFeedbackReplyEmail/i.test(api));
