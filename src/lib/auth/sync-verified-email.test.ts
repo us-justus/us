@@ -11,10 +11,15 @@ const CLIENT_URL = new URL(
   "../../app/settings/account/client.tsx",
   import.meta.url,
 );
+const ONBOARDING_FORM_URL = new URL(
+  "../../app/onboarding/password/form.tsx",
+  import.meta.url,
+);
 const STATE_URL = new URL("../onboarding/state.ts", import.meta.url);
 
 const route = readFileSync(ROUTE_URL, "utf8");
 const client = readFileSync(CLIENT_URL, "utf8");
+const onboardingForm = readFileSync(ONBOARDING_FORM_URL, "utf8");
 const state = readFileSync(STATE_URL, "utf8");
 
 /**
@@ -91,6 +96,32 @@ describe("sync-verified-email client observability", () => {
     const window = client.slice(idx, idx + 600);
     assert.doesNotMatch(window, /\.json\(\)/);
     assert.doesNotMatch(window, /error\.message/);
+  });
+});
+
+describe("onboarding password step reconciliation", () => {
+  it("records the Auth-confirmed address after a verification-link return", () => {
+    const idx = onboardingForm.indexOf("/api/account/sync-verified-email");
+    assert.ok(idx !== -1, "onboarding password step must call the reconciliation route");
+    const window = onboardingForm.slice(Math.max(0, idx - 300), idx + 300);
+    assert.match(window, /if \(justVerified\)/, "only the link-return path triggers it");
+    assert.match(window, /method: "POST"/, "reconciliation is a server-owned write");
+  });
+
+  it("never treats ?verified=1 as proof; server state still gates the phase", () => {
+    assert.ok(onboardingForm.includes('params.get("verified") === "1"'));
+    assert.ok(onboardingForm.includes("await resolveState()"));
+    assert.ok(route.includes("if (!user || !email || !user.email_confirmed_at)"));
+  });
+
+  it("keeps a failed reconciliation visible with a retry path", () => {
+    assert.ok(onboardingForm.includes("setSyncFailed(syncFailedOnLoad)"));
+    assert.ok(onboardingForm.includes("syncFailed &&"));
+    assert.ok(onboardingForm.includes("Reload to retry"));
+    assert.ok(
+      onboardingForm.includes("if (justVerified && !syncFailedOnLoad)"),
+      "success notice must not hide a failed sync",
+    );
   });
 });
 

@@ -45,6 +45,7 @@ export function PasswordForm() {
   const [email, setEmail] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [syncFailed, setSyncFailed] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const [password, setPassword] = useState("");
@@ -83,6 +84,12 @@ export function PasswordForm() {
     let cancelled = false;
     (async () => {
       try {
+        let syncFailedOnLoad = false;
+        if (justVerified) {
+          const res = await fetch("/api/account/sync-verified-email", { method: "POST" });
+          syncFailedOnLoad = !res.ok;
+        }
+        if (!cancelled) setSyncFailed(syncFailedOnLoad);
         const { vrEmail, kind, next, step } = await resolveState();
         if (cancelled) return;
         // Already past (or before) this step: follow the single server
@@ -110,7 +117,7 @@ export function PasswordForm() {
         }
         if (kind === "permanent-verified") {
           setPhase("password");
-          if (justVerified) setNotice("Email verified — set a password to finish.");
+          if (justVerified && !syncFailedOnLoad) setNotice("Email verified — set a password to finish.");
         }
         else if (kind === "permanent-unverified") setPhase("pending");
         else setPhase("link");
@@ -319,6 +326,9 @@ export function PasswordForm() {
                 <div className="rounded-2xl border border-accent-soft bg-accent-wash px-4 py-3">
                   <p className="text-[13px] leading-5 text-ink">{notice}</p>
                 </div>
+              )}
+              {syncFailed && (
+                <FieldError msg="Email verification could not be recorded. Reload to retry." />
               )}
               <div>
                 <label htmlFor="onboarding-password" className="text-[11px] tracking-[0.14em] uppercase text-ink-faint">password</label>
