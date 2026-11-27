@@ -20,6 +20,20 @@ import { readJsonBounded } from "@/lib/http/read-json-bounded";
  */
 const GENERIC = "Not available.";
 
+export async function GET(req: Request) {
+  const gate = await requireInsideAdmin();
+  if (!gate) return NextResponse.json({ error: GENERIC }, { status: 403 });
+  const feedbackId = new URL(req.url).searchParams.get("feedbackId");
+  if (!feedbackId?.trim()) return NextResponse.json({ error: "Pass a feedbackId." }, { status: 400 });
+  let service: ReturnType<typeof createServiceRoleClient>;
+  try { service = createServiceRoleClient(); }
+  catch { return NextResponse.json({ error: "Could not load reply attempt." }, { status: 500 }); }
+  const { data, error } = await service.from("feedback_reply_attempts")
+    .select("state, claimed_at, settled_at").eq("feedback_id", feedbackId.trim()).maybeSingle();
+  if (error) return NextResponse.json({ error: "Could not load reply attempt." }, { status: 500 });
+  return NextResponse.json({ attempt: data ? { state: data.state, claimedAt: data.claimed_at, settledAt: data.settled_at } : null });
+}
+
 export async function POST(req: Request) {
   if (!verifySameOrigin(req).ok) {
     return NextResponse.json({ error: GENERIC }, { status: 403 });
