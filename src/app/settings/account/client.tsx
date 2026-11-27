@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useExistingSession, type ExistingSessionStatus } from "@/lib/auth/use-existing-session";
 import type { User } from "@supabase/supabase-js";
 import { getAccountState, validateAccountEmail, validateNewPassword } from "@/lib/auth/account";
+import { retryVerifiedEmailSync } from "@/lib/auth/retry-verified-email-sync";
 import { displayAccountEmail } from "@/lib/auth/internal-email";
 import { FieldError } from "@/components/onboarding/shell";
 import { ChangePasswordForm } from "@/components/settings/change-password-form";
@@ -43,7 +44,7 @@ function AccountFlow({
   // Reconciliation observability: true when the post-verify sync of the
   // confirmed Auth email into verification_records failed. Rendered as a
   // retry notice — never silent, never blocking (verification itself
-  // already succeeded; reloading retries since ?verified=1 persists).
+  // already succeeded; bounded retries run while ?verified=1 persists).
   const [syncFailed, setSyncFailed] = useState(false);
 
   // Just-verified password step (first password for the converted account).
@@ -62,7 +63,7 @@ function AccountFlow({
   // Reconciliation is best-effort for navigation (verification itself already
   // succeeded) but never silent: a failed sync sets a visible retry notice
   // instead of disappearing, so a stale verification_records row cannot go
-  // unnoticed. Reloading retries — ?verified=1 persists across reload.
+  // unnoticed. Bounded retries run while ?verified=1 persists across reload.
   useEffect(() => {
     if (!justVerified || !account?.email) return;
     let cancelled = false;
@@ -70,8 +71,7 @@ function AccountFlow({
       let failed = false;
       try {
         if (cancelled) return;
-        const res = await fetch("/api/account/sync-verified-email", { method: "POST" });
-        failed = !res.ok;
+        failed = !(await retryVerifiedEmailSync());
       } catch {
         failed = true;
       }
@@ -283,27 +283,8 @@ function AccountFlow({
                 } | null;
                 await refresh();
                 if (j?.account?.emailConfirmed) {
-                  // Sync the private onboarding email record with the just
-                  // verified Auth email (own row; best-effort hygiene).
-                  try {
-                    const supabase = createClient();
-                    const rawEmail: unknown = j?.email;
-                    const authedEmail =
-                      typeof rawEmail === "string" ? rawEmail : null;
-                    const { data: { user: u } } = await supabase.auth.getUser();
-                    if (u && authedEmail) {
-                      const full = await supabase
-                        .from("verification_records")
-                        .upsert({ user_id: u.id, email: authedEmail, email_skipped: false }, { onConflict: "user_id" });
-                      if (full.error && /email_skipped/i.test(full.error.message)) {
-                        await supabase
-                          .from("verification_records")
-                          .upsert({ user_id: u.id, email: authedEmail }, { onConflict: "user_id" });
-                      }
-                    }
-                  } catch {
-                    // Best-effort only.
-                  }
+                  const synced = await retryVerifiedEmailSync();
+                  if (!synced) setSyncFailed(true);
                   router.replace("/settings/account?verified=1");
                 } else {
                   setNotice("Not verified yet — open the link in your email, then continue.");

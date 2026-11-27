@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useAnonymousSession } from "@/lib/auth/use-anonymous-session";
 import { validateNewPassword } from "@/lib/auth/account";
+import { retryVerifiedEmailSync } from "@/lib/auth/retry-verified-email-sync";
 import { buildEmailEditHref, mapEmailLinkError } from "@/lib/onboarding/email-edit";
 import { FieldError } from "@/components/onboarding/shell";
 import { Button } from "@/components/ui/button";
@@ -86,8 +87,7 @@ export function PasswordForm() {
       try {
         let syncFailedOnLoad = false;
         if (justVerified) {
-          const res = await fetch("/api/account/sync-verified-email", { method: "POST" });
-          syncFailedOnLoad = !res.ok;
+          syncFailedOnLoad = !(await retryVerifiedEmailSync());
         }
         if (!cancelled) setSyncFailed(syncFailedOnLoad);
         const { vrEmail, kind, next, step } = await resolveState();
@@ -168,6 +168,7 @@ export function PasswordForm() {
         } catch {
           // Best-effort: the server check above already passed.
         }
+        if (!(await retryVerifiedEmailSync())) setSyncFailed(true);
         setPhase("password");
         setNotice("Email verified — set a password to finish.");
       } else {

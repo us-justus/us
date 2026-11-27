@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { normalizeUSN } from "@/lib/verification/usn";
 import { isInternalEmail } from "@/lib/auth/internal-email";
+import { syncVerifiedEmailFromUser } from "@/lib/auth/sync-verified-email";
 import { classifyLoginIdentifier } from "@/lib/auth/login-identifier";
 import { destinationForStep } from "@/lib/auth/redirect";
 import { resolveLoginNext } from "@/lib/auth/safe-next";
@@ -238,6 +239,7 @@ async function respondWithDestination(
       { status: 403 },
     );
   }
+  await syncVerifiedEmailFromUser(user, service);
   const [{ step }] = await Promise.all([getOnboardingState(user, supabase)]);
   // NOTE: `supabase` above is the client that performed signInWithPassword.
   // It must be reused here: a fresh cookie-derived client would still see

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { safeNextPath } from "@/lib/auth/safe-next";
+import { syncVerifiedEmailFromUser } from "@/lib/auth/sync-verified-email";
 
 function safeNext(raw: string | null): string {
   // Auth callback destinations are intentionally narrower than general
@@ -29,11 +30,17 @@ export async function GET(request: NextRequest) {
   const supabase = await createClient();
 
   if (code) {
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error) redirect(`${next}?verified=1`);
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+    if (!error) {
+      await syncVerifiedEmailFromUser(data.user);
+      redirect(`${next}?verified=1`);
+    }
   } else if (token_hash && type) {
-    const { error } = await supabase.auth.verifyOtp({ type, token_hash });
-    if (!error) redirect(`${next}?verified=1`);
+    const { data, error } = await supabase.auth.verifyOtp({ type, token_hash });
+    if (!error) {
+      await syncVerifiedEmailFromUser(data.user);
+      redirect(`${next}?verified=1`);
+    }
   }
 
   const sep = next.includes("?") ? "&" : "?";

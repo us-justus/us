@@ -9,6 +9,8 @@ import { readJsonBounded } from "@/lib/http/read-json-bounded";
 import { validateFeedbackReply } from "@/lib/feedback/constants";
 import { sendFeedbackReplyEmail } from "@/lib/feedback/reply-email";
 import { isInternalEmail } from "@/lib/auth/internal-email";
+import { hasRealVerifiedEmail } from "@/lib/auth/account.ts";
+import { syncVerifiedEmailFromUser } from "@/lib/auth/sync-verified-email";
 import { claimFailureResponse, providerFailurePlan } from "@/lib/feedback/reply-state";
 
 /**
@@ -114,19 +116,34 @@ export async function POST(req: Request) {
 
   // Resolve the recipient from the trusted onboarding email record —
   // never client input, never the internal sign-in identity.
-  const { data: vr } = await service
+  const { data: authAccount } = await service.auth.admin.getUserById(row.user_id);
+  const { data: initialVr } = await service
     .from("verification_records")
     .select("email, email_verified_at")
     .eq("user_id", row.user_id)
     .maybeSingle();
+  let vr = initialVr;
+  if (
+    !isUsableRecipient((vr as { email?: unknown } | null)?.email) ||
+    !(vr as { email_verified_at?: unknown } | null)?.email_verified_at
+  ) {
+    const sync = await syncVerifiedEmailFromUser(authAccount.user, service);
+    if (sync.ok) {
+      const { data: refreshedVr } = await service
+        .from("verification_records")
+        .select("email, email_verified_at")
+        .eq("user_id", row.user_id)
+        .maybeSingle();
+      vr = refreshedVr;
+    }
+  }
   const recipient = (vr as { email?: unknown } | null)?.email;
-  const { data: authAccount } = await service.auth.admin.getUserById(row.user_id);
   const confirmedAuthEmail = authAccount.user?.email;
   if (
     !isUsableRecipient(recipient) ||
-    !vr?.email_verified_at ||
+    !(vr as { email_verified_at?: unknown } | null)?.email_verified_at ||
     !confirmedAuthEmail ||
-    !authAccount.user?.email_confirmed_at ||
+    !hasRealVerifiedEmail(authAccount.user) ||
     confirmedAuthEmail.trim().toLowerCase() !== String(recipient).trim().toLowerCase()
   ) {
     return NextResponse.json(
