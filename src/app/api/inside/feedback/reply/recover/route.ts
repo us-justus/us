@@ -33,6 +33,13 @@ export async function GET(req: Request) {
   }
   const gate = await requireInsideAdmin();
   if (!gate) return NextResponse.json({ error: GENERIC }, { status: 403 });
+  const rate = await insideMutationRateLimit(req, gate.userId);
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { error: GENERIC },
+      { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds ?? 60) } },
+    );
+  }
 
   const feedbackId = new URL(req.url).searchParams.get("feedbackId")?.trim() ?? "";
   if (!FEEDBACK_ID.test(feedbackId)) {

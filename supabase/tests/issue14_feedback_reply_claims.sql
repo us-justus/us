@@ -4,7 +4,7 @@
 create extension if not exists pgtap;
 
 begin;
-select plan(34);
+select plan(43);
 
 -- Isolated users and feedback rows. The enclosing transaction rolls all of
 -- this back, including admin membership changes.
@@ -22,7 +22,8 @@ values
   ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid, '22222222-2222-2222-2222-222222222222'::uuid, 'OTHER', 'issue14 settle'),
   ('cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid, '22222222-2222-2222-2222-222222222222'::uuid, 'OTHER', 'issue14 recover'),
   ('dddddddd-dddd-dddd-dddd-dddddddddddd'::uuid, '22222222-2222-2222-2222-222222222222'::uuid, 'OTHER', 'issue14 revoke'),
-  ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'::uuid, '22222222-2222-2222-2222-222222222222'::uuid, 'OTHER', 'issue14 sent recovery');
+  ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'::uuid, '22222222-2222-2222-2222-222222222222'::uuid, 'OTHER', 'issue14 sent recovery'),
+  ('99999999-9999-9999-9999-999999999999'::uuid, '22222222-2222-2222-2222-222222222222'::uuid, 'OTHER', 'issue14 persistPending recovery');
 
 -- Service-role transport does not identify the web-session actor. Authorization
 -- therefore depends on the explicit server-verified actor membership.
@@ -97,6 +98,34 @@ select ok(
   (select public.admin_recover_feedback_reply('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'sent', '11111111-1111-1111-1111-111111111111')->>'changed') = 'false',
   'recovering a terminal attempt is a no-op'
 );
+select ok(
+  (select public.admin_claim_feedback_reply('99999999-9999-9999-9999-999999999999', '99999999-9999-9999-9999-999999999991', 'reply six', '11111111-1111-1111-1111-111111111111')->>'ok') = 'true',
+  'current admin can create a persistPending claim'
+);
+select ok(
+  (select state from public.feedback_reply_attempts where feedback_id = '99999999-9999-9999-9999-999999999999') = 'SENDING',
+  'persistPending attempt remains SENDING after a finalize failure'
+);
+select ok(
+  (select public.admin_recover_feedback_reply('99999999-9999-9999-9999-999999999999', 'sent', '11111111-1111-1111-1111-111111111111')->>'state') = 'SENT',
+  'sent recovery resolves a persistPending attempt without resending'
+);
+select ok(
+  (select admin_reply from public.feedback where id = '99999999-9999-9999-9999-999999999999') = 'reply six',
+  'persistPending recovery records the stored reply body'
+);
+select ok(
+  (select replied_by from public.feedback where id = '99999999-9999-9999-9999-999999999999') = '11111111-1111-1111-1111-111111111111'::uuid,
+  'persistPending recovery attributes the reply to the stored actor'
+);
+select ok(
+  (select state from public.feedback_reply_attempts where feedback_id = '99999999-9999-9999-9999-999999999999') = 'SENT',
+  'persistPending recovery marks the attempt terminal'
+);
+select ok(
+  (select public.admin_recover_feedback_reply('99999999-9999-9999-9999-999999999999', 'sent', '11111111-1111-1111-1111-111111111111')->>'changed') = 'false',
+  'a recovered persistPending attempt is a no-op'
+);
 select throws_ok(
   $$select public.admin_recover_feedback_reply('ffffffff-ffff-ffff-ffff-ffffffffffff', 'not_sent', '11111111-1111-1111-1111-111111111111')$$,
   '02000', 'reply attempt not found', 'missing attempt is reported clearly'
@@ -141,6 +170,8 @@ reset role;
 select ok(has_function_privilege('anon', 'public.admin_claim_feedback_reply(uuid,uuid,text,uuid)', 'EXECUTE') = false, 'anon cannot execute claim RPC');
 select ok(has_function_privilege('authenticated', 'public.admin_finalize_feedback_reply(uuid,uuid,text,uuid)', 'EXECUTE') = false, 'authenticated cannot execute finalize RPC');
 select ok(has_function_privilege('service_role', 'public.admin_recover_feedback_reply(uuid,text,uuid)', 'EXECUTE') = true, 'service role retains recovery RPC access');
+select ok(has_function_privilege('anon', 'public.admin_recover_feedback_reply(uuid,text,uuid)', 'EXECUTE') = false, 'anon cannot execute recovery RPC');
+select ok(has_function_privilege('authenticated', 'public.admin_recover_feedback_reply(uuid,text,uuid)', 'EXECUTE') = false, 'authenticated cannot execute recovery RPC');
 select ok(has_table_privilege('anon', 'public.feedback_reply_attempts', 'SELECT') = false, 'anon cannot read attempt rows');
 select ok(has_table_privilege('authenticated', 'public.feedback_reply_attempts', 'SELECT') = false, 'authenticated cannot read attempt rows');
 select ok(has_table_privilege('service_role', 'public.feedback_reply_attempts', 'SELECT') = true, 'service role can read attempt rows');

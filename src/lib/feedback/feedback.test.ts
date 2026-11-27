@@ -39,6 +39,15 @@ function code(body: string): string {
     .join("\n");
 }
 
+/** Restrict UI assertions to FeedbackPanel, not later panels in the file. */
+function feedbackPanel(body: string): string {
+  const start = body.indexOf("function FeedbackPanel()");
+  if (start < 0) return "";
+  const tail = body.slice(start);
+  const end = tail.indexOf("\nfunction ReportsPanel()");
+  return end >= 0 ? tail.slice(0, end) : tail;
+}
+
 const SUBMIT_ROUTE = "src/app/api/feedback/route.ts";
 const LIST_ROUTE = "src/app/api/inside/feedback/route.ts";
 const REPLY_ROUTE = "src/app/api/inside/feedback/reply/route.ts";
@@ -390,6 +399,7 @@ describe("feedback — admin authorization (non-admin/anon cannot)", () => {
     assert.ok(getAt >= 0 && postAt > getAt);
     const getBlock = body.slice(getAt, postAt);
     assert.ok(getBlock.indexOf("verifySameOrigin(req)") < getBlock.indexOf("requireInsideAdmin()"));
+    assert.ok(getBlock.indexOf("requireInsideAdmin()") < getBlock.indexOf("insideMutationRateLimit(req, gate.userId)"));
     const postBlock = body.slice(postAt);
     assert.ok(postBlock.indexOf("verifySameOrigin(req)") < postBlock.indexOf("requireInsideAdmin()"));
     assert.ok(postBlock.indexOf("requireInsideAdmin()") < postBlock.indexOf("insideMutationRateLimit(req, gate.userId)"));
@@ -540,6 +550,15 @@ describe("feedback — reply flow (recipient, order, failure behavior)", () => {
     }
   });
 
+  it("covers persistPending recovery and role denials in SQL tests", () => {
+    const sql = src("supabase/tests/issue14_feedback_reply_claims.sql");
+    assert.ok(sql.includes("select plan(43)"));
+    assert.ok(sql.includes("persistPending attempt remains SENDING"));
+    assert.ok(sql.includes("sent recovery resolves a persistPending attempt"));
+    assert.ok(sql.includes("anon cannot execute recovery RPC"));
+    assert.ok(sql.includes("authenticated cannot execute recovery RPC"));
+  });
+
   it("reply audit is best-effort (a delivered email is never failed for audit)", () => {
     const body = code(src(REPLY_ROUTE));
     // Anchor on the audit ACTION (the import line also names the helper).
@@ -604,31 +623,26 @@ describe("feedback — audit, inbox UI, and scope", () => {
       body.includes('"open"') && body.includes('"resolved"') && body.includes('"all"'),
       "filter options required",
     );
-    const i = body.indexOf("function FeedbackPanel()");
-    assert.ok(i >= 0);
-    const block = body.slice(i);
+    const block = feedbackPanel(body);
+    assert.ok(block.length > 0);
     assert.ok(/status=open/.test(block), "default fetch must prioritize open");
     assert.ok(block.includes("aria-pressed"), "filter must expose its selected state");
   });
 
   it("inbox rows expose identity context; detail shows USN + email + message + actions", () => {
-    const body = code(src("src/app/inside/inside-client.tsx"));
-    const i = body.indexOf("function FeedbackPanel()");
-    const block = body.slice(i);
-    assert.ok(block.includes("f.email"), "row must show email");
-    assert.ok(block.includes("f.usn"), "detail must show USN");
-    assert.ok(block.includes("f.message"), "detail must show the message");
-    assert.ok(block.includes("reply by email"), "reply action required");
-    assert.ok(block.includes("resolve"), "resolve action required");
+    const body = feedbackPanel(code(src("src/app/inside/inside-client.tsx")));
+    assert.ok(body.includes("f.email"), "row must show email");
+    assert.ok(body.includes("f.usn"), "detail must show USN");
+    assert.ok(body.includes("f.message"), "detail must show the message");
+    assert.ok(body.includes("reply by email"), "reply action required");
+    assert.ok(body.includes("resolve"), "resolve action required");
     // Queue, not chat: no free-form thread UI.
-    assert.ok(!block.includes("thread"), "must not build thread UI");
+    assert.ok(!body.includes("thread"), "must not build thread UI");
   });
 
   it("offers explicit Brevo-verified recovery without automatic retry", () => {
-    const body = code(src("src/app/inside/inside-client.tsx"));
-    const i = body.indexOf("function FeedbackPanel()");
-    assert.ok(i >= 0);
-    const block = body.slice(i);
+    const block = feedbackPanel(code(src("src/app/inside/inside-client.tsx")));
+    assert.ok(block.length > 0);
     assert.ok(
       block.includes("/api/inside/feedback/reply/recover?feedbackId=${encodeURIComponent(id)}"),
       "the panel reads persisted attempt state",
@@ -647,6 +661,24 @@ describe("feedback — audit, inbox UI, and scope", () => {
     assert.ok(!recover.includes('fetch("/api/inside/feedback/reply"'), "recovery never retries the send");
     assert.ok(!recover.includes("sendFeedbackReplyEmail"));
     assert.ok(!/api\.brevo\.com/i.test(block));
+  });
+
+  it("stale recovery reads cannot overwrite a newer attempt and block normal replies", () => {
+    const block = feedbackPanel(code(src("src/app/inside/inside-client.tsx")));
+    assert.ok(block.includes("const attemptRequestId = useRef(0);"));
+    assert.ok(block.includes("attemptRequestId.current += 1;"));
+    assert.ok(
+      (block.match(/invalidateAttemptRequest\(\);/g) ?? []).length >= 3,
+      "every state transition must invalidate older recovery reads",
+    );
+    assert.ok(block.includes("const requestId = ++attemptRequestId.current;"));
+    assert.ok(block.includes("requestId !== attemptRequestId.current"), "stale success must be ignored");
+    assert.ok(block.includes("requestId === attemptRequestId.current"), "stale failure must be ignored");
+    assert.ok(block.includes("const recoveryPending = recovery?.recoverable === true;"));
+    assert.ok(
+      (block.match(/disabled=\{recoveryPending \|\| acting !== null\}/g) ?? []).length >= 2,
+      "reply editor and send button must be disabled while recovery is pending",
+    );
   });
 
   it("no launch functionality is introduced", () => {

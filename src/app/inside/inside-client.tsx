@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/onboarding/shell";
 import { getQueueSendState } from "@/lib/inside/email-queue-send-state";
@@ -215,7 +215,6 @@ type EmailQueueSummary = {
   waitingStudentCount: number;
   uniqueRecipientCount: number;
   skippedCount: number;
-  students: EmailAudienceStudent[];
   pending: number;
   sent: number;
   failed: number;
@@ -224,22 +223,12 @@ type EmailQueueSummary = {
   lastPreparedAt: string | null;
 };
 
-type EmailAudienceStudent = {
-  username: string | null;
-  nickname: string | null;
-  usn: string | null;
-  spot: number | null;
-  email: string;
-};
-
 type EmailQueuePreparation = {
   waitingStudentCount: number;
   uniqueRecipientCount: number;
   addedCount: number;
   alreadyPreparedCount: number;
   skippedCount: number;
-  students: EmailAudienceStudent[];
-  recipients: string[];
 };
 
 type EmailQueueSendResult = {
@@ -270,7 +259,6 @@ function EmailQueuePanel() {
   const [loading, setLoading] = useState(true);
   const [preparing, setPreparing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [studentsOpen, setStudentsOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [sendConfirming, setSendConfirming] = useState(false);
   const [sending, setSending] = useState(false);
@@ -345,23 +333,18 @@ function EmailQueuePanel() {
             : "Could not prepare the email queue.",
         );
       }
-       const prepared = {
-         ...(json as unknown as Omit<EmailQueuePreparation, "students" | "recipients">),
-         students: [],
-         recipients: [],
-       } as EmailQueuePreparation;
-      setPreparation(prepared);
-      setSummary((current) =>
-        current
-          ? {
-              ...current,
-              waitingStudentCount: prepared.waitingStudentCount,
-              uniqueRecipientCount: prepared.uniqueRecipientCount,
-              skippedCount: prepared.skippedCount,
-               students: [],
-            }
-          : current,
-      );
+       const prepared = json as unknown as EmailQueuePreparation;
+       setPreparation(prepared);
+       setSummary((current) =>
+         current
+           ? {
+               ...current,
+               waitingStudentCount: prepared.waitingStudentCount,
+               uniqueRecipientCount: prepared.uniqueRecipientCount,
+               skippedCount: prepared.skippedCount,
+             }
+           : current,
+       );
       setConfirming(false);
       await loadSummary();
     } catch (e) {
@@ -466,53 +449,6 @@ function EmailQueuePanel() {
       <p className="mt-2 text-[12px] leading-5 text-ink-soft">
         These students have completed their profile and provided a valid email address.
       </p>
-
-      <div className="mt-4 flex flex-wrap gap-2">
-        <Button
-          type="button"
-          variant="subtle"
-          onClick={() => setStudentsOpen((v) => !v)}
-          disabled={loading}
-        >
-          {studentsOpen ? "hide students" : "view students"}
-        </Button>
-      </div>
-
-      {studentsOpen && (
-        <div className="mt-4 rounded-2xl border border-line bg-paper px-4 py-4">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-ink-faint">
-            waiting students
-          </p>
-          {summary?.students.length === 0 ? (
-            <p className="mt-2 text-[12px] leading-5 text-ink-faint">
-              No students are currently waiting.
-            </p>
-          ) : (
-            <ul className="mt-3 space-y-3">
-              {(summary?.students ?? []).map((student, index) => (
-                <li
-                  key={student.usn ?? student.username ?? `${student.email}-${index}`}
-                  className="rounded-2xl border border-line bg-paper-2 px-3 py-3"
-                >
-                  <p className="text-[13px] text-ink">
-                    {student.username ? `@${student.username}` : student.nickname ?? "student"}
-                    {typeof student.spot === "number" ? (
-                      <span className="text-ink-faint"> #{student.spot}</span>
-                    ) : null}
-                  </p>
-                  <p className="mt-1 text-[12px] leading-5 text-ink-soft">
-                    {student.nickname && student.username ? student.nickname : ""}
-                    {student.usn ? ` · ${student.usn}` : ""}
-                  </p>
-                  <p className="mt-1 text-[12px] leading-5 text-ink-faint">
-                    {student.email}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
 
       <div className="mt-5 border-t border-line pt-4">
         <p className="text-[11px] uppercase tracking-[0.18em] text-ink-faint">
@@ -1525,6 +1461,11 @@ function FeedbackPanel() {
     id: string;
     outcome: "sent" | "not_sent";
   } | null>(null);
+  const attemptRequestId = useRef(0);
+
+  function invalidateAttemptRequest() {
+    attemptRequestId.current += 1;
+  }
 
   async function load(next: FeedbackFilter) {
     setLoading(true);
@@ -1585,6 +1526,7 @@ function FeedbackPanel() {
   }, []);
 
   useEffect(() => {
+    const requestId = ++attemptRequestId.current;
     if (!openId) return;
     let cancelled = false;
     const id = openId;
@@ -1597,7 +1539,7 @@ function FeedbackPanel() {
           error?: unknown;
           state?: unknown;
         } | null;
-        if (cancelled) return;
+        if (cancelled || requestId !== attemptRequestId.current) return;
         if (!res.ok) {
           const errMsg: unknown = j?.error;
           throw new Error(
@@ -1610,7 +1552,7 @@ function FeedbackPanel() {
         if (!view) throw new Error("Could not read the reply state.");
         setAttempt({ id, view });
       } catch (e) {
-        if (!cancelled) {
+        if (!cancelled && requestId === attemptRequestId.current) {
           setAttempt({ id, view: { state: null, recoverable: false } });
           setError(
             e instanceof Error ? e.message : "Could not read the reply state.",
@@ -1629,6 +1571,7 @@ function FeedbackPanel() {
       setError("Write a reply first.");
       return;
     }
+    invalidateAttemptRequest();
     setActing(`reply:${f.id}`);
     setError(null);
     try {
@@ -1685,6 +1628,7 @@ function FeedbackPanel() {
     outcome: "sent" | "not_sent",
   ) {
     if (acting !== null) return;
+    invalidateAttemptRequest();
     setActing(`recover:${outcome}:${f.id}`);
     setError(null);
     try {
@@ -1814,12 +1758,14 @@ function FeedbackPanel() {
               const recovery = attempt?.id === f.id ? attempt.view : null;
               const recoveryConfirm =
                 recoverConfirming?.id === f.id ? recoverConfirming.outcome : null;
+              const recoveryPending = recovery?.recoverable === true;
               const who = f.username ? `@${f.username}` : (f.nickname ?? "a student");
               return (
                 <li key={f.id} className="py-3">
                   <button
                     type="button"
                     onClick={() => {
+                      invalidateAttemptRequest();
                       setOpenId(expanded ? null : f.id);
                       setReply("");
                       setAttempt(null);
@@ -1980,8 +1926,9 @@ function FeedbackPanel() {
                             value={reply}
                             onChange={(e) => setReply(e.target.value)}
                             rows={3}
+                            disabled={recoveryPending || acting !== null}
                             placeholder="write to the student…"
-                            className="mt-2 w-full resize-y rounded-2xl border border-line bg-paper px-4 py-3 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft"
+                            className="mt-2 w-full resize-y rounded-2xl border border-line bg-paper px-4 py-3 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft disabled:opacity-40"
                           />
                         </>
                       )}
@@ -1991,7 +1938,7 @@ function FeedbackPanel() {
                             <button
                               type="button"
                               onClick={() => void sendReply(f)}
-                              disabled={acting !== null}
+                              disabled={recoveryPending || acting !== null}
                               className="inline-flex min-h-[44px] items-center rounded-full bg-ink px-5 py-2 text-[12px] uppercase tracking-[0.12em] text-paper transition-colors hover:bg-black disabled:opacity-40"
                             >
                               {acting === `reply:${f.id}` ? "sending…" : "reply by email"}

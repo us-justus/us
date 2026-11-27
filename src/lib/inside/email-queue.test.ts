@@ -155,7 +155,7 @@ describe("waitlist email queue admin API", () => {
 });
 
 describe("waitlist email queue UI", () => {
-  it("uses the email-audience API for both students and count; no general directory query", () => {
+  it("uses aggregate queue data only; no student directory or private fields", () => {
     const client = code(src(CLIENT));
     const section = client.slice(
       client.indexOf("function EmailQueuePanel()"),
@@ -163,10 +163,15 @@ describe("waitlist email queue UI", () => {
     );
     assert.ok(section.includes('fetch("/api/inside/email-queue"'));
     assert.ok(section.includes("summary.waitingStudentCount"));
-    assert.ok(section.includes("summary?.students"));
+    assert.ok(section.includes("summary?.uniqueRecipientCount"));
+    assert.ok(!section.includes("summary?.students"));
+    assert.ok(!section.includes("view students"));
     assert.ok(!section.includes("fetchStudentsPage"));
     assert.ok(!section.includes("/api/inside/students"));
     assert.ok(!section.includes("slice(0, 50)"));
+    for (const field of ["student.username", "student.usn", "student.email", "student.nickname"]) {
+      assert.ok(!section.includes(field), `aggregate UI must not read ${field}`);
+    }
   });
 
   it("renders bounded preparation counts without a recipient snapshot", () => {
