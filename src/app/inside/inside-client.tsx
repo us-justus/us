@@ -4,6 +4,10 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/onboarding/shell";
 import { getQueueSendState } from "@/lib/inside/email-queue-send-state";
+import {
+  feedbackRecoveryView,
+  type FeedbackRecoveryView,
+} from "@/lib/feedback/reply-state";
 
 type DashboardInitial = {
   waiting: number;
@@ -1513,6 +1517,14 @@ function FeedbackPanel() {
   const [reply, setReply] = useState("");
   const [acting, setActing] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState<{
+    id: string;
+    view: FeedbackRecoveryView;
+  } | null>(null);
+  const [recoverConfirming, setRecoverConfirming] = useState<{
+    id: string;
+    outcome: "sent" | "not_sent";
+  } | null>(null);
 
   async function load(next: FeedbackFilter) {
     setLoading(true);
@@ -1572,7 +1584,47 @@ function FeedbackPanel() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!openId) return;
+    let cancelled = false;
+    const id = openId;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/inside/feedback/reply/recover?feedbackId=${encodeURIComponent(id)}`,
+        );
+        const j = (await res.json().catch(() => null)) as {
+          error?: unknown;
+          state?: unknown;
+        } | null;
+        if (cancelled) return;
+        if (!res.ok) {
+          const errMsg: unknown = j?.error;
+          throw new Error(
+            typeof errMsg === "string" && errMsg
+              ? errMsg
+              : "Could not read the reply state.",
+          );
+        }
+        const view = feedbackRecoveryView(j?.state);
+        if (!view) throw new Error("Could not read the reply state.");
+        setAttempt({ id, view });
+      } catch (e) {
+        if (!cancelled) {
+          setAttempt({ id, view: { state: null, recoverable: false } });
+          setError(
+            e instanceof Error ? e.message : "Could not read the reply state.",
+          );
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [openId]);
+
   async function sendReply(f: FeedbackRow) {
+    if (acting !== null) return;
     if (!reply.trim()) {
       setError("Write a reply first.");
       return;
@@ -1588,9 +1640,26 @@ function FeedbackPanel() {
       const j = (await res.json().catch(() => null)) as {
         error?: unknown;
         emailSent?: unknown;
+        persistPending?: unknown;
         unconfirmed?: unknown;
       } | null;
       if (!res.ok) {
+        if (
+          j?.emailSent === true ||
+          j?.persistPending === true ||
+          j?.unconfirmed === true
+        ) {
+          setAttempt({
+            id: f.id,
+            view: {
+              state:
+                j?.emailSent === true || j?.persistPending === true
+                  ? "SENDING"
+                  : "UNCONFIRMED",
+              recoverable: true,
+            },
+          });
+        }
         const errMsg: unknown = j?.error;
         const suffix =
           j?.emailSent === true
@@ -1611,8 +1680,50 @@ function FeedbackPanel() {
     }
   }
 
+  async function recoverReply(
+    f: FeedbackRow,
+    outcome: "sent" | "not_sent",
+  ) {
+    if (acting !== null) return;
+    setActing(`recover:${outcome}:${f.id}`);
+    setError(null);
+    try {
+      const res = await fetch("/api/inside/feedback/reply/recover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ feedbackId: f.id, outcome }),
+      });
+      const j = (await res.json().catch(() => null)) as {
+        error?: unknown;
+        ok?: unknown;
+        state?: unknown;
+      } | null;
+      if (!res.ok || j?.ok !== true) {
+        const errMsg: unknown = j?.error;
+        throw new Error(
+          typeof errMsg === "string" && errMsg
+            ? errMsg
+            : "Could not recover the reply.",
+        );
+      }
+      const view = feedbackRecoveryView(j?.state);
+      if (!view) throw new Error("Could not recover the reply.");
+      setAttempt({ id: f.id, view });
+      if (outcome === "sent") setReply("");
+      await load(filter);
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : "Could not recover the reply.",
+      );
+    } finally {
+      setActing(null);
+    }
+  }
+
   async function resolve(f: FeedbackRow) {
+    if (acting !== null) return;
     setActing(`resolve:${f.id}`);
+
     setError(null);
     try {
       const res = await fetch("/api/inside/feedback/resolve", {
@@ -1648,7 +1759,7 @@ function FeedbackPanel() {
         <button
           type="button"
           onClick={() => void load(filter)}
-          disabled={loading}
+          disabled={loading || acting !== null}
           className="inline-flex min-h-[44px] items-center rounded-full px-4 py-2 text-[11px] uppercase tracking-[0.12em] text-ink-soft transition-colors hover:bg-accent-wash hover:text-accent-deep disabled:opacity-40"
         >
           {loading ? "loading…" : loaded ? "refresh" : "load inbox"}
@@ -1667,6 +1778,7 @@ function FeedbackPanel() {
               key={o.value}
               type="button"
               aria-pressed={selected}
+              disabled={loading || acting !== null}
               onClick={() => {
                 setFilter(o.value);
                 setOpenId(null);
@@ -1699,6 +1811,9 @@ function FeedbackPanel() {
           <ul className="divide-y divide-line">
             {rows.map((f) => {
               const expanded = openId === f.id;
+              const recovery = attempt?.id === f.id ? attempt.view : null;
+              const recoveryConfirm =
+                recoverConfirming?.id === f.id ? recoverConfirming.outcome : null;
               const who = f.username ? `@${f.username}` : (f.nickname ?? "a student");
               return (
                 <li key={f.id} className="py-3">
@@ -1707,6 +1822,8 @@ function FeedbackPanel() {
                     onClick={() => {
                       setOpenId(expanded ? null : f.id);
                       setReply("");
+                      setAttempt(null);
+                      setRecoverConfirming(null);
                     }}
                     aria-expanded={expanded}
                     className="block w-full rounded-xl text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
@@ -1780,6 +1897,73 @@ function FeedbackPanel() {
                             reply sent{f.replied_at ? ` · ${formatFeedbackTime(f.replied_at)}` : ""}
                           </p>
                           <p className="mt-1 whitespace-pre-wrap text-[13px] leading-6 text-ink">{f.admin_reply}</p>
+                        </div>
+                      )}
+
+                      {recovery?.recoverable === true && f.status !== "RESOLVED" && (
+                        <div aria-live="polite" className="mt-3 rounded-2xl border border-accent-soft bg-accent-wash px-4 py-3">
+                          <p className="text-[11px] uppercase tracking-[0.12em] text-accent-deep">
+                            reply delivery unconfirmed
+                          </p>
+                          <p className="mt-1 text-[13px] leading-5 text-ink-soft">
+                            Check the Brevo logs before choosing an outcome. Recovery sends no email and never retries automatically.
+                          </p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              aria-label={`Confirm sent for ${who}`}
+                              onClick={() => setRecoverConfirming({ id: f.id, outcome: "sent" })}
+                              disabled={acting !== null}
+                              className="inline-flex min-h-[44px] items-center rounded-full border border-line bg-paper px-5 py-2 text-[12px] uppercase tracking-[0.12em] text-ink-soft transition-colors hover:border-accent-soft hover:bg-accent-wash hover:text-accent-deep disabled:opacity-40"
+                            >
+                              sent
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={`Confirm not sent for ${who}`}
+                              onClick={() => setRecoverConfirming({ id: f.id, outcome: "not_sent" })}
+                              disabled={acting !== null}
+                              className="inline-flex min-h-[44px] items-center rounded-full border border-line bg-paper px-5 py-2 text-[12px] uppercase tracking-[0.12em] text-ink-soft transition-colors hover:border-accent-soft hover:bg-accent-wash hover:text-accent-deep disabled:opacity-40"
+                            >
+                              not_sent
+                            </button>
+                          </div>
+                          {recoveryConfirm !== null && (
+                            <div className="mt-3 rounded-2xl border border-line bg-paper px-4 py-3">
+                              <p className="text-[13px] text-ink">
+                                {recoveryConfirm === "sent"
+                                  ? "Confirm the reply was sent?"
+                                  : "Confirm the reply was not sent?"}
+                              </p>
+                              <p className="mt-1 text-[12px] leading-5 text-ink-soft">
+                                {recoveryConfirm === "sent"
+                                  ? "Records the stored reply as sent. No email is sent now."
+                                  : "Releases the attempt for a manual retry. No email is sent now."}
+                              </p>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  onClick={() => setRecoverConfirming(null)}
+                                  disabled={acting !== null}
+                                >
+                                  cancel
+                                </Button>
+                                <Button
+                                  type="button"
+                                  onClick={() => {
+                                    setRecoverConfirming(null);
+                                    void recoverReply(f, recoveryConfirm);
+                                  }}
+                                  disabled={acting !== null}
+                                >
+                                  {recoveryConfirm === "sent"
+                                    ? "confirm sent"
+                                    : "confirm not sent"}
+                                </Button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
 

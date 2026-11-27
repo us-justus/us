@@ -48,6 +48,32 @@ export function claimFailureResponse(reason: unknown): ClaimFailureResponse {
   };
 }
 
+export type FeedbackReplyAttemptState =
+  | "SENDING"
+  | "UNCONFIRMED"
+  | "SENT"
+  | "RELEASED";
+
+export type FeedbackRecoveryView = {
+  state: FeedbackReplyAttemptState | null;
+  recoverable: boolean;
+};
+
+export function feedbackRecoveryView(
+  state: unknown,
+): FeedbackRecoveryView | null {
+  if (state === null || state === undefined) {
+    return { state: null, recoverable: false };
+  }
+  if (state === "SENDING" || state === "UNCONFIRMED") {
+    return { state, recoverable: true };
+  }
+  if (state === "SENT" || state === "RELEASED") {
+    return { state, recoverable: false };
+  }
+  return null;
+}
+
 export type ProviderFailurePlan = {
   settle: "RELEASED" | "UNCONFIRMED";
   status: 502;

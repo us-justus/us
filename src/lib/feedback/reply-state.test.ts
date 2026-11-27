@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   claimFailureResponse,
+  feedbackRecoveryView,
   providerFailurePlan,
 } from "./reply-state.ts";
 
@@ -72,5 +73,41 @@ describe("feedback reply — provider failure settlement", () => {
     assert.equal(p.unconfirmed, true);
     assert.equal(p.emailSent, false);
     assert.match(p.error, /could not be confirmed/i);
+  });
+});
+
+describe("feedback reply — recovery state projection", () => {
+  it("offers recovery only for ambiguous or unconfirmed attempts", () => {
+    for (const state of ["SENDING", "UNCONFIRMED"]) {
+      assert.deepEqual(feedbackRecoveryView(state), {
+        state,
+        recoverable: true,
+      });
+    }
+  });
+
+  it("hides recovery for terminal attempts and missing attempts", () => {
+    assert.deepEqual(feedbackRecoveryView("SENT"), {
+      state: "SENT",
+      recoverable: false,
+    });
+    assert.deepEqual(feedbackRecoveryView("RELEASED"), {
+      state: "RELEASED",
+      recoverable: false,
+    });
+    assert.deepEqual(feedbackRecoveryView(null), {
+      state: null,
+      recoverable: false,
+    });
+    assert.deepEqual(feedbackRecoveryView(undefined), {
+      state: null,
+      recoverable: false,
+    });
+  });
+
+  it("fails closed on unknown states instead of enabling recovery", () => {
+    assert.equal(feedbackRecoveryView("CLAIM_TOKEN"), null);
+    assert.equal(feedbackRecoveryView({ state: "UNCONFIRMED" }), null);
+    assert.equal(feedbackRecoveryView(1), null);
   });
 });

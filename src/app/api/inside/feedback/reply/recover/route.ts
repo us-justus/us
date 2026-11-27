@@ -5,8 +5,14 @@ import { recordInsideAuditEvent } from "@/lib/inside/audit";
 import { verifySameOrigin } from "@/lib/inside/origin";
 import { insideMutationRateLimit } from "@/lib/inside/mutation-rate-limit";
 import { readJsonBounded } from "@/lib/http/read-json-bounded";
+import { feedbackRecoveryView } from "@/lib/feedback/reply-state";
 
 /**
+ * GET /api/inside/feedback/reply/recover?feedbackId=… exposes the safe
+ * attempt state for an admin recovery review. Only state/recoverable leave
+ * the server: no claim token, stored reply body, actor, provider id, or
+ * recipient is ever projected.
+ *
  * POST /api/inside/feedback/reply/recover — explicit recovery for a reply
  * whose provider outcome was never recorded (F-12).
  *
@@ -19,6 +25,51 @@ import { readJsonBounded } from "@/lib/http/read-json-bounded";
  * accepted from the client.
  */
 const GENERIC = "Not available.";
+const FEEDBACK_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export async function GET(req: Request) {
+  if (!verifySameOrigin(req).ok) {
+    return NextResponse.json({ error: GENERIC }, { status: 403 });
+  }
+  const gate = await requireInsideAdmin();
+  if (!gate) return NextResponse.json({ error: GENERIC }, { status: 403 });
+
+  const feedbackId = new URL(req.url).searchParams.get("feedbackId")?.trim() ?? "";
+  if (!FEEDBACK_ID.test(feedbackId)) {
+    return NextResponse.json({ error: "Pass a valid feedbackId." }, { status: 400 });
+  }
+
+  let service: ReturnType<typeof createServiceRoleClient>;
+  try {
+    service = createServiceRoleClient();
+  } catch {
+    return NextResponse.json({ error: "Could not read the reply state." }, { status: 500 });
+  }
+
+  const { data, error } = await service
+    .from("feedback_reply_attempts")
+    .select("state")
+    .eq("feedback_id", feedbackId)
+    .maybeSingle();
+  if (error) {
+    if (error.code === "42501") {
+      return NextResponse.json({ error: GENERIC }, { status: 403 });
+    }
+    return NextResponse.json(
+      { error: "Could not read the reply state." },
+      { status: 500 },
+    );
+  }
+
+  const view = feedbackRecoveryView((data as { state?: unknown } | null)?.state);
+  if (!view) {
+    return NextResponse.json(
+      { error: "Could not read the reply state." },
+      { status: 500 },
+    );
+  }
+  return NextResponse.json(view);
+}
 
 export async function GET(req: Request) {
   const gate = await requireInsideAdmin();
@@ -57,6 +108,10 @@ export async function POST(req: Request) {
   if (typeof feedbackId !== "string" || !feedbackId.trim()) {
     return NextResponse.json({ error: "Pass a feedbackId." }, { status: 400 });
   }
+  const id = feedbackId.trim();
+  if (!FEEDBACK_ID.test(id)) {
+    return NextResponse.json({ error: "Pass a valid feedbackId." }, { status: 400 });
+  }
   if (outcome !== "sent" && outcome !== "not_sent") {
     return NextResponse.json(
       { error: 'Pass outcome as "sent" or "not_sent".' },
@@ -72,7 +127,7 @@ export async function POST(req: Request) {
   }
 
   const { data, error } = await service.rpc("admin_recover_feedback_reply", {
-    p_feedback_id: feedbackId.trim(),
+    p_feedback_id: id,
     p_outcome: outcome,
     p_actor_id: gate.userId,
   });
@@ -94,11 +149,11 @@ export async function POST(req: Request) {
     const { data: fb } = await service
       .from("feedback")
       .select("id, category")
-      .eq("id", feedbackId.trim())
+      .eq("id", id)
       .maybeSingle();
     const audited = await recordInsideAuditEvent("FEEDBACK_REPLIED", {
       targetType: "feedback",
-      targetId: feedbackId.trim(),
+      targetId: id,
       metadata: {
         ...(typeof (fb as { category?: unknown } | null)?.category === "string"
           ? { category: (fb as { category: string }).category }

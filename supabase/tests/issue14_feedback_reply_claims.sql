@@ -4,7 +4,7 @@
 create extension if not exists pgtap;
 
 begin;
-select plan(19);
+select plan(34);
 
 -- Isolated users and feedback rows. The enclosing transaction rolls all of
 -- this back, including admin membership changes.
@@ -21,7 +21,8 @@ values
   ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, '22222222-2222-2222-2222-222222222222'::uuid, 'OTHER', 'issue14 claim'),
   ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid, '22222222-2222-2222-2222-222222222222'::uuid, 'OTHER', 'issue14 settle'),
   ('cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid, '22222222-2222-2222-2222-222222222222'::uuid, 'OTHER', 'issue14 recover'),
-  ('dddddddd-dddd-dddd-dddd-dddddddddddd'::uuid, '22222222-2222-2222-2222-222222222222'::uuid, 'OTHER', 'issue14 revoke');
+  ('dddddddd-dddd-dddd-dddd-dddddddddddd'::uuid, '22222222-2222-2222-2222-222222222222'::uuid, 'OTHER', 'issue14 revoke'),
+  ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'::uuid, '22222222-2222-2222-2222-222222222222'::uuid, 'OTHER', 'issue14 sent recovery');
 
 -- Service-role transport does not identify the web-session actor. Authorization
 -- therefore depends on the explicit server-verified actor membership.
@@ -58,7 +59,51 @@ select ok(
 );
 select ok(
   (select public.admin_recover_feedback_reply('cccccccc-cccc-cccc-cccc-cccccccccccc', 'not_sent', '11111111-1111-1111-1111-111111111111')->>'state') = 'RELEASED',
-  'current admin can recover a claim'
+  'not_sent recovery releases the claim'
+);
+select ok(
+  (select public.admin_claim_feedback_reply('cccccccc-cccc-cccc-cccc-cccccccccccc', 'cccccccc-cccc-cccc-cccc-cccccccc0002', 'reply three retry', '11111111-1111-1111-1111-111111111111')->>'ok') = 'true',
+  'a released claim can be retried through the normal send path'
+);
+select ok(
+  (select public.admin_claim_feedback_reply('cccccccc-cccc-cccc-cccc-cccccccccccc', 'cccccccc-cccc-cccc-cccc-cccccccc0003', 'reply three duplicate', '11111111-1111-1111-1111-111111111111')->>'reason') = 'in_progress',
+  'an active claim cannot be duplicated'
+);
+select ok(
+  (select public.admin_claim_feedback_reply('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'eeeeeeee-eeee-eeee-eeee-eeeeeeee0001', 'reply five', '11111111-1111-1111-1111-111111111111')->>'ok') = 'true',
+  'current admin can create a claim for sent recovery'
+);
+select ok(
+  (select public.admin_settle_feedback_reply_claim('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'eeeeeeee-eeee-eeee-eeee-eeeeeeee0001', 'UNCONFIRMED', 'unknown', '11111111-1111-1111-1111-111111111111')->>'state') = 'UNCONFIRMED',
+  'claim is unconfirmed before sent recovery'
+);
+select ok(
+  (select public.admin_recover_feedback_reply('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'sent', '11111111-1111-1111-1111-111111111111')->>'state') = 'SENT',
+  'sent recovery records the stored reply as sent'
+);
+select ok(
+  (select admin_reply from public.feedback where id = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee') = 'reply five',
+  'sent recovery writes the stored reply body to the feedback row'
+);
+select ok(
+  (select replied_by from public.feedback where id = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee') = '11111111-1111-1111-1111-111111111111'::uuid,
+  'sent recovery attributes the reply to the stored actor'
+);
+select ok(
+  (select state from public.feedback_reply_attempts where feedback_id = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee') = 'SENT',
+  'sent recovery marks the attempt terminal'
+);
+select ok(
+  (select public.admin_recover_feedback_reply('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'sent', '11111111-1111-1111-1111-111111111111')->>'changed') = 'false',
+  'recovering a terminal attempt is a no-op'
+);
+select throws_ok(
+  $$select public.admin_recover_feedback_reply('ffffffff-ffff-ffff-ffff-ffffffffffff', 'not_sent', '11111111-1111-1111-1111-111111111111')$$,
+  '02000', 'reply attempt not found', 'missing attempt is reported clearly'
+);
+select throws_ok(
+  $$select public.admin_recover_feedback_reply('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'maybe', '11111111-1111-1111-1111-111111111111')$$,
+  '22000', 'invalid recovery outcome', 'invalid recovery outcome is rejected'
 );
 
 select throws_ok($$select public.admin_finalize_feedback_reply('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaa0001', 'brevo-1', '22222222-2222-2222-2222-222222222222')$$, '42501', 'not authorized', 'non-admin cannot finalize an admin claim');
@@ -87,11 +132,18 @@ select throws_ok(
   $$select public.admin_recover_feedback_reply('cccccccc-cccc-cccc-cccc-cccccccccccc', 'not_sent', '11111111-1111-1111-1111-111111111111')$$,
   '42501', 'not authorized', 'removed admin cannot recover a claim'
 );
+select throws_ok(
+  $$select public.admin_recover_feedback_reply('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'sent', '11111111-1111-1111-1111-111111111111')$$,
+  '42501', 'not authorized', 'removed admin cannot confirm a sent reply'
+);
 
 reset role;
 select ok(has_function_privilege('anon', 'public.admin_claim_feedback_reply(uuid,uuid,text,uuid)', 'EXECUTE') = false, 'anon cannot execute claim RPC');
 select ok(has_function_privilege('authenticated', 'public.admin_finalize_feedback_reply(uuid,uuid,text,uuid)', 'EXECUTE') = false, 'authenticated cannot execute finalize RPC');
 select ok(has_function_privilege('service_role', 'public.admin_recover_feedback_reply(uuid,text,uuid)', 'EXECUTE') = true, 'service role retains recovery RPC access');
+select ok(has_table_privilege('anon', 'public.feedback_reply_attempts', 'SELECT') = false, 'anon cannot read attempt rows');
+select ok(has_table_privilege('authenticated', 'public.feedback_reply_attempts', 'SELECT') = false, 'authenticated cannot read attempt rows');
+select ok(has_table_privilege('service_role', 'public.feedback_reply_attempts', 'SELECT') = true, 'service role can read attempt rows');
 
 select * from finish();
 rollback;
