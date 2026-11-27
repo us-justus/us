@@ -72,7 +72,19 @@ export async function GET() {
     );
   }
 
-  return NextResponse.json(summary);
+  // Explicit response allowlist: never serialize the raw RPC object because
+  // older/future SQL versions may include per-student or recipient fields.
+  return NextResponse.json({
+    waitingStudentCount: summary.waitingStudentCount,
+    uniqueRecipientCount: summary.uniqueRecipientCount,
+    skippedCount: summary.skippedCount,
+    pending: summary.pending,
+    sent: summary.sent,
+    failed: summary.failed,
+    ...(summary.sending !== undefined ? { sending: summary.sending } : {}),
+    ...(summary.skippedQueue !== undefined ? { skippedQueue: summary.skippedQueue } : {}),
+    lastPreparedAt: summary.lastPreparedAt,
+  });
 }
 
 export async function POST(req: Request) {
