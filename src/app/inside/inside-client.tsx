@@ -203,9 +203,125 @@ function InsideDashboard({ initial }: { initial: DashboardInitial }) {
       <StudentsPanel />
       <FeedbackPanel />
       <EmailQueuePanel />
+      <EmailQueueReconciliationPanel />
       <ReportsPanel />
       <HealthPanel />
     </div>
+  );
+}
+
+/* ---------------- uncertain waitlist email reconciliation ---------------- */
+
+type ReconciliationRow = {
+  id: string;
+  status: "SENDING";
+  attempts: number;
+  updatedAt: string;
+  reason: string;
+};
+
+function EmailQueueReconciliationPanel() {
+  const [rows, setRows] = useState<ReconciliationRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [pending, setPending] = useState<{ row: ReconciliationRow; outcome: "sent" | "not_sent" } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function refresh() {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/inside/email-queue/reconcile", { cache: "no-store" });
+      const body = await response.json().catch(() => null) as { rows?: unknown; error?: unknown } | null;
+      if (!response.ok || !Array.isArray(body?.rows)) {
+        throw new Error(typeof body?.error === "string" ? body.error : "Could not load uncertain sends.");
+      }
+      setRows(body.rows as ReconciliationRow[]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load uncertain sends.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void refresh();
+  }, []);
+
+  async function reconcile(row: ReconciliationRow, outcome: "sent" | "not_sent") {
+    setBusyId(row.id);
+    setError(null);
+    try {
+      const response = await fetch("/api/inside/email-queue/reconcile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ queueId: row.id, updatedAt: row.updatedAt, outcome }),
+      });
+      const body = await response.json().catch(() => null) as { error?: unknown } | null;
+      if (!response.ok) {
+        throw new Error(typeof body?.error === "string" ? body.error : "Could not reconcile this send.");
+      }
+      setPending(null);
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not reconcile this send.");
+      await refresh();
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <section aria-label="uncertain email sends" className="mt-4 rounded-[24px] border border-line bg-paper-2 px-5 py-6">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[11px] uppercase tracking-[0.18em] text-ink-faint">interrupted sends</p>
+        <button type="button" onClick={() => void refresh()} disabled={loading || busyId !== null}
+          className="inline-flex min-h-[44px] items-center rounded-full px-4 py-2 text-[11px] uppercase tracking-[0.12em] text-ink-soft transition-colors hover:bg-accent-wash hover:text-accent-deep disabled:opacity-40">
+          {loading ? "loading…" : "refresh"}
+        </button>
+      </div>
+      <p className="mt-2 text-[12px] leading-5 text-ink-soft">
+        Review sends whose provider outcome could not be confirmed. This never sends an email.
+      </p>
+      {error && <FieldError msg={error} />}
+      {loading ? (
+        <p className="mt-3 text-[12px] text-ink-faint">checking…</p>
+      ) : rows.length === 0 ? (
+        <p className="mt-3 text-[12px] text-ink-faint">No interrupted sends need review.</p>
+      ) : (
+        <div className="mt-3 divide-y divide-line">
+          {rows.map((row) => (
+            <div key={row.id} className="py-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[13px] text-ink">Attempt {row.attempts} · {row.reason}</p>
+                <span className="text-[11px] uppercase tracking-[0.12em] text-ink-faint">SENDING</span>
+              </div>
+              <p className="mt-1 text-[11px] text-ink-faint">Updated {formatQueueTime(row.updatedAt)}</p>
+              {pending?.row.id === row.id ? (
+                <div className="mt-3 rounded-2xl border border-line bg-paper px-3 py-3">
+                  <p className="text-[12px] leading-5 text-ink">
+                    {pending.outcome === "sent"
+                      ? "Confirm that the provider accepted this email. It will be marked SENT."
+                      : "Confirm that the provider did not send this email. It will be marked FAILED and available for an explicit retry."}
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button type="button" variant="ghost" onClick={() => setPending(null)} disabled={busyId === row.id}>cancel</Button>
+                    <Button type="button" onClick={() => void reconcile(row, pending.outcome)} disabled={busyId === row.id}>
+                      {busyId === row.id ? "saving…" : "confirm"}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button type="button" variant="subtle" onClick={() => setPending({ row, outcome: "sent" })} disabled={busyId !== null}>confirm sent</Button>
+                  <Button type="button" variant="ghost" onClick={() => setPending({ row, outcome: "not_sent" })} disabled={busyId !== null}>confirm not sent</Button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
