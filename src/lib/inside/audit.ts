@@ -153,6 +153,33 @@ export async function recordInsideAuditEvent(
 }
 
 /**
+ * ADMIN_LOGOUT after the signed session has been revoked. The caller must
+ * pass the actor returned by requireInsideAdmin() BEFORE revocation; this
+ * helper re-checks current admin membership without requiring the revoked
+ * live session to remain valid.
+ */
+export async function recordInsideLogout(userId: string): Promise<InsideAuditResult> {
+  let service: ReturnType<typeof createServiceRoleClient>;
+  try {
+    service = createServiceRoleClient();
+  } catch {
+    console.error("[inside] audit unavailable: service-role misconfigured");
+    return { ok: false, error: "audit unavailable" };
+  }
+  try {
+    const { data, error } = await service
+      .from("admin_users")
+      .select("user_id")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (error || !data) return { ok: false, error: "not authorized" };
+  } catch {
+    return { ok: false, error: "audit unavailable" };
+  }
+  return insertAuditEvent({ actorUserId: userId, action: "ADMIN_LOGOUT" });
+}
+
+/**
  * ADMIN_LOGIN_SUCCESS for the just-verified login session. The user id is
  * the server-derived session user (never client input); admin membership
  * is re-checked here via the privileged client, so misuse with a
