@@ -61,6 +61,12 @@ describe("inside hardening — route wiring", () => {
     assert.ok(!login.includes('@/lib/supabase/server'));
   });
 
+  it("only installs the browser auth session after admin membership is verified", () => {
+    const body = login.slice(login.indexOf("export async function POST"));
+    assert.ok(body.indexOf('supabase.rpc("is_admin")') < body.indexOf("cookieClient.auth.setSession"));
+    assert.ok(body.indexOf("cookieClient.auth.setSession") < body.indexOf("setInsideCookieHeader"));
+  });
+
   it("login resets the targeted bucket after a verified login", () => {
     assert.ok(login.includes("clear_login_rate_limit"));
   });
