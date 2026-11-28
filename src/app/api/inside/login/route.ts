@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { createClient as createCookieClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { normalizeUSN, validateUSN } from "@/lib/verification/usn";
 import {
@@ -199,7 +200,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: GENERIC }, { status: 401 });
   }
 
-  const { error: signInError } = await supabase.auth.signInWithPassword({ email, password: pw });
+  const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password: pw });
   if (signInError) {
     await auditFailure();
     return NextResponse.json({ error: GENERIC }, { status: 401 });
@@ -221,6 +222,24 @@ export async function POST(req: Request) {
     // inside admin. The signed inside cookie is minted only below.
     await auditFailure();
     return NextResponse.json({ error: GENERIC }, { status: 401 });
+  }
+
+  // Only after the isolated client has verified admin membership do we
+  // install the intended admin Supabase session in browser cookies. Failed
+  // non-admin attempts never touch the existing product session.
+  const verifiedSession = signInData.session;
+  if (!verifiedSession) {
+    await auditFailure();
+    return NextResponse.json({ error: GENERIC }, { status: 401 });
+  }
+  const cookieClient = await createCookieClient();
+  const { error: cookieSessionError } = await cookieClient.auth.setSession({
+    access_token: verifiedSession.access_token,
+    refresh_token: verifiedSession.refresh_token,
+  });
+  if (cookieSessionError) {
+    console.error("[inside] login unavailable: could not persist verified admin session");
+    return NextResponse.json({ error: "Inside is unavailable right now." }, { status: 503 });
   }
 
   // Best-effort: a fully verified login clears the caller's targeted bucket
