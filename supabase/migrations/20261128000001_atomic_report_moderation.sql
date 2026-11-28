@@ -26,7 +26,7 @@ begin
   ) then
     raise exception 'not authorized' using errcode = '42501';
   end if;
-  if p_report_id is null or p_resolution not in ('resolved', 'dismissed') then
+  if p_report_id is null or p_resolution is null or p_resolution not in ('resolved', 'dismissed') then
     raise exception 'invalid report resolution' using errcode = '22000';
   end if;
   if p_moderation is not null and p_moderation not in ('suspend', 'restore') then
