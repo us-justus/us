@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { clearInsideCookieHeader } from "@/lib/inside/auth";
-import { recordInsideAuditEvent } from "@/lib/inside/audit";
+import { recordInsideLogout } from "@/lib/inside/audit";
+import { requireInsideAdmin } from "@/lib/inside/auth";
 import { verifySameOrigin } from "@/lib/inside/origin";
 import { cookies } from "next/headers";
 import { INSIDE_COOKIE } from "@/lib/inside/cookie";
@@ -26,6 +27,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Not available." }, { status: 403 });
   }
   const raw = (await cookies()).get(INSIDE_COOKIE)?.value;
+  // Capture the verified actor before revocation invalidates the live session.
+  const gate = raw ? await requireInsideAdmin() : null;
   if (raw) {
     try {
       const parts = raw.split(".");
@@ -42,9 +45,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Could not end the admin session." }, { status: 503 });
     }
   }
-  try {
-    await recordInsideAuditEvent("ADMIN_LOGOUT");
-  } catch {}
+  if (gate) {
+    try {
+      await recordInsideLogout(gate.userId);
+    } catch {}
+  }
   const res = NextResponse.json({ ok: true });
   res.headers.append("Set-Cookie", clearInsideCookieHeader());
   return res;
