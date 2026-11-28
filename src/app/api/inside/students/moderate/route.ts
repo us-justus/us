@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { requireInsideAdmin } from "@/lib/inside/auth";
-import { recordInsideAuditEvent } from "@/lib/inside/audit";
 import { verifySameOrigin } from "@/lib/inside/origin";
 import { SUSPENSION_REASON_MAX, validateSuspensionReason } from "@/lib/auth/suspension";
 import { insideMutationRateLimit } from "@/lib/inside/mutation-rate-limit";
@@ -73,73 +72,29 @@ export async function POST(req: Request) {
   }
 
   const supabase = createServiceRoleClient();
-  const wantActive = action === "restore";
-  // Restore compensation may need to re-suspend (which requires a reason):
-  // remember the current reason before clearing it. Best-effort — the
-  // compensation below falls back to failing loudly (500) regardless.
-  let priorReason: string | null = null;
-  if (wantActive) {
-    try {
-      const { data: prior } = await createServiceRoleClient()
-        .from("profiles")
-        .select("suspension_reason")
-        .eq("user_id", userId)
-        .maybeSingle();
-      const v = (prior as { suspension_reason?: unknown } | null)?.suspension_reason;
-      if (typeof v === "string" && v.trim()) priorReason = v.trim().slice(0, SUSPENSION_REASON_MAX);
-    } catch {}
-  }
-  const { data, error } = await supabase.rpc("admin_set_student_active", {
+  const { data, error } = await supabase.rpc("admin_set_student_active_audited", {
     p_actor_id: gate.userId,
     p_target_user_id: userId,
     p_active: wantActive,
     p_reason: cleanReason,
   });
   if (error) {
-    // Failed mutation: no success event is recorded.
     if (error.code === "42501") return NextResponse.json({ error: GENERIC }, { status: 403 });
-    if (error.code === "02000") {
-      return NextResponse.json({ error: "Student not found." }, { status: 404 });
-    }
-    if (error.code === "22000") {
-      return NextResponse.json({ error: "Tell the student why they're suspended." }, { status: 400 });
-    }
+    if (error.code === "02000") return NextResponse.json({ error: "Student not found." }, { status: 404 });
+    if (error.code === "22000") return NextResponse.json({ error: "Tell the student why they're suspended." }, { status: 400 });
+    console.error("[inside] atomic student moderation transaction failed");
     return NextResponse.json({ error: "Could not update the student." }, { status: 500 });
   }
-  const row = data as { user_id: string; previous_active: boolean; new_active: boolean; changed: boolean };
 
-  // No-op (already in the target state): no event.
-  if (row.changed !== true) {
-    return NextResponse.json({ ok: true, changed: false, isActive: row.new_active });
-  }
-
-  const auditAction = wantActive ? "STUDENT_RESTORED" : "STUDENT_SUSPENDED";
-  const audited = await recordInsideAuditEvent(auditAction, {
-    targetType: "student",
-    targetId: row.user_id,
-    metadata: {
-      previous_active: row.previous_active,
-      new_active: row.new_active,
-      ...(cleanReason ? { reason: cleanReason } : {}),
-    },
+  const row = data as {
+    user_id: string;
+    previous_active: boolean;
+    new_active: boolean;
+    changed: boolean;
+  };
+  return NextResponse.json({
+    ok: true,
+    changed: row.changed === true,
+    isActive: row.new_active,
   });
-
-  if (!audited.ok) {
-    // Fail closed: restore the previous state via the sanctioned writer.
-    // Re-suspending requires a reason: reuse the suspend reason, or the
-    // pre-restore reason remembered above. Restoring needs none.
-    console.error("[inside] student moderation audit failed; restoring previous state");
-    try {
-      await supabase.rpc("admin_set_student_active", {
-        p_actor_id: gate.userId,
-        p_target_user_id: userId,
-        p_active: row.previous_active,
-        p_reason:
-          row.previous_active === false ? (cleanReason ?? priorReason) : null,
-      });
-    } catch {}
-    return NextResponse.json({ error: "Could not update the student." }, { status: 500 });
-  }
-
-  return NextResponse.json({ ok: true, changed: true, isActive: row.new_active });
 }
