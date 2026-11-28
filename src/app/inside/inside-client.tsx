@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/onboarding/shell";
 import { getQueueSendState } from "@/lib/inside/email-queue-send-state";
@@ -227,7 +227,7 @@ function EmailQueueReconciliationPanel() {
   const [pending, setPending] = useState<{ row: ReconciliationRow; outcome: "sent" | "not_sent" } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -242,11 +242,11 @@ function EmailQueueReconciliationPanel() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     void refresh();
-  }, []);
+  }, [refresh]);
 
   async function reconcile(row: ReconciliationRow, outcome: "sent" | "not_sent") {
     setBusyId(row.id);
