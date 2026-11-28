@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { clearInsideCookieHeader } from "@/lib/inside/auth";
+import { clearInsideCookieHeader, requireInsideAdmin } from "@/lib/inside/auth";
 import { recordInsideLogout } from "@/lib/inside/audit";
-import { requireInsideAdmin } from "@/lib/inside/auth";
 import { verifySameOrigin } from "@/lib/inside/origin";
 import { cookies } from "next/headers";
 import { INSIDE_COOKIE } from "@/lib/inside/cookie";
