@@ -1,6 +1,9 @@
-const SUPABASE_ORIGIN_ERROR = "NEXT_PUBLIC_SUPABASE_URL must be an absolute HTTPS origin";
+const SUPABASE_ORIGIN_ERROR = "NEXT_PUBLIC_SUPABASE_URL must be an absolute HTTPS origin (or local HTTP in development)";
 
-export function parseSupabaseOrigin(value: string | undefined): string {
+export function parseSupabaseOrigin(
+  value: string | undefined,
+  allowLocalHttp = false,
+): string {
   if (!value) throw new Error(SUPABASE_ORIGIN_ERROR);
   let url: URL;
   try {
@@ -8,8 +11,12 @@ export function parseSupabaseOrigin(value: string | undefined): string {
   } catch {
     throw new Error(SUPABASE_ORIGIN_ERROR);
   }
+  const localHttp =
+    allowLocalHttp &&
+    url.protocol === "http:" &&
+    ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
   if (
-    url.protocol !== "https:" ||
+    (url.protocol !== "https:" && !localHttp) ||
     url.username ||
     url.password ||
     url.pathname !== "/" ||
