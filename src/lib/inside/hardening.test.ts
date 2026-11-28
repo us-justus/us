@@ -41,7 +41,9 @@ describe("inside hardening — route wiring", () => {
     assert.ok(body.includes('service.rpc("revoke_inside_session"'));
     assert.ok(body.includes('status: 503'));
     assert.ok(body.includes('Could not end the admin session.'));
-    assert.ok(body.includes('recordInsideAuditEvent("ADMIN_LOGOUT")'));
+    assert.ok(body.includes('recordInsideLogout(gate.userId)'));
+    assert.ok(body.indexOf('requireInsideAdmin()') < body.indexOf('revoke_inside_session'));
+    assert.ok(body.indexOf('revoke_inside_session') < body.indexOf('recordInsideLogout(gate.userId)'));
     assert.ok(body.indexOf('status: 503') < body.indexOf('clearInsideCookieHeader()'));
   });
 
@@ -51,6 +53,12 @@ describe("inside hardening — route wiring", () => {
       body.indexOf("check_login_rate_limit") < body.indexOf("signInWithPassword"),
       "throttle must bound credential-guessing cost",
     );
+  });
+
+  it("admin credential verification never persists into browser cookies", () => {
+    assert.ok(login.includes("createSupabaseClient"));
+    assert.ok(login.includes("persistSession: false"));
+    assert.ok(!login.includes('@/lib/supabase/server'));
   });
 
   it("login resets the targeted bucket after a verified login", () => {
