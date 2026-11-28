@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { requireInsideAdmin } from "@/lib/inside/auth";
 import { InsideClient } from "./inside-client";
 
@@ -37,8 +37,8 @@ export default async function InsidePage() {
   // active photo-complete profiles (the waitlist); suspended = profiles
   // with is_active = false. No total_users: a bare verification_records
   // count is broader than the waitlist and misleads the admin.
-  const supabase = await createClient();
-  const countsRes = await supabase.rpc("admin_overview_counts");
+  const supabase = createServiceRoleClient();
+  const countsRes = await supabase.rpc("admin_overview_counts", { p_actor_id: gate.userId });
   const counts = countsRes.data as { waiting: number; suspended: number } | null;
   const waiting = typeof counts?.waiting === "number" ? counts.waiting : null;
   const suspended = typeof counts?.suspended === "number" ? counts.suspended : null;

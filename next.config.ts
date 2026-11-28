@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { buildReportOnlyCsp, parseSupabaseOrigin } from "./src/lib/security/csp";
 
 // LAN hostnames allowed to reach the dev server (comma-separated). Keep this
 // environment-driven: committed machine-specific IPs are a privacy and
@@ -8,6 +9,12 @@ const allowedDevOrigins = (process.env.ALLOWED_DEV_ORIGINS ?? "")
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
+
+const supabaseOrigin = parseSupabaseOrigin(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NODE_ENV === "development",
+);
+const reportOnlyCsp = buildReportOnlyCsp(supabaseOrigin);
 
 const nextConfig: NextConfig = {
   ...(allowedDevOrigins.length > 0 ? { allowedDevOrigins } : {}),
@@ -20,7 +27,11 @@ const nextConfig: NextConfig = {
         { key: "X-Frame-Options", value: "DENY" },
         { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
         { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+        { key: "Content-Security-Policy-Report-Only", value: reportOnlyCsp },
       ],
+    }, {
+      source: "/inside/:path*",
+      headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow, noarchive" }],
     }];
   },
   // Supabase Storage hosts profile photos. Declared here so a future

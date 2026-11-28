@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { requireInsideAdmin } from "@/lib/inside/auth";
 import { recordInsideAuditEvent } from "@/lib/inside/audit";
 import { verifySameOrigin } from "@/lib/inside/origin";
 import { insideMutationRateLimit } from "@/lib/inside/mutation-rate-limit";
+import { readJsonBounded } from "@/lib/http/read-json-bounded";
 
 /**
  * POST /api/inside/feedback/resolve — explicitly resolve feedback
@@ -38,13 +38,16 @@ export async function POST(req: Request) {
   const rate = await insideMutationRateLimit(req, gate.userId);
   if (!rate.allowed) return NextResponse.json({ error: GENERIC }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds ?? 60) } });
 
-  const { feedbackId } = (await req.json().catch(() => ({}))) as { feedbackId?: unknown };
+  const parsed = await readJsonBounded<Record<string, unknown>>(req, 16_384);
+  if (!parsed) return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+  const { feedbackId } = parsed as { feedbackId?: unknown };
   if (typeof feedbackId !== "string" || !feedbackId.trim()) {
     return NextResponse.json({ error: "Pass a feedbackId." }, { status: 400 });
   }
 
-  const supabase = await createClient();
+  const supabase = createServiceRoleClient();
   const { data, error } = await supabase.rpc("admin_resolve_feedback", {
+    p_actor_id: gate.userId,
     p_feedback_id: feedbackId.trim(),
   });
   if (error) {

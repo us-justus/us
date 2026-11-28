@@ -36,12 +36,35 @@ describe("inside hardening — route wiring", () => {
     );
   });
 
+  it("does not clear the admin cookie when revocation fails", () => {
+    const body = logout.slice(logout.indexOf("export async function POST"));
+    assert.ok(body.includes('service.rpc("revoke_inside_session"'));
+    assert.ok(body.includes('status: 503'));
+    assert.ok(body.includes('Could not end the admin session.'));
+    assert.ok(body.includes('recordInsideLogout(gate.userId)'));
+    assert.ok(body.indexOf('requireInsideAdmin()') < body.indexOf('revoke_inside_session'));
+    assert.ok(body.indexOf('revoke_inside_session') < body.indexOf('recordInsideLogout(gate.userId)'));
+    assert.ok(body.indexOf('status: 503') < body.indexOf('clearInsideCookieHeader()'));
+  });
+
   it("login rate-limits before credential verification", () => {
     const body = login.slice(login.indexOf("export async function POST"));
     assert.ok(
       body.indexOf("check_login_rate_limit") < body.indexOf("signInWithPassword"),
       "throttle must bound credential-guessing cost",
     );
+  });
+
+  it("admin credential verification never persists into browser cookies", () => {
+    assert.ok(login.includes("createSupabaseClient"));
+    assert.ok(login.includes("persistSession: false"));
+    assert.ok(!login.includes('@/lib/supabase/server'));
+  });
+
+  it("only installs the browser auth session after admin membership is verified", () => {
+    const body = login.slice(login.indexOf("export async function POST"));
+    assert.ok(body.indexOf('supabase.rpc("is_admin")') < body.indexOf("cookieClient.auth.setSession"));
+    assert.ok(body.indexOf("cookieClient.auth.setSession") < body.indexOf("setInsideCookieHeader"));
   });
 
   it("login resets the targeted bucket after a verified login", () => {

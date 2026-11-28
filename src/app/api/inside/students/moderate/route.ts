@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { requireInsideAdmin } from "@/lib/inside/auth";
-import { recordInsideAuditEvent } from "@/lib/inside/audit";
 import { verifySameOrigin } from "@/lib/inside/origin";
 import { SUSPENSION_REASON_MAX, validateSuspensionReason } from "@/lib/auth/suspension";
 import { insideMutationRateLimit } from "@/lib/inside/mutation-rate-limit";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { readJsonBounded } from "@/lib/http/read-json-bounded";
 
 /**
  * POST /api/inside/students/moderate — suspend / restore a student
@@ -19,7 +18,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
  * the STUDENT_SUSPENDED audit metadata. Restore clears the suspension
  * state; audit history is never deleted.
  *
- * Server-authorized: signed inside gate + admin_set_student_active()
+ * Server-authorized: signed inside gate + service-role admin_set_student_active()
  * SECURITY DEFINER (re-checks is_admin() in the database). suspended_by /
  * suspended_at are server-derived (calling admin JWT / now()) — never
  * accepted from the client. A student session invoking this — or the RPC
@@ -47,7 +46,9 @@ export async function POST(req: Request) {
   const rate = await insideMutationRateLimit(req, gate.userId);
   if (!rate.allowed) return NextResponse.json({ error: GENERIC }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds ?? 60) } });
 
-  const { userId, action, reason } = (await req.json().catch(() => ({}))) as {
+  const parsed = await readJsonBounded<Record<string, unknown>>(req, 16_384);
+  if (!parsed) return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+  const { userId, action, reason } = parsed as {
     userId?: unknown;
     action?: unknown;
     reason?: unknown;
@@ -70,73 +71,30 @@ export async function POST(req: Request) {
     cleanReason = (reason as string).trim().slice(0, SUSPENSION_REASON_MAX);
   }
 
-  const supabase = await createClient();
-  const wantActive = action === "restore";
-  // Restore compensation may need to re-suspend (which requires a reason):
-  // remember the current reason before clearing it. Best-effort — the
-  // compensation below falls back to failing loudly (500) regardless.
-  let priorReason: string | null = null;
-  if (wantActive) {
-    try {
-      const { data: prior } = await createServiceRoleClient()
-        .from("profiles")
-        .select("suspension_reason")
-        .eq("user_id", userId)
-        .maybeSingle();
-      const v = (prior as { suspension_reason?: unknown } | null)?.suspension_reason;
-      if (typeof v === "string" && v.trim()) priorReason = v.trim().slice(0, SUSPENSION_REASON_MAX);
-    } catch {}
-  }
-  const { data, error } = await supabase.rpc("admin_set_student_active", {
+  const supabase = createServiceRoleClient();
+  const { data, error } = await supabase.rpc("admin_set_student_active_audited", {
+    p_actor_id: gate.userId,
     p_target_user_id: userId,
     p_active: wantActive,
-    ...(cleanReason ? { p_reason: cleanReason } : {}),
+    p_reason: cleanReason,
   });
   if (error) {
-    // Failed mutation: no success event is recorded.
     if (error.code === "42501") return NextResponse.json({ error: GENERIC }, { status: 403 });
-    if (error.code === "02000") {
-      return NextResponse.json({ error: "Student not found." }, { status: 404 });
-    }
-    if (error.code === "22000") {
-      return NextResponse.json({ error: "Tell the student why they're suspended." }, { status: 400 });
-    }
+    if (error.code === "02000") return NextResponse.json({ error: "Student not found." }, { status: 404 });
+    if (error.code === "22000") return NextResponse.json({ error: "Tell the student why they're suspended." }, { status: 400 });
+    console.error("[inside] atomic student moderation transaction failed");
     return NextResponse.json({ error: "Could not update the student." }, { status: 500 });
   }
-  const row = data as { user_id: string; previous_active: boolean; new_active: boolean; changed: boolean };
 
-  // No-op (already in the target state): no event.
-  if (row.changed !== true) {
-    return NextResponse.json({ ok: true, changed: false, isActive: row.new_active });
-  }
-
-  const auditAction = wantActive ? "STUDENT_RESTORED" : "STUDENT_SUSPENDED";
-  const audited = await recordInsideAuditEvent(auditAction, {
-    targetType: "student",
-    targetId: row.user_id,
-    metadata: {
-      previous_active: row.previous_active,
-      new_active: row.new_active,
-      ...(cleanReason ? { reason: cleanReason } : {}),
-    },
+  const row = data as {
+    user_id: string;
+    previous_active: boolean;
+    new_active: boolean;
+    changed: boolean;
+  };
+  return NextResponse.json({
+    ok: true,
+    changed: row.changed === true,
+    isActive: row.new_active,
   });
-
-  if (!audited.ok) {
-    // Fail closed: restore the previous state via the sanctioned writer.
-    // Re-suspending requires a reason: reuse the suspend reason, or the
-    // pre-restore reason remembered above. Restoring needs none.
-    console.error("[inside] student moderation audit failed; restoring previous state");
-    try {
-      await supabase.rpc("admin_set_student_active", {
-        p_target_user_id: userId,
-        p_active: row.previous_active,
-        ...(row.previous_active === false && (cleanReason ?? priorReason)
-          ? { p_reason: (cleanReason ?? priorReason) as string }
-          : {}),
-      });
-    } catch {}
-    return NextResponse.json({ error: "Could not update the student." }, { status: 500 });
-  }
-
-  return NextResponse.json({ ok: true, changed: true, isActive: row.new_active });
 }

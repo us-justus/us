@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
-import { clearInsideCookieHeader } from "@/lib/inside/auth";
-import { recordInsideAuditEvent } from "@/lib/inside/audit";
+import { clearInsideCookieHeader, requireInsideAdmin } from "@/lib/inside/auth";
+import { recordInsideLogout } from "@/lib/inside/audit";
 import { verifySameOrigin } from "@/lib/inside/origin";
+import { cookies } from "next/headers";
+import { INSIDE_COOKIE } from "@/lib/inside/cookie";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 /**
  * POST /api/inside/logout — clears the signed inside cookie.
@@ -22,9 +25,30 @@ export async function POST(req: Request) {
   if (!verifySameOrigin(req).ok) {
     return NextResponse.json({ error: "Not available." }, { status: 403 });
   }
-  try {
-    await recordInsideAuditEvent("ADMIN_LOGOUT");
-  } catch {}
+  const raw = (await cookies()).get(INSIDE_COOKIE)?.value;
+  // Capture the verified actor before revocation invalidates the live session.
+  const gate = raw ? await requireInsideAdmin() : null;
+  if (raw) {
+    try {
+      const parts = raw.split(".");
+      const exp = Number(parts[1]);
+      const service = createServiceRoleClient();
+      const { error } = await service.rpc("revoke_inside_session", {
+        p_token: raw,
+        p_expires_at: new Date(Number.isFinite(exp) ? exp : Date.now()).toISOString(),
+      });
+      if (error) {
+        return NextResponse.json({ error: "Could not end the admin session." }, { status: 503 });
+      }
+    } catch {
+      return NextResponse.json({ error: "Could not end the admin session." }, { status: 503 });
+    }
+  }
+  if (gate) {
+    try {
+      await recordInsideLogout(gate.userId);
+    } catch {}
+  }
   const res = NextResponse.json({ ok: true });
   res.headers.append("Set-Cookie", clearInsideCookieHeader());
   return res;

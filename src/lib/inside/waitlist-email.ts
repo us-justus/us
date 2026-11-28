@@ -22,7 +22,7 @@ export type WaitlistSendResult =
   | { kind: "success"; providerMessageId: string }
   | { kind: "config_error"; detail: string }
   | { kind: "permanent_failure"; detail: string }
-  | { kind: "temporary_failure"; detail: string };
+  | { kind: "temporary_failure"; detail: string; ambiguous?: boolean };
 
 function sanitizedDetail(
   status: number,
@@ -114,9 +114,9 @@ export async function sendWaitlistEmail(args: {
     const msg =
       e instanceof Error ? e.message.slice(0, 120) : "network error";
     if (name === "AbortError" || name === "TimeoutError") {
-      return { kind: "temporary_failure", detail: "brevo request timed out" };
+      return { kind: "temporary_failure", detail: "brevo request timed out", ambiguous: true };
     }
-    return { kind: "temporary_failure", detail: msg };
+    return { kind: "temporary_failure", detail: msg, ambiguous: true };
   } finally {
     clearTimeout(timeout);
   }

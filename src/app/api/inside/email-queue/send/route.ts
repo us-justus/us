@@ -10,6 +10,13 @@ import {
 } from "@/lib/inside/waitlist-email";
 import { perfLog, perfStart } from "@/lib/utils/perf";
 import { insideMutationRateLimit } from "@/lib/inside/mutation-rate-limit";
+import { readJsonBounded } from "@/lib/http/read-json-bounded";
+import {
+  TEMPORARY_RETRY_MS,
+  runEmailQueueSend,
+  type QueueSendRow,
+  type QueueSendStore,
+} from "@/lib/inside/email-queue-send-runner";
 
 /**
  * POST /api/inside/email-queue/send — explicit send of the prepared
@@ -38,25 +45,10 @@ import { insideMutationRateLimit } from "@/lib/inside/mutation-rate-limit";
  */
 const GENERIC = "Not available.";
 
-/** Stale-claim recovery: a SENDING row this old is treated as crashed. */
-const STALE_SENDING_MS = 10 * 60 * 1000;
-/** Backoff before a temporary FAILED row becomes retryable. */
-const TEMPORARY_RETRY_MS = 5 * 60 * 1000;
 /** Upper bound per explicit send (the queue itself is audience-bounded). */
 const SEND_BATCH_LIMIT = 25;
 
-type QueueRow = {
-  id: string;
-  user_id: string | null;
-  email: string;
-  status: string;
-  attempts: number;
-  next_attempt_at: string | null;
-  updated_at: string;
-  last_error: string | null;
-};
-
-function isQueueRow(value: unknown): value is QueueRow {
+function isQueueRow(value: unknown): value is QueueSendRow {
   if (!value || typeof value !== "object") return false;
   const r = value as Record<string, unknown>;
   return (
@@ -69,22 +61,6 @@ function isQueueRow(value: unknown): value is QueueRow {
     typeof r.updated_at === "string" &&
     (r.last_error === null || typeof r.last_error === "string")
   );
-}
-
-function isRetryableFailed(row: QueueRow, now: number): boolean {
-  if (row.status !== "FAILED") return false;
-  if (!row.last_error || !row.last_error.startsWith("temporary:")) return false;
-  if (!row.next_attempt_at) return true;
-  const due = Date.parse(row.next_attempt_at);
-  if (Number.isNaN(due)) return true;
-  return due <= now;
-}
-
-function isStaleSending(row: QueueRow, now: number): boolean {
-  if (row.status !== "SENDING") return false;
-  const updated = Date.parse(row.updated_at);
-  if (Number.isNaN(updated)) return true;
-  return now - updated >= STALE_SENDING_MS;
 }
 
 function normalizedEmail(value: unknown): string | null {
@@ -114,7 +90,9 @@ export async function POST(req: Request) {
   const rate = await insideMutationRateLimit(req, gate.userId);
   if (!rate.allowed) return respond({ error: GENERIC }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds ?? 60) } });
 
-  const { subject, message } = (await req.json().catch(() => ({}))) as {
+  const parsed = await readJsonBounded<Record<string, unknown>>(req, 16_384);
+  if (!parsed) return respond({ error: "Invalid request body." }, { status: 400 });
+  const { subject, message } = parsed as {
     subject?: unknown;
     message?: unknown;
   };
@@ -149,117 +127,73 @@ export async function POST(req: Request) {
   }
 
   const now = Date.now();
-  const candidates = ((Array.isArray(rows) ? rows : []).filter(isQueueRow)).filter(
-    (row) =>
-      row.status === "PENDING" ||
-      isRetryableFailed(row, now) ||
-      isStaleSending(row, now),
-  );
+  const parsedRows = (Array.isArray(rows) ? rows : []).filter(isQueueRow);
+  const updatePersisted = (data: unknown): boolean =>
+    Array.isArray(data) && data.length > 0;
 
-  let attempted = 0;
-  let sent = 0;
-  let failed = 0;
-  let skipped = 0;
-
-  for (const row of candidates) {
-    // Race-safe claim: only the first concurrent sender wins. The
-    // id + prior-status + updated_at guard means a row that another send
-    // already claimed, sent, or finalized matches zero rows here.
-    const claimedAt = new Date().toISOString();
-    const { data: claimed } = await service
-      .from("waitlist_email_queue")
-      .update({
-        status: "SENDING",
-        attempts: row.attempts + 1,
-        next_attempt_at: claimedAt,
-        last_error: null,
-      })
-      .eq("id", row.id)
-      .eq("status", row.status)
-      .eq("updated_at", row.updated_at)
-      .select("id");
-    if (!claimed || (Array.isArray(claimed) && claimed.length === 0)) {
-      continue;
-    }
-    attempted += 1;
-
-    const skip = async (reason: string) => {
-      await service
-        .from("waitlist_email_queue")
-        .update({ status: "SKIPPED", last_error: `skipped: ${reason}` })
-        .eq("id", row.id)
-        .eq("status", "SENDING");
-      skipped += 1;
-    };
-
-    // Re-check current eligibility against live state. The snapshot email
-    // is never rewritten and never substituted: any mismatch skips.
-    if (!row.user_id) {
-      await skip("profile missing");
-      continue;
-    }
-    const { data: profile } = await service
-      .from("profiles")
-      .select("id, is_active")
-      .eq("user_id", row.user_id)
-      .maybeSingle();
-    const prof = profile as { id?: unknown; is_active?: unknown } | null;
-    if (!prof || typeof prof.id !== "string") {
-      await skip("profile missing");
-      continue;
-    }
-    if (prof.is_active === false) {
-      await skip("profile suspended");
-      continue;
-    }
-    const { data: photo } = await service
-      .from("profile_photos")
-      .select("id")
-      .eq("profile_id", prof.id)
-      .limit(1)
-      .maybeSingle();
-    if (!photo) {
-      await skip("photo incomplete");
-      continue;
-    }
-    const { data: vr } = await service
-      .from("verification_records")
-      .select("email")
-      .eq("user_id", row.user_id)
-      .maybeSingle();
-    const current = normalizedEmail(
-      (vr as { email?: unknown } | null)?.email,
-    );
-    if (!current) {
-      await skip("email invalid");
-      continue;
-    }
-    if (current !== row.email) {
-      await skip("email changed");
-      continue;
-    }
-
-    const delivered = await sendWaitlistEmail({
-      to: row.email,
-      subject: cleanSubject,
-      message: cleanMessage,
-    });
-    if (delivered.kind === "success") {
-      await service
+  const store: QueueSendStore = {
+    async claim(row) {
+      // Race-safe claim: id + prior-status + updated_at guard means a row
+      // another send already claimed, sent, or finalized matches zero rows.
+      const { data, error } = await service
         .from("waitlist_email_queue")
         .update({
-          status: "SENT",
-          provider_message_id: delivered.providerMessageId || null,
-          sent_at: new Date().toISOString(),
+          status: "SENDING",
+          attempts: row.attempts + 1,
+          next_attempt_at: new Date().toISOString(),
           last_error: null,
         })
         .eq("id", row.id)
-        .eq("status", "SENDING");
-      sent += 1;
-    } else if (delivered.kind === "config_error") {
-      // Configuration flipped mid-batch: release the claim so the row
-      // stays retryable and stop without marking it failed.
-      await service
+        .eq("status", row.status)
+        .eq("updated_at", row.updated_at)
+        .select("id");
+      return !error && updatePersisted(data);
+    },
+
+    async eligibility(row) {
+      // Re-check live state. The snapshot email is never rewritten and
+      // never substituted: any mismatch skips.
+      if (!row.user_id) return "profile missing";
+      const { data: profile } = await service
+        .from("profiles")
+        .select("id, is_active")
+        .eq("user_id", row.user_id)
+        .maybeSingle();
+      const prof = profile as { id?: unknown; is_active?: unknown } | null;
+      if (!prof || typeof prof.id !== "string") return "profile missing";
+      if (prof.is_active === false) return "profile suspended";
+      const { data: photo } = await service
+        .from("profile_photos")
+        .select("id")
+        .eq("profile_id", prof.id)
+        .limit(1)
+        .maybeSingle();
+      if (!photo) return "photo incomplete";
+      const { data: vr } = await service
+        .from("verification_records")
+        .select("email")
+        .eq("user_id", row.user_id)
+        .maybeSingle();
+      const current = normalizedEmail(
+        (vr as { email?: unknown } | null)?.email,
+      );
+      if (!current) return "email invalid";
+      if (current !== row.email) return "email changed";
+      return null;
+    },
+
+    async settleSkip(row, reason) {
+      const { data, error } = await service
+        .from("waitlist_email_queue")
+        .update({ status: "SKIPPED", last_error: `skipped: ${reason}` })
+        .eq("id", row.id)
+        .eq("status", "SENDING")
+        .select("id");
+      return !error && updatePersisted(data);
+    },
+
+    async releaseConfig(row) {
+      const { data, error } = await service
         .from("waitlist_email_queue")
         .update({
           status: "PENDING",
@@ -267,33 +201,71 @@ export async function POST(req: Request) {
           last_error: "temporary: sender misconfigured",
         })
         .eq("id", row.id)
-        .eq("status", "SENDING");
-      attempted -= 1;
-      break;
-    } else if (delivered.kind === "permanent_failure") {
-      await service
+        .eq("status", "SENDING")
+        .select("id");
+      return !error && updatePersisted(data);
+    },
+
+    async settleSent(row, providerMessageId) {
+      const { data, error } = await service
+        .from("waitlist_email_queue")
+        .update({
+          status: "SENT",
+          provider_message_id: providerMessageId,
+          sent_at: new Date().toISOString(),
+          last_error: null,
+        })
+        .eq("id", row.id)
+        .eq("status", "SENDING")
+        .select("id");
+      return !error && updatePersisted(data);
+    },
+
+    async settleFailed(row, permanent, detail) {
+      const { data, error } = await service
         .from("waitlist_email_queue")
         .update({
           status: "FAILED",
-          next_attempt_at: new Date().toISOString(),
-          last_error: `permanent: ${delivered.detail}`.slice(0, 500),
+          next_attempt_at: new Date(
+            permanent ? Date.now() : now + TEMPORARY_RETRY_MS,
+          ).toISOString(),
+          last_error: (permanent
+            ? `permanent: ${detail}`
+            : `temporary: ${detail}`
+          ).slice(0, 500),
         })
         .eq("id", row.id)
-        .eq("status", "SENDING");
-      failed += 1;
-    } else {
-      await service
+        .eq("status", "SENDING")
+        .select("id");
+      return !error && updatePersisted(data);
+    },
+
+    async markUnconfirmed(row, detail) {
+      // Best-effort marker on the still-SENDING row. It excludes the row
+      // from stale-SENDING reclaim, so a provider success whose SENT
+      // update failed is never resent automatically.
+      const { data, error } = await service
         .from("waitlist_email_queue")
-        .update({
-          status: "FAILED",
-          next_attempt_at: new Date(now + TEMPORARY_RETRY_MS).toISOString(),
-          last_error: `temporary: ${delivered.detail}`.slice(0, 500),
-        })
+        .update({ last_error: detail.slice(0, 500) })
         .eq("id", row.id)
-        .eq("status", "SENDING");
-      failed += 1;
-    }
-  }
+        .eq("status", "SENDING")
+        .select("id");
+      return !error && updatePersisted(data);
+    },
+  };
+
+  const counts = await runEmailQueueSend({
+    rows: parsedRows,
+    store,
+    now,
+    send: (row) =>
+      sendWaitlistEmail({
+        to: row.email,
+        subject: cleanSubject,
+        message: cleanMessage,
+      }),
+  });
+  const { attempted, sent, failed, skipped, unrecorded, unconfirmed } = counts;
 
   // Fresh durable counts are the source of truth for `remaining`.
   const { count: remainingCount } = await service
@@ -307,11 +279,11 @@ export async function POST(req: Request) {
   // completed send into a retry prompt.
   const audited = await recordInsideAuditEvent("WAITLIST_EMAIL_SENT", {
     targetType: "waitlist_email_queue",
-    metadata: { attempted, sent, failed, skipped },
+    metadata: { attempted, sent, failed, skipped, unrecorded, unconfirmed },
   });
   if (!audited.ok) {
     console.error("[inside] waitlist email sent but audit failed");
   }
 
-  return respond({ attempted, sent, failed, skipped, remaining });
+  return respond({ attempted, sent, failed, skipped, unrecorded, unconfirmed, remaining });
 }

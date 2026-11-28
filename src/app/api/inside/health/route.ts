@@ -38,18 +38,10 @@ export async function GET() {
     database = "error";
   }
 
-  // Auth: lightweight session lookup. Proves the Auth service answers.
-  // Never enumerates users — only the caller's own session is read.
-  let auth: Status = "error";
-  try {
-    const {
-      data: { user },
-      error,
-    } = await supabase.auth.getUser();
-    if (!error && user) auth = "ok";
-  } catch {
-    auth = "error";
-  }
+  // requireInsideAdmin() already performed the live Auth user lookup and
+  // current admin membership check for this request. Reusing that successful
+  // gate avoids a second auth.getUser() call.
+  const auth: Status = "ok";
 
   // Storage: lightweight list of the existing profile-photos bucket.
   // No uploads, no permanent files, no writes of any kind.

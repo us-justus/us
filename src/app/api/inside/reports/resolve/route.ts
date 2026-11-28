@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { requireInsideAdmin } from "@/lib/inside/auth";
-import { recordInsideAuditEvent } from "@/lib/inside/audit";
 import { verifySameOrigin } from "@/lib/inside/origin";
+import { readJsonBounded } from "@/lib/http/read-json-bounded";
 import { insideMutationRateLimit } from "@/lib/inside/mutation-rate-limit";
+import { SUSPENSION_REASON_MAX, validateSuspensionReason } from "@/lib/auth/suspension";
+import {
+  cleanSuspensionReason,
+  parseReportModeration,
+} from "@/lib/inside/report-moderation";
 
 /**
  * POST /api/inside/reports/resolve — resolve a report, optionally with a
@@ -14,7 +18,7 @@ import { insideMutationRateLimit } from "@/lib/inside/mutation-rate-limit";
  *   reportId: string,
  *   resolution: "resolved" | "dismissed",
  *   moderate?: "suspend" | "restore",   // applied to the reported student
- *   reason?: string                      // short note, audit metadata only
+ *   reason?: string                      // required for suspend, max 280
  * }.
  *
  * Server-authorized: signed inside gate + admin_resolve_report() /
@@ -30,10 +34,10 @@ import { insideMutationRateLimit } from "@/lib/inside/mutation-rate-limit";
  *     route restores the pre-mutation state (report status via the
  *     server-only service-role client — the sanctioned resolver only moves
  *     toward terminal states — moderation via the sanctioned writer) and
- *     returns 500 instead of success.
+ *     returns 500 instead of success. Restore compensation re-suspends
+ *     with the PRE-restore reason.
  */
 const GENERIC = "Not available.";
-const MAX_REASON = 280;
 
 export async function POST(req: Request) {
   if (!verifySameOrigin(req).ok) {
@@ -44,7 +48,9 @@ export async function POST(req: Request) {
   const rate = await insideMutationRateLimit(req, gate.userId);
   if (!rate.allowed) return NextResponse.json({ error: GENERIC }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds ?? 60) } });
 
-  const { reportId, resolution, moderate, reason } = (await req.json().catch(() => ({}))) as {
+  const parsed = await readJsonBounded<Record<string, unknown>>(req, 16_384);
+  if (!parsed) return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+  const { reportId, resolution, moderate, reason } = parsed as {
     reportId?: unknown;
     resolution?: unknown;
     moderate?: unknown;
@@ -59,118 +65,47 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
-  if (moderate !== undefined && moderate !== "suspend" && moderate !== "restore") {
-    return NextResponse.json(
-      { error: 'Pass moderate as "suspend" or "restore", or omit it.' },
-      { status: 400 },
-    );
+  const parsedModeration = parseReportModeration(moderate);
+  if (!parsedModeration.ok) {
+    return NextResponse.json({ error: parsedModeration.error }, { status: 400 });
   }
-  const cleanReason =
-    typeof reason === "string" && reason.trim() ? reason.trim().slice(0, MAX_REASON) : null;
+  const moderationMode = parsedModeration.mode;
+  const cleanReason = cleanSuspensionReason(reason, SUSPENSION_REASON_MAX);
+  if (moderationMode === "suspend") {
+    const reasonError = validateSuspensionReason(reason);
+    if (reasonError) {
+      return NextResponse.json({ error: reasonError }, { status: 400 });
+    }
+  }
 
-  const supabase = await createClient();
-  const { data, error } = await supabase.rpc("admin_resolve_report", {
+  // One SECURITY DEFINER RPC performs report resolution, optional moderation,
+  // and both audit inserts in a single PostgreSQL transaction.
+  const supabase = createServiceRoleClient();
+  const { data, error } = await supabase.rpc("admin_resolve_report_with_moderation", {
+    p_actor_id: gate.userId,
     p_report_id: reportId,
     p_resolution: resolution,
+    p_moderation: moderationMode,
+    p_reason: cleanReason,
   });
   if (error) {
-    // Failed mutation: no success event is recorded.
     if (error.code === "42501") return NextResponse.json({ error: GENERIC }, { status: 403 });
-    if (error.code === "02000") {
-      return NextResponse.json({ error: "Report not found." }, { status: 404 });
-    }
+    if (error.code === "02000") return NextResponse.json({ error: "Report or student not found." }, { status: 404 });
+    if (error.code === "22000") return NextResponse.json({ error: "Tell the student why they're suspended." }, { status: 400 });
+    console.error("[inside] atomic report moderation transaction failed");
     return NextResponse.json({ error: "Could not resolve the report." }, { status: 500 });
   }
-  const row = data as {
-    id: string;
-    reported_id: string;
-    previous_status: string;
-    new_status: string;
+
+  const result = data as {
+    ok: true;
     changed: boolean;
+    status: string;
+    moderation?: { ok: true; changed: boolean; isActive: boolean } | null;
   };
-
-  // No-op (already in the target state): no event. Moderation is skipped
-  // too — there is nothing to attach it to on a no-op call.
-  if (row.changed !== true) {
-    return NextResponse.json({ ok: true, changed: false, status: row.new_status });
-  }
-
-  const resolveAudit = await recordInsideAuditEvent("REPORT_RESOLVED", {
-    targetType: "report",
-    targetId: row.id,
-    metadata: {
-      previous_status: row.previous_status,
-      new_status: row.new_status,
-      reported_id: row.reported_id,
-      ...(cleanReason ? { reason: cleanReason } : {}),
-    },
-  });
-  if (!resolveAudit.ok) {
-    // Fail closed: restore the previous status. The sanctioned resolver
-    // only moves toward terminal states, so compensation goes through the
-    // server-only service-role client (never the browser).
-    console.error("[inside] report resolve audit failed; restoring previous state");
-    try {
-      const service = createServiceRoleClient();
-      await service.from("reports").update({ status: row.previous_status }).eq("id", row.id);
-    } catch {}
-    return NextResponse.json({ error: "Could not resolve the report." }, { status: 500 });
-  }
-
-  // Optional moderation of the reported student: an explicit second
-  // mutation with its own audit event (same fail-closed contract).
-  if (moderate === undefined) {
-    return NextResponse.json({ ok: true, changed: true, status: row.new_status });
-  }
-  const wantActive = moderate === "restore";
-  const { data: modData, error: modError } = await supabase.rpc("admin_set_student_active", {
-    p_target_user_id: row.reported_id,
-    p_active: wantActive,
-  });
-  if (modError) {
-    // The resolution above succeeded and is audited; only the moderation
-    // half failed, so report honestly without inventing an audit event.
-    return NextResponse.json(
-      {
-        ok: true,
-        changed: true,
-        status: row.new_status,
-        moderation: { ok: false, error: "Could not update the reported student." },
-      },
-      { status: 200 },
-    );
-  }
-  const mod = modData as { user_id: string; previous_active: boolean; new_active: boolean; changed: boolean };
-  if (mod.changed === true) {
-    const modAudit = await recordInsideAuditEvent(
-      wantActive ? "STUDENT_RESTORED" : "STUDENT_SUSPENDED",
-      {
-        targetType: "student",
-        targetId: mod.user_id,
-        metadata: {
-          previous_active: mod.previous_active,
-          new_active: mod.new_active,
-          report_id: row.id,
-          ...(cleanReason ? { reason: cleanReason } : {}),
-        },
-      },
-    );
-    if (!modAudit.ok) {
-      console.error("[inside] report moderation audit failed; restoring previous state");
-      try {
-        await supabase.rpc("admin_set_student_active", {
-          p_target_user_id: mod.user_id,
-          p_active: mod.previous_active,
-        });
-      } catch {}
-      return NextResponse.json({ error: "Could not update the reported student." }, { status: 500 });
-    }
-  }
-
   return NextResponse.json({
     ok: true,
-    changed: true,
-    status: row.new_status,
-    moderation: { ok: true, changed: mod.changed === true, isActive: mod.new_active },
+    changed: result.changed === true,
+    status: result.status,
+    ...(result.moderation ? { moderation: result.moderation } : {}),
   });
 }

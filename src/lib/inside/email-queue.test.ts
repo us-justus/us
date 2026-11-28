@@ -126,17 +126,20 @@ describe("waitlist email queue audience and snapshot", () => {
 });
 
 describe("waitlist email queue admin API", () => {
-  it("returns the database audience and rejects inconsistent count/snapshot shapes", () => {
+  it("returns bounded queue counts without exposing the database audience", () => {
     assert.ok(existsSync(new URL(API, ROOT)));
     const api = code(src(API)).replace(/\s+/g, " ");
     assert.equal((api.match(/requireInsideAdmin\(\)/g) ?? []).length, 2);
     assert.ok(api.includes("verifySameOrigin(req)"));
     assert.ok(api.includes('rpc( "admin_waitlist_email_queue_summary"'));
     assert.ok(api.includes('rpc( "admin_prepare_waitlist_email_queue"'));
-    assert.ok(api.includes("isAudienceStudents(summary.students, summary.waitingStudentCount)"));
-    assert.ok(api.includes("isRecipientSnapshot(result.recipients, result.uniqueRecipientCount)"));
     assert.ok(api.includes("result.addedCount + result.alreadyPreparedCount !== result.uniqueRecipientCount"));
-    assert.ok(api.includes("new Set(value).size === count"));
+    assert.ok(api.includes("waitingStudentCount: summary.waitingStudentCount"));
+    assert.ok(api.includes("lastPreparedAt: summary.lastPreparedAt"));
+    assert.ok(!api.includes("NextResponse.json(summary)"), "never serialize the raw RPC object");
+    assert.ok(!api.includes("summary.students"));
+    assert.ok(!api.includes("summary.recipients"));
+    assert.ok(!api.includes("result.recipients"));
     assert.ok(api.includes("status: 403"));
     assert.ok(!/verification_records|email_verification_queue|BREVO|sendFeedbackReplyEmail/i.test(api));
     assert.ok(!api.includes("admin_list_students"));
@@ -146,13 +149,13 @@ describe("waitlist email queue admin API", () => {
     const api = code(src(API));
     assert.ok(api.includes("requireInsideAdmin()"));
     assert.ok(api.includes("verifySameOrigin(req)"));
-    assert.ok(api.includes("summary.students"));
+    assert.ok(api.includes("uniqueRecipientCount"));
     assert.ok(!api.includes("user_id"));
   });
 });
 
 describe("waitlist email queue UI", () => {
-  it("uses the email-audience API for both students and count; no general directory query", () => {
+  it("uses aggregate queue data only; no student directory or private fields", () => {
     const client = code(src(CLIENT));
     const section = client.slice(
       client.indexOf("function EmailQueuePanel()"),
@@ -160,13 +163,18 @@ describe("waitlist email queue UI", () => {
     );
     assert.ok(section.includes('fetch("/api/inside/email-queue"'));
     assert.ok(section.includes("summary.waitingStudentCount"));
-    assert.ok(section.includes("summary?.students"));
+    assert.ok(section.includes("summary?.uniqueRecipientCount"));
+    assert.ok(!section.includes("summary?.students"));
+    assert.ok(!section.includes("view students"));
     assert.ok(!section.includes("fetchStudentsPage"));
     assert.ok(!section.includes("/api/inside/students"));
     assert.ok(!section.includes("slice(0, 50)"));
+    for (const field of ["student.username", "student.usn", "student.email", "student.nickname"]) {
+      assert.ok(!section.includes(field), `aggregate UI must not read ${field}`);
+    }
   });
 
-  it("renders the exact server-prepared recipient snapshot and explicit counts", () => {
+  it("renders bounded preparation counts without a recipient snapshot", () => {
     const client = code(src(CLIENT));
     const section = client.slice(
       client.indexOf("function EmailQueuePanel()"),
@@ -181,7 +189,7 @@ describe("waitlist email queue UI", () => {
     ]) {
       assert.ok(section.includes(`preparation.${field}`), `UI consumes server ${field}`);
     }
-    assert.ok(section.includes("preparation.recipients.map((email)"));
+    assert.ok(!section.includes("preparation.recipients.map((email)"));
     assert.ok(!section.includes("student.email?.trim()"));
     assert.ok(!section.includes("new Set("), "the browser must not deduplicate recipients");
     assert.ok(section.includes("No emails were sent."));
@@ -240,5 +248,42 @@ describe("waitlist email queue audit and no-send boundary", () => {
   it("leaves verification and feedback email senders untouched", () => {
     assert.ok(src("src/lib/feedback/reply-email.ts").includes("sendFeedbackReplyEmail"));
     assert.ok(src("src/lib/email-verification/brevo.ts").includes("sendVerificationEmail"));
+  });
+});
+
+describe("uncertain waitlist email reconciliation", () => {
+  it("uses a version-checked server-only reconciliation RPC", () => {
+    const migration = code(src("supabase/migrations/20261128000002_waitlist_email_reconciliation.sql"));
+    assert.ok(migration.includes("admin_reconcile_waitlist_email_queue"));
+    assert.ok(migration.includes("for update"));
+    assert.ok(migration.includes("v_updated_at is distinct from p_expected_updated_at"));
+    assert.ok(migration.includes("'WAITLIST_EMAIL_RECONCILED'"));
+    assert.ok(migration.includes("to service_role"));
+    assert.ok(migration.includes("temporary: manually confirmed not sent"));
+    assert.ok(!/sendWaitlistEmail|api\.brevo\.com/i.test(migration));
+  });
+
+  it("API returns only stale queue metadata and validates the optimistic version", () => {
+    const api = code(src("src/app/api/inside/email-queue/reconcile/route.ts"));
+    assert.ok(api.includes("requireInsideAdmin()"));
+    assert.ok(api.includes("verifySameOrigin(req)"));
+    assert.ok(api.includes("insideMutationRateLimit"));
+    assert.ok(api.includes("STALE_SENDING_MS"));
+    assert.ok(api.includes("p_expected_updated_at"));
+    assert.ok(!api.includes("row.email"));
+    assert.ok(!api.includes("row.user_id"));
+  });
+
+  it("admin UI requires explicit sent/not-sent confirmation", () => {
+    const client = code(src(CLIENT));
+    const panel = client.slice(
+      client.indexOf("function EmailQueueReconciliationPanel()"),
+      client.indexOf("/* ---------------- waitlist email queue (preparation only) ---------------- */"),
+    );
+    assert.ok(panel.includes("/api/inside/email-queue/reconcile"));
+    assert.ok(panel.includes("confirm sent"));
+    assert.ok(panel.includes("confirm not sent"));
+    assert.ok(panel.includes("updatedAt: row.updatedAt"));
+    assert.ok(panel.includes("This never sends an email."));
   });
 });

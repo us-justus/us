@@ -1,9 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/onboarding/shell";
 import { getQueueSendState } from "@/lib/inside/email-queue-send-state";
+import {
+  feedbackRecoveryView,
+  type FeedbackRecoveryView,
+} from "@/lib/feedback/reply-state";
 
 type DashboardInitial = {
   waiting: number;
@@ -199,9 +203,125 @@ function InsideDashboard({ initial }: { initial: DashboardInitial }) {
       <StudentsPanel />
       <FeedbackPanel />
       <EmailQueuePanel />
+      <EmailQueueReconciliationPanel />
       <ReportsPanel />
       <HealthPanel />
     </div>
+  );
+}
+
+/* ---------------- uncertain waitlist email reconciliation ---------------- */
+
+type ReconciliationRow = {
+  id: string;
+  status: "SENDING";
+  attempts: number;
+  updatedAt: string;
+  reason: string;
+};
+
+function EmailQueueReconciliationPanel() {
+  const [rows, setRows] = useState<ReconciliationRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [pending, setPending] = useState<{ row: ReconciliationRow; outcome: "sent" | "not_sent" } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/inside/email-queue/reconcile", { cache: "no-store" });
+      const body = await response.json().catch(() => null) as { rows?: unknown; error?: unknown } | null;
+      if (!response.ok || !Array.isArray(body?.rows)) {
+        throw new Error(typeof body?.error === "string" ? body.error : "Could not load uncertain sends.");
+      }
+      setRows(body.rows as ReconciliationRow[]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load uncertain sends.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  async function reconcile(row: ReconciliationRow, outcome: "sent" | "not_sent") {
+    setBusyId(row.id);
+    setError(null);
+    try {
+      const response = await fetch("/api/inside/email-queue/reconcile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ queueId: row.id, updatedAt: row.updatedAt, outcome }),
+      });
+      const body = await response.json().catch(() => null) as { error?: unknown } | null;
+      if (!response.ok) {
+        throw new Error(typeof body?.error === "string" ? body.error : "Could not reconcile this send.");
+      }
+      setPending(null);
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not reconcile this send.");
+      await refresh();
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <section aria-label="uncertain email sends" className="mt-4 rounded-[24px] border border-line bg-paper-2 px-5 py-6">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[11px] uppercase tracking-[0.18em] text-ink-faint">interrupted sends</p>
+        <button type="button" onClick={() => void refresh()} disabled={loading || busyId !== null}
+          className="inline-flex min-h-[44px] items-center rounded-full px-4 py-2 text-[11px] uppercase tracking-[0.12em] text-ink-soft transition-colors hover:bg-accent-wash hover:text-accent-deep disabled:opacity-40">
+          {loading ? "loading…" : "refresh"}
+        </button>
+      </div>
+      <p className="mt-2 text-[12px] leading-5 text-ink-soft">
+        Review sends whose provider outcome could not be confirmed. This never sends an email.
+      </p>
+      {error && <FieldError msg={error} />}
+      {loading ? (
+        <p className="mt-3 text-[12px] text-ink-faint">checking…</p>
+      ) : rows.length === 0 ? (
+        <p className="mt-3 text-[12px] text-ink-faint">No interrupted sends need review.</p>
+      ) : (
+        <div className="mt-3 divide-y divide-line">
+          {rows.map((row) => (
+            <div key={row.id} className="py-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[13px] text-ink">Attempt {row.attempts} · {row.reason}</p>
+                <span className="text-[11px] uppercase tracking-[0.12em] text-ink-faint">SENDING</span>
+              </div>
+              <p className="mt-1 text-[11px] text-ink-faint">Updated {formatQueueTime(row.updatedAt)}</p>
+              {pending?.row.id === row.id ? (
+                <div className="mt-3 rounded-2xl border border-line bg-paper px-3 py-3">
+                  <p className="text-[12px] leading-5 text-ink">
+                    {pending.outcome === "sent"
+                      ? "Confirm that the provider accepted this email. It will be marked SENT."
+                      : "Confirm that the provider did not send this email. It will be marked FAILED and available for an explicit retry."}
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button type="button" variant="ghost" onClick={() => setPending(null)} disabled={busyId === row.id}>cancel</Button>
+                    <Button type="button" onClick={() => void reconcile(row, pending.outcome)} disabled={busyId === row.id}>
+                      {busyId === row.id ? "saving…" : "confirm"}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button type="button" variant="subtle" onClick={() => setPending({ row, outcome: "sent" })} disabled={busyId !== null}>confirm sent</Button>
+                  <Button type="button" variant="ghost" onClick={() => setPending({ row, outcome: "not_sent" })} disabled={busyId !== null}>confirm not sent</Button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -211,7 +331,6 @@ type EmailQueueSummary = {
   waitingStudentCount: number;
   uniqueRecipientCount: number;
   skippedCount: number;
-  students: EmailAudienceStudent[];
   pending: number;
   sent: number;
   failed: number;
@@ -220,22 +339,12 @@ type EmailQueueSummary = {
   lastPreparedAt: string | null;
 };
 
-type EmailAudienceStudent = {
-  username: string | null;
-  nickname: string | null;
-  usn: string | null;
-  spot: number | null;
-  email: string;
-};
-
 type EmailQueuePreparation = {
   waitingStudentCount: number;
   uniqueRecipientCount: number;
   addedCount: number;
   alreadyPreparedCount: number;
   skippedCount: number;
-  students: EmailAudienceStudent[];
-  recipients: string[];
 };
 
 type EmailQueueSendResult = {
@@ -243,6 +352,7 @@ type EmailQueueSendResult = {
   sent: number;
   failed: number;
   skipped: number;
+  unrecorded: number;
   remaining: number;
 };
 
@@ -265,7 +375,6 @@ function EmailQueuePanel() {
   const [loading, setLoading] = useState(true);
   const [preparing, setPreparing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [studentsOpen, setStudentsOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [sendConfirming, setSendConfirming] = useState(false);
   const [sending, setSending] = useState(false);
@@ -340,19 +449,18 @@ function EmailQueuePanel() {
             : "Could not prepare the email queue.",
         );
       }
-      const prepared = json as unknown as EmailQueuePreparation;
-      setPreparation(prepared);
-      setSummary((current) =>
-        current
-          ? {
-              ...current,
-              waitingStudentCount: prepared.waitingStudentCount,
-              uniqueRecipientCount: prepared.uniqueRecipientCount,
-              skippedCount: prepared.skippedCount,
-              students: prepared.students,
-            }
-          : current,
-      );
+       const prepared = json as unknown as EmailQueuePreparation;
+       setPreparation(prepared);
+       setSummary((current) =>
+         current
+           ? {
+               ...current,
+               waitingStudentCount: prepared.waitingStudentCount,
+               uniqueRecipientCount: prepared.uniqueRecipientCount,
+               skippedCount: prepared.skippedCount,
+             }
+           : current,
+       );
       setConfirming(false);
       await loadSummary();
     } catch (e) {
@@ -386,6 +494,7 @@ function EmailQueuePanel() {
         sent: result.sent,
         failed: result.failed,
         skipped: result.skipped,
+        unrecorded: result.unrecorded,
         remaining: result.remaining,
       });
       setSendConfirming(false);
@@ -456,53 +565,6 @@ function EmailQueuePanel() {
       <p className="mt-2 text-[12px] leading-5 text-ink-soft">
         These students have completed their profile and provided a valid email address.
       </p>
-
-      <div className="mt-4 flex flex-wrap gap-2">
-        <Button
-          type="button"
-          variant="subtle"
-          onClick={() => setStudentsOpen((v) => !v)}
-          disabled={loading}
-        >
-          {studentsOpen ? "hide students" : "view students"}
-        </Button>
-      </div>
-
-      {studentsOpen && (
-        <div className="mt-4 rounded-2xl border border-line bg-paper px-4 py-4">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-ink-faint">
-            waiting students
-          </p>
-          {summary?.students.length === 0 ? (
-            <p className="mt-2 text-[12px] leading-5 text-ink-faint">
-              No students are currently waiting.
-            </p>
-          ) : (
-            <ul className="mt-3 space-y-3">
-              {(summary?.students ?? []).map((student, index) => (
-                <li
-                  key={student.usn ?? student.username ?? `${student.email}-${index}`}
-                  className="rounded-2xl border border-line bg-paper-2 px-3 py-3"
-                >
-                  <p className="text-[13px] text-ink">
-                    {student.username ? `@${student.username}` : student.nickname ?? "student"}
-                    {typeof student.spot === "number" ? (
-                      <span className="text-ink-faint"> #{student.spot}</span>
-                    ) : null}
-                  </p>
-                  <p className="mt-1 text-[12px] leading-5 text-ink-soft">
-                    {student.nickname && student.username ? student.nickname : ""}
-                    {student.usn ? ` · ${student.usn}` : ""}
-                  </p>
-                  <p className="mt-1 text-[12px] leading-5 text-ink-faint">
-                    {student.email}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
 
       <div className="mt-5 border-t border-line pt-4">
         <p className="text-[11px] uppercase tracking-[0.18em] text-ink-faint">
@@ -616,21 +678,6 @@ function EmailQueuePanel() {
             {preparation.uniqueRecipientCount.toLocaleString()}{" "}
             {preparation.uniqueRecipientCount === 1 ? "recipient" : "recipients"}
           </p>
-          <p className="mt-4 text-[11px] uppercase tracking-[0.18em] text-ink-faint">
-            recipients
-          </p>
-          <ul className="mt-3 space-y-2">
-            {preparation.recipients.length === 0 ? (
-              <li className="text-[12px] leading-5 text-ink-faint">No recipients prepared.</li>
-            ) : (
-              preparation.recipients.map((email) => (
-                <li key={email} className="text-[12px] leading-5 text-ink-soft">
-                  ✓ {email}
-                </li>
-              ))
-            )}
-          </ul>
-
           <div className="mt-4">
             <label htmlFor="waitlist-subject" className="block text-[11px] uppercase tracking-[0.14em] text-ink-faint">
               subject
@@ -695,7 +742,9 @@ function EmailQueuePanel() {
               aria-live="polite"
             >
               <p className="text-[13px] text-ink">
-                {sendResult.failed === 0 && sendResult.skipped === 0
+                {sendResult.failed === 0 &&
+                sendResult.skipped === 0 &&
+                sendResult.unrecorded === 0
                   ? "✓ Email sent."
                   : "Email partially sent."}
               </p>
@@ -703,8 +752,11 @@ function EmailQueuePanel() {
                 {sendResult.attempted.toLocaleString()} attempted ·{" "}
                 {sendResult.sent.toLocaleString()} sent ·{" "}
                 {sendResult.failed.toLocaleString()} failed ·{" "}
-                {sendResult.skipped.toLocaleString()} skipped ·{" "}
-                {sendResult.remaining.toLocaleString()} remaining
+                {sendResult.skipped.toLocaleString()} skipped
+                {sendResult.unrecorded > 0
+                  ? ` · ${sendResult.unrecorded.toLocaleString()} unrecorded`
+                  : ""}{" "}
+                · {sendResult.remaining.toLocaleString()} remaining
               </p>
               {queueFullySent && (
                 <p className="mt-1 text-[12px] leading-5 text-ink-soft">
@@ -804,7 +856,7 @@ function EmailQueuePanel() {
               type="button"
               className="mt-4"
               onClick={() => setSendConfirming(true)}
-              disabled={sending || preparation.recipients.length === 0}
+              disabled={sending || preparation.uniqueRecipientCount === 0}
               aria-label="send email"
             >
               {sending ? "sending…" : "send email"}
@@ -1516,6 +1568,20 @@ function FeedbackPanel() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [reply, setReply] = useState("");
   const [acting, setActing] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState<{
+    id: string;
+    view: FeedbackRecoveryView;
+  } | null>(null);
+  const [recoverConfirming, setRecoverConfirming] = useState<{
+    id: string;
+    outcome: "sent" | "not_sent";
+  } | null>(null);
+  const attemptRequestId = useRef(0);
+
+  function invalidateAttemptRequest() {
+    attemptRequestId.current += 1;
+  }
 
   async function load(next: FeedbackFilter) {
     setLoading(true);
@@ -1575,11 +1641,53 @@ function FeedbackPanel() {
     };
   }, []);
 
+  useEffect(() => {
+    const requestId = ++attemptRequestId.current;
+    if (!openId) return;
+    let cancelled = false;
+    const id = openId;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/inside/feedback/reply/recover?feedbackId=${encodeURIComponent(id)}`,
+        );
+        const j = (await res.json().catch(() => null)) as {
+          error?: unknown;
+          state?: unknown;
+        } | null;
+        if (cancelled || requestId !== attemptRequestId.current) return;
+        if (!res.ok) {
+          const errMsg: unknown = j?.error;
+          throw new Error(
+            typeof errMsg === "string" && errMsg
+              ? errMsg
+              : "Could not read the reply state.",
+          );
+        }
+        const view = feedbackRecoveryView(j?.state);
+        if (!view) throw new Error("Could not read the reply state.");
+        setAttempt({ id, view });
+      } catch (e) {
+        if (!cancelled && requestId === attemptRequestId.current) {
+          setAttempt({ id, view: { state: null, recoverable: false } });
+          setError(
+            e instanceof Error ? e.message : "Could not read the reply state.",
+          );
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [openId]);
+
   async function sendReply(f: FeedbackRow) {
+    if (acting !== null) return;
     if (!reply.trim()) {
       setError("Write a reply first.");
       return;
     }
+    invalidateAttemptRequest();
     setActing(`reply:${f.id}`);
     setError(null);
     try {
@@ -1588,10 +1696,36 @@ function FeedbackPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ feedbackId: f.id, replyBody: reply.trim() }),
       });
-      const j = (await res.json().catch(() => null)) as { error?: unknown; emailSent?: unknown } | null;
+      const j = (await res.json().catch(() => null)) as {
+        error?: unknown;
+        emailSent?: unknown;
+        persistPending?: unknown;
+        unconfirmed?: unknown;
+      } | null;
       if (!res.ok) {
+        if (
+          j?.emailSent === true ||
+          j?.persistPending === true ||
+          j?.unconfirmed === true
+        ) {
+          setAttempt({
+            id: f.id,
+            view: {
+              state:
+                j?.emailSent === true || j?.persistPending === true
+                  ? "SENDING"
+                  : "UNCONFIRMED",
+              recoverable: true,
+            },
+          });
+        }
         const errMsg: unknown = j?.error;
-        const suffix = j?.emailSent === true ? " (the email went out — check the row before resending)" : "";
+        const suffix =
+          j?.emailSent === true
+            ? " (the email went out — check the row before recovering)"
+            : j?.unconfirmed === true
+              ? " (delivery could not be confirmed — check before retrying)"
+              : "";
         throw new Error(`${typeof errMsg === "string" && errMsg ? errMsg : "Could not send the reply."}${suffix}`);
       }
       setRows((prev) =>
@@ -1605,8 +1739,51 @@ function FeedbackPanel() {
     }
   }
 
+  async function recoverReply(
+    f: FeedbackRow,
+    outcome: "sent" | "not_sent",
+  ) {
+    if (acting !== null) return;
+    invalidateAttemptRequest();
+    setActing(`recover:${outcome}:${f.id}`);
+    setError(null);
+    try {
+      const res = await fetch("/api/inside/feedback/reply/recover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ feedbackId: f.id, outcome }),
+      });
+      const j = (await res.json().catch(() => null)) as {
+        error?: unknown;
+        ok?: unknown;
+        state?: unknown;
+      } | null;
+      if (!res.ok || j?.ok !== true) {
+        const errMsg: unknown = j?.error;
+        throw new Error(
+          typeof errMsg === "string" && errMsg
+            ? errMsg
+            : "Could not recover the reply.",
+        );
+      }
+      const view = feedbackRecoveryView(j?.state);
+      if (!view) throw new Error("Could not recover the reply.");
+      setAttempt({ id: f.id, view });
+      if (outcome === "sent") setReply("");
+      await load(filter);
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : "Could not recover the reply.",
+      );
+    } finally {
+      setActing(null);
+    }
+  }
+
   async function resolve(f: FeedbackRow) {
+    if (acting !== null) return;
     setActing(`resolve:${f.id}`);
+
     setError(null);
     try {
       const res = await fetch("/api/inside/feedback/resolve", {
@@ -1642,7 +1819,7 @@ function FeedbackPanel() {
         <button
           type="button"
           onClick={() => void load(filter)}
-          disabled={loading}
+          disabled={loading || acting !== null}
           className="inline-flex min-h-[44px] items-center rounded-full px-4 py-2 text-[11px] uppercase tracking-[0.12em] text-ink-soft transition-colors hover:bg-accent-wash hover:text-accent-deep disabled:opacity-40"
         >
           {loading ? "loading…" : loaded ? "refresh" : "load inbox"}
@@ -1661,6 +1838,7 @@ function FeedbackPanel() {
               key={o.value}
               type="button"
               aria-pressed={selected}
+              disabled={loading || acting !== null}
               onClick={() => {
                 setFilter(o.value);
                 setOpenId(null);
@@ -1693,14 +1871,21 @@ function FeedbackPanel() {
           <ul className="divide-y divide-line">
             {rows.map((f) => {
               const expanded = openId === f.id;
+              const recovery = attempt?.id === f.id ? attempt.view : null;
+              const recoveryConfirm =
+                recoverConfirming?.id === f.id ? recoverConfirming.outcome : null;
+              const recoveryPending = recovery?.recoverable === true;
               const who = f.username ? `@${f.username}` : (f.nickname ?? "a student");
               return (
                 <li key={f.id} className="py-3">
                   <button
                     type="button"
                     onClick={() => {
+                      invalidateAttemptRequest();
                       setOpenId(expanded ? null : f.id);
                       setReply("");
+                      setAttempt(null);
+                      setRecoverConfirming(null);
                     }}
                     aria-expanded={expanded}
                     className="block w-full rounded-xl text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
@@ -1777,7 +1962,74 @@ function FeedbackPanel() {
                         </div>
                       )}
 
-                      {f.status !== "RESOLVED" && (
+                      {recovery?.recoverable === true && f.status !== "RESOLVED" && (
+                        <div aria-live="polite" className="mt-3 rounded-2xl border border-accent-soft bg-accent-wash px-4 py-3">
+                          <p className="text-[11px] uppercase tracking-[0.12em] text-accent-deep">
+                            reply delivery unconfirmed
+                          </p>
+                          <p className="mt-1 text-[13px] leading-5 text-ink-soft">
+                            Check the Brevo logs before choosing an outcome. Recovery sends no email and never retries automatically.
+                          </p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              aria-label={`Confirm sent for ${who}`}
+                              onClick={() => setRecoverConfirming({ id: f.id, outcome: "sent" })}
+                              disabled={acting !== null}
+                              className="inline-flex min-h-[44px] items-center rounded-full border border-line bg-paper px-5 py-2 text-[12px] uppercase tracking-[0.12em] text-ink-soft transition-colors hover:border-accent-soft hover:bg-accent-wash hover:text-accent-deep disabled:opacity-40"
+                            >
+                              sent
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={`Confirm not sent for ${who}`}
+                              onClick={() => setRecoverConfirming({ id: f.id, outcome: "not_sent" })}
+                              disabled={acting !== null}
+                              className="inline-flex min-h-[44px] items-center rounded-full border border-line bg-paper px-5 py-2 text-[12px] uppercase tracking-[0.12em] text-ink-soft transition-colors hover:border-accent-soft hover:bg-accent-wash hover:text-accent-deep disabled:opacity-40"
+                            >
+                              not_sent
+                            </button>
+                          </div>
+                          {recoveryConfirm !== null && (
+                            <div className="mt-3 rounded-2xl border border-line bg-paper px-4 py-3">
+                              <p className="text-[13px] text-ink">
+                                {recoveryConfirm === "sent"
+                                  ? "Confirm the reply was sent?"
+                                  : "Confirm the reply was not sent?"}
+                              </p>
+                              <p className="mt-1 text-[12px] leading-5 text-ink-soft">
+                                {recoveryConfirm === "sent"
+                                  ? "Records the stored reply as sent. No email is sent now."
+                                  : "Releases the attempt for a manual retry. No email is sent now."}
+                              </p>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  onClick={() => setRecoverConfirming(null)}
+                                  disabled={acting !== null}
+                                >
+                                  cancel
+                                </Button>
+                                <Button
+                                  type="button"
+                                  onClick={() => {
+                                    setRecoverConfirming(null);
+                                    void recoverReply(f, recoveryConfirm);
+                                  }}
+                                  disabled={acting !== null}
+                                >
+                                  {recoveryConfirm === "sent"
+                                    ? "confirm sent"
+                                    : "confirm not sent"}
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {f.status !== "RESOLVED" && !f.admin_reply && (
                         <>
                           <label
                             htmlFor={`feedback-reply-${f.id}`}
@@ -1790,28 +2042,43 @@ function FeedbackPanel() {
                             value={reply}
                             onChange={(e) => setReply(e.target.value)}
                             rows={3}
+                            disabled={recoveryPending || acting !== null}
                             placeholder="write to the student…"
-                            className="mt-2 w-full resize-y rounded-2xl border border-line bg-paper px-4 py-3 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft"
+                            className="mt-2 w-full resize-y rounded-2xl border border-line bg-paper px-4 py-3 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft disabled:opacity-40"
                           />
-                          <div className="mt-3 flex flex-wrap gap-2">
+                        </>
+                      )}
+                      {f.status !== "RESOLVED" && (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {!f.admin_reply && (
                             <button
                               type="button"
                               onClick={() => void sendReply(f)}
-                              disabled={acting !== null}
+                              disabled={recoveryPending || acting !== null}
                               className="inline-flex min-h-[44px] items-center rounded-full bg-ink px-5 py-2 text-[12px] uppercase tracking-[0.12em] text-paper transition-colors hover:bg-black disabled:opacity-40"
                             >
                               {acting === `reply:${f.id}` ? "sending…" : "reply by email"}
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => void resolve(f)}
-                              disabled={acting !== null}
-                              className="inline-flex min-h-[44px] items-center rounded-full border border-line px-5 py-2 text-[12px] uppercase tracking-[0.12em] text-ink-soft transition-colors hover:border-accent-soft hover:bg-accent-wash hover:text-accent-deep disabled:opacity-40"
-                            >
-                              {acting === `resolve:${f.id}` ? "…" : "resolve"}
-                            </button>
-                          </div>
-                        </>
+                          )}
+                          <button
+                            type="button"
+                           onClick={() => setConfirming(f.id)}
+                           disabled={acting !== null}
+                            className="inline-flex min-h-[44px] items-center rounded-full border border-line px-5 py-2 text-[12px] uppercase tracking-[0.12em] text-ink-soft transition-colors hover:border-accent-soft hover:bg-accent-wash hover:text-accent-deep disabled:opacity-40"
+                          >
+                             {acting === `resolve:${f.id}` ? "…" : "resolve"}
+                           </button>
+                           {confirming === f.id && (
+                             <div className="basis-full rounded-2xl border border-accent-soft bg-accent-wash px-4 py-3">
+                               <p className="text-[13px] text-ink">Resolve this feedback?</p>
+                               <p className="mt-1 text-[12px] leading-5 text-ink-soft">This removes it from the open inbox.</p>
+                               <div className="mt-3 flex flex-wrap gap-2">
+                                 <Button type="button" variant="ghost" onClick={() => setConfirming(null)} disabled={acting !== null}>cancel</Button>
+                                 <Button type="button" onClick={() => { setConfirming(null); void resolve(f); }} disabled={acting !== null}>confirm resolve</Button>
+                               </div>
+                             </div>
+                           )}
+                         </div>
                       )}
                     </div>
                   )}
@@ -1843,17 +2110,23 @@ type ReportRow = {
 };
 
 function ReportsPanel() {
+  const PAGE_SIZE = 20;
   const [rows, setRows] = useState<ReportRow[]>([]);
   const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [acting, setActing] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<{ id: string; action: "resolved" | "dismissed" } | null>(null);
+  const [suspendId, setSuspendId] = useState<string | null>(null);
+  const [suspendReason, setSuspendReason] = useState("");
 
-  async function load() {
+  async function load(nextPage = 0) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/inside/reports?status=unresolved&limit=20&offset=0");
+      const res = await fetch(`/api/inside/reports?status=unresolved&limit=${PAGE_SIZE}&offset=${nextPage * PAGE_SIZE}`);
       const j = (await res.json().catch(() => null)) as {
         error?: unknown;
         reports?: unknown;
@@ -1867,6 +2140,8 @@ function ReportsPanel() {
       const total = j?.total;
       setRows(Array.isArray(rows) ? (rows as ReportRow[]) : []);
       setTotal(typeof total === "number" ? total : 0);
+      setPage(nextPage);
+      setLoaded(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load reports.");
     } finally {
@@ -1890,6 +2165,7 @@ function ReportsPanel() {
       }
       setRows((prev) => prev.filter((r) => r.id !== report.id));
       setTotal((t) => Math.max(0, t - 1));
+      setConfirming(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not resolve the report.");
     } finally {
@@ -1897,12 +2173,7 @@ function ReportsPanel() {
     }
   }
 
-  async function suspendReported(report: ReportRow) {
-    const label = report.reported_username ? `@${report.reported_username}` : "the reported student";
-    // Suspension requires a reason the student will see — no silent
-    // one-click suspends, even from the report queue.
-    const reason = window.prompt(`Why are you suspending ${label}? They disappear from discover, search, and profiles.`);
-    if (reason === null) return;
+  async function suspendReported(report: ReportRow, reason: string) {
     if (!reason.trim()) {
       setError("Tell the student why they're suspended.");
       return;
@@ -1927,6 +2198,8 @@ function ReportsPanel() {
       setRows((prev) =>
         prev.map((r) => (r.id === report.id ? { ...r, reported_is_active: false } : r)),
       );
+      setSuspendId(null);
+      setSuspendReason("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not update the student.");
     } finally {
@@ -1946,17 +2219,19 @@ function ReportsPanel() {
           disabled={loading}
           className="inline-flex min-h-[44px] items-center rounded-full px-4 py-2 text-[11px] uppercase tracking-[0.12em] text-ink-soft transition-colors hover:bg-accent-wash hover:text-accent-deep disabled:opacity-40"
         >
-          {loading ? "loading…" : rows.length ? "refresh" : "load queue"}
+           {loading ? "loading…" : loaded ? "refresh" : "load queue"}
         </button>
       </div>
 
       {error && <FieldError msg={error} />}
 
       <div className="mt-2">
-        {rows.length === 0 && !loading ? (
+         {loaded && rows.length === 0 && !loading ? (
           <p className="text-[12px] leading-5 text-ink-faint">
-            {total === 0 && !error ? "the queue is clear." : "load the queue to review reports."}
+            {total === 0 && !error ? "the queue is clear." : "no reports on this page."}
           </p>
+        ) : !loaded && !loading ? (
+          <p className="text-[12px] leading-5 text-ink-faint">load the queue to review reports.</p>
         ) : (
           <ul className="divide-y divide-line">
             {rows.map((r) => (
@@ -1970,7 +2245,7 @@ function ReportsPanel() {
                 <div className="mt-2 flex flex-wrap gap-2">
                   <button
                     type="button"
-                    onClick={() => void resolve(r, "resolved")}
+                     onClick={() => setConfirming({ id: r.id, action: "resolved" })}
                     disabled={acting === r.id}
                     className="inline-flex min-h-[44px] items-center rounded-full border border-line px-4 py-2 text-[11px] uppercase tracking-[0.12em] text-ink-soft transition-colors hover:border-accent-soft hover:bg-accent-wash hover:text-accent-deep disabled:opacity-40"
                   >
@@ -1978,7 +2253,7 @@ function ReportsPanel() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => void resolve(r, "dismissed")}
+                     onClick={() => setConfirming({ id: r.id, action: "dismissed" })}
                     disabled={acting === r.id}
                     className="inline-flex min-h-[44px] items-center rounded-full border border-line px-4 py-2 text-[11px] uppercase tracking-[0.12em] text-ink-soft transition-colors hover:border-accent-soft hover:bg-accent-wash hover:text-accent-deep disabled:opacity-40"
                   >
@@ -1987,19 +2262,43 @@ function ReportsPanel() {
                   {r.reported_is_active !== false && (
                     <button
                       type="button"
-                      onClick={() => void suspendReported(r)}
+                       onClick={() => { setSuspendId(suspendId === r.id ? null : r.id); setSuspendReason(""); setError(null); }}
                       disabled={acting === r.id}
                       className="inline-flex min-h-[44px] items-center rounded-full border border-line px-4 py-2 text-[11px] uppercase tracking-[0.12em] text-ink-soft transition-colors hover:border-accent-soft hover:bg-accent-wash hover:text-accent-deep disabled:opacity-40"
-                    >
-                      suspend reported
-                    </button>
-                  )}
+                     >
+                       {suspendId === r.id ? "cancel suspension" : "suspend reported"}
+                     </button>
+                   )}
+                   {confirming?.id === r.id && (
+                     <div className="mt-3 rounded-2xl border border-accent-soft bg-accent-wash px-4 py-3">
+                       <p className="text-[13px] text-ink">{confirming.action === "resolved" ? "Resolve this report?" : "Dismiss this report?"}</p>
+                       <div className="mt-3 flex flex-wrap gap-2">
+                         <Button type="button" variant="ghost" onClick={() => setConfirming(null)}>cancel</Button>
+                         <Button type="button" onClick={() => void resolve(r, confirming.action)}>confirm {confirming.action === "resolved" ? "resolve" : "dismiss"}</Button>
+                       </div>
+                     </div>
+                   )}
+                   {suspendId === r.id && (
+                     <form className="mt-3 rounded-2xl border border-line bg-paper px-4 py-4" onSubmit={(e) => { e.preventDefault(); void suspendReported(r, suspendReason); }}>
+                       <label htmlFor={`report-suspend-reason-${r.id}`} className="block text-[11px] uppercase tracking-[0.14em] text-ink-faint">why are you suspending {r.reported_username ? `@${r.reported_username}` : "this student"}?</label>
+                       <textarea id={`report-suspend-reason-${r.id}`} value={suspendReason} onChange={(e) => setSuspendReason(e.target.value)} rows={2} maxLength={300} placeholder="the student sees this…" className="mt-2 w-full resize-y rounded-2xl border border-line bg-paper px-4 py-3 text-base text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft" />
+                       <p className="mt-1.5 text-[11px] text-ink-faint">{suspendReason.trim().length}/280 · they disappear from discover, search, and profiles.</p>
+                       <Button type="submit" className="mt-3" disabled={acting === r.id}>{acting === r.id ? "suspending…" : "confirm suspension"}</Button>
+                     </form>
+                   )}
                 </div>
               </li>
             ))}
-          </ul>
-        )}
+         </ul>
+       )}
       </div>
+      {loaded && total > PAGE_SIZE && (
+        <div className="mt-4 flex items-center justify-between">
+          <Button variant="subtle" disabled={loading || page === 0} onClick={() => void load(page - 1)}>← prev</Button>
+          <p className="text-[12px] text-ink-faint">{page + 1} / {Math.ceil(total / PAGE_SIZE)} · {total.toLocaleString()}</p>
+          <Button variant="subtle" disabled={loading || page + 1 >= Math.ceil(total / PAGE_SIZE)} onClick={() => void load(page + 1)}>next →</Button>
+        </div>
+      )}
     </section>
   );
 }

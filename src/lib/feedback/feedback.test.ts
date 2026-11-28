@@ -39,11 +39,22 @@ function code(body: string): string {
     .join("\n");
 }
 
+/** Restrict UI assertions to FeedbackPanel, not later panels in the file. */
+function feedbackPanel(body: string): string {
+  const start = body.indexOf("function FeedbackPanel()");
+  if (start < 0) return "";
+  const tail = body.slice(start);
+  const end = tail.indexOf("\nfunction ReportsPanel()");
+  return end >= 0 ? tail.slice(0, end) : tail;
+}
+
 const SUBMIT_ROUTE = "src/app/api/feedback/route.ts";
 const LIST_ROUTE = "src/app/api/inside/feedback/route.ts";
 const REPLY_ROUTE = "src/app/api/inside/feedback/reply/route.ts";
 const RESOLVE_ROUTE = "src/app/api/inside/feedback/resolve/route.ts";
 const GRANTS_MIG = "supabase/migrations/20261027000001_feedback_service_role_grants.sql";
+const CLAIMS_MIG = "supabase/migrations/20261123000002_issue14_feedback_reply_claims.sql";
+const RECOVER_ROUTE = "src/app/api/inside/feedback/reply/recover/route.ts";
 
 /** Comma-separated SQL column list → sorted names. */
 function columnsOf(body: string, statement: RegExp): string[] {
@@ -254,12 +265,13 @@ describe("feedback — service-role grants (production 42501 regression)", () =>
     for (const col of lookup.split(",").map((c) => c.trim())) {
       assert.ok(selectCols.includes(col), `reply lookup reads ungranted column ${col}`);
     }
-    // Reply persist payload must be fully covered by the column UPDATE grant.
-    const persistAt = reply.indexOf(".update({");
-    assert.ok(persistAt >= 0);
-    const persist = reply.slice(persistAt, reply.indexOf("})", persistAt));
+    // Reply finalization is a service-role-only RPC that writes the same
+    // four columns atomically with the claim transition.
+    const finalizeAt = reply.indexOf("admin_finalize_feedback_reply");
+    assert.ok(finalizeAt >= 0, "reply must finalize through the atomic RPC");
+    const claims = code(src(CLAIMS_MIG));
     for (const col of ["admin_reply", "replied_at", "replied_by", "brevo_message_id"]) {
-      assert.ok(persist.includes(col), `reply persist must record ${col}`);
+      assert.ok(claims.includes(col), `reply finalize must record ${col}`);
       assert.ok(updateCols.includes(col), `reply persist writes ungranted column ${col}`);
     }
   });
@@ -360,7 +372,7 @@ describe("feedback — student submission (validation, identity, throttle)", () 
 });
 
 describe("feedback — admin authorization (non-admin/anon cannot)", () => {
-  for (const rel of [LIST_ROUTE, REPLY_ROUTE, RESOLVE_ROUTE]) {
+  for (const rel of [LIST_ROUTE, REPLY_ROUTE, RESOLVE_ROUTE, RECOVER_ROUTE]) {
     it(`${rel} reuses requireInsideAdmin() and refuses with 403`, () => {
       const body = code(src(rel));
       assert.ok(body.includes("requireInsideAdmin()"), `${rel} must check the gate`);
@@ -377,10 +389,20 @@ describe("feedback — admin authorization (non-admin/anon cannot)", () => {
     assert.ok(body.includes("status: 403"), "non-admins get 403");
   });
 
-  it("state-changing routes enforce the Origin check", () => {
-    for (const rel of [REPLY_ROUTE, RESOLVE_ROUTE]) {
+  it("state-changing routes and recovery state reads enforce the Origin check", () => {
+    for (const rel of [REPLY_ROUTE, RESOLVE_ROUTE, RECOVER_ROUTE]) {
       assert.ok(code(src(rel)).includes("verifySameOrigin"), `${rel} must check Origin`);
     }
+    const body = code(src(RECOVER_ROUTE));
+    const getAt = body.indexOf("export async function GET(");
+    const postAt = body.indexOf("export async function POST(");
+    assert.ok(getAt >= 0 && postAt > getAt);
+    const getBlock = body.slice(getAt, postAt);
+    assert.ok(getBlock.indexOf("verifySameOrigin(req)") < getBlock.indexOf("requireInsideAdmin()"));
+    assert.ok(getBlock.indexOf("requireInsideAdmin()") < getBlock.indexOf("insideMutationRateLimit(req, gate.userId)"));
+    const postBlock = body.slice(postAt);
+    assert.ok(postBlock.indexOf("verifySameOrigin(req)") < postBlock.indexOf("requireInsideAdmin()"));
+    assert.ok(postBlock.indexOf("requireInsideAdmin()") < postBlock.indexOf("insideMutationRateLimit(req, gate.userId)"));
   });
 
   it("mutations go through is_admin()-checked RPCs / service-role only", () => {
@@ -437,25 +459,104 @@ describe("feedback — reply flow (recipient, order, failure behavior)", () => {
     assert.ok(!body.includes("u-") || body.indexOf("isInternalEmail") < sendAt, "internal check must precede the send");
   });
 
-  it("send happens before persist (row unchanged when Brevo fails)", () => {
+  it("claims before send and finalizes only after provider success", () => {
     const body = code(src(REPLY_ROUTE));
+    const claimAt = body.indexOf("admin_claim_feedback_reply");
     const sendAt = body.indexOf("await sendFeedbackReplyEmail(");
-    assert.ok(sendAt >= 0, "must send through Brevo");
-    // The persist is the UPDATE after the send (the earlier .from("feedback")
-    // is the pre-send load) — anchor on the update, not the first select.
-    const persistAt = body.indexOf(".update({", sendAt);
-    assert.ok(persistAt > sendAt, "persist must run only after the send");
-    const failBlock = body.slice(sendAt, persistAt + 200);
-    assert.ok(failBlock.includes("status: 502"), "Brevo failure must surface a 502 with nothing persisted");
-    assert.ok(body.includes("emailSent: true"), "post-send persist failure must flag the delivered email");
+    const finalizeAt = body.indexOf("admin_finalize_feedback_reply");
+    assert.ok(claimAt >= 0, "must atomically claim before sending");
+    assert.ok(sendAt > claimAt, "claim must precede the Brevo call");
+    assert.ok(finalizeAt > sendAt, "finalize/persist must run only after the send");
+    const failBlock = body.slice(sendAt, finalizeAt);
+    assert.ok(failBlock.includes("providerFailurePlan"), "Brevo failures must use the safe settlement plan");
+    assert.ok(failBlock.includes("status: plan.status"), "Brevo failures must return the planned status");
+    assert.ok(failBlock.includes("admin_settle_feedback_reply_claim"), "failed provider calls must settle the claim");
+    assert.ok(body.includes("emailSent: true"), "post-send finalize failure must flag the delivered email");
+    assert.ok(body.includes("persistPending: true"), "post-send finalize failure must expose recovery state");
   });
 
-  it("persists reply metadata including the provider message id", () => {
+  it("stores the replier + reply body on the claim, never in the request", () => {
     const body = code(src(REPLY_ROUTE));
-    for (const f of ["admin_reply", "replied_at", "replied_by", "brevo_message_id"]) {
-      assert.ok(body.includes(f), `persist must record ${f}`);
+    assert.ok(body.includes("p_actor_id: gate.userId"), "replier comes from the admin gate");
+    assert.ok(body.includes("p_reply_body: cleanReply"), "claim stores the intended reply body");
+    assert.ok(!body.includes("recipient_email"), "no client recipient field");
+    const claims = code(src(CLAIMS_MIG));
+    for (const f of ["reply_body", "replied_by", "claim_token", "provider_message_id"]) {
+      assert.ok(claims.includes(f), `claim must store ${f}`);
     }
-    assert.ok(body.includes("replied_by: gate.userId"), "replier comes from the admin gate");
+  });
+
+  it("refuses resolved, already-replied, and concurrent duplicate sends", () => {
+    const body = code(src(REPLY_ROUTE));
+    assert.ok(body.includes('row.status !== "OPEN"'), "resolved feedback must be refused");
+    assert.ok(body.includes("claimFailureResponse"), "claim failures map to explicit 409s");
+    assert.ok(body.includes("replyState"), "client receives the claim state");
+    const claims = code(src(CLAIMS_MIG));
+    assert.ok(claims.includes("for update"), "claim must serialize per feedback row");
+    assert.ok(claims.includes("'in_progress'"), "concurrent claims must be refused");
+    assert.ok(claims.includes("'already_replied'"), "existing replies must be refused");
+    assert.ok(claims.includes("'resolved'"), "resolved feedback must be refused in SQL");
+  });
+
+  it("keeps ambiguous provider outcomes out of automatic retry", () => {
+    const body = code(src(REPLY_ROUTE));
+    assert.ok(body.includes("providerFailurePlan"), "provider failures must use the safe settlement plan");
+    assert.ok(body.includes("UNCONFIRMED"), "ambiguous outcomes stay unconfirmed");
+    const claims = code(src(CLAIMS_MIG));
+    assert.ok(claims.includes("UNCONFIRMED"), "claim state must represent uncertainty");
+    assert.ok(claims.includes("no automatic resend"), "unconfirmed claims are never auto-reclaimed");
+  });
+
+  it("provides explicit recovery without calling the provider", () => {
+    const body = code(src(RECOVER_ROUTE));
+    const postAt = body.indexOf("export async function POST(");
+    const post = body.slice(postAt);
+    assert.ok(post.includes("requireInsideAdmin()"), "recovery is admin-only");
+    assert.ok(post.includes("verifySameOrigin"), "recovery is origin-protected");
+    assert.ok(post.includes("insideMutationRateLimit"), "recovery is rate-limited");
+    assert.ok(post.includes("admin_recover_feedback_reply"), "recovery uses the service-role RPC");
+    assert.ok(post.includes('outcome !== "sent" && outcome !== "not_sent"'), "outcome must be explicit");
+    assert.ok(post.includes('p_outcome: outcome'), "the admin choice is passed to the RPC");
+    assert.ok(post.includes("p_actor_id: gate.userId"), "actor comes only from the admin gate");
+    assert.ok(post.includes("result.changed === true"), "both outcomes are reported from the RPC");
+    assert.ok(post.includes("status: 404"), "a missing attempt is reported clearly");
+    assert.ok(!post.includes("p_reply_body"), "recovery cannot supply a reply body");
+    assert.ok(!post.includes("p_claim_token"), "recovery cannot supply a claim token");
+    assert.ok(!post.includes("sendFeedbackReplyEmail"), "recovery must never resend");
+    assert.ok(!/api\.brevo\.com|providerFailurePlan|admin_claim_feedback_reply/i.test(post), "recovery must never send or auto-retry");
+  });
+
+  it("exposes only the allowlisted attempt state to the admin UI", () => {
+    const body = code(src(RECOVER_ROUTE));
+    const getAt = body.indexOf("export async function GET(");
+    const postAt = body.indexOf("export async function POST(");
+    const get = body.slice(getAt, postAt);
+    assert.ok(get.includes('from("feedback_reply_attempts")'));
+    assert.ok(get.includes('.select("state")'), "only the state column is read");
+    assert.ok(get.includes("feedbackRecoveryView"), "the response is projected through the allowlist");
+    assert.ok(get.includes("status: 400"), "invalid feedback ids are rejected");
+    assert.ok(!/NextResponse\.json\(data\)/.test(get), "raw rows are never returned");
+    for (const field of [
+      "claim_token",
+      "reply_body",
+      "replied_by",
+      "provider_message_id",
+      "recipient_email",
+      "usn",
+      "username",
+      "nickname",
+    ]) {
+      assert.ok(!get.includes(field), `state API must not expose ${field}`);
+    }
+  });
+
+  it("covers persistPending recovery and role denials in SQL tests", () => {
+    const sql = src("supabase/tests/issue14_feedback_reply_claims.sql");
+    assert.ok(sql.includes("select plan(43)"));
+    assert.ok(sql.includes("persistPending attempt remains SENDING"));
+    assert.ok(sql.includes("sent recovery resolves a persistPending attempt"));
+    assert.ok(sql.includes("anon cannot execute recovery RPC"));
+    assert.ok(sql.includes("authenticated cannot execute recovery RPC"));
   });
 
   it("reply audit is best-effort (a delivered email is never failed for audit)", () => {
@@ -522,24 +623,62 @@ describe("feedback — audit, inbox UI, and scope", () => {
       body.includes('"open"') && body.includes('"resolved"') && body.includes('"all"'),
       "filter options required",
     );
-    const i = body.indexOf("function FeedbackPanel()");
-    assert.ok(i >= 0);
-    const block = body.slice(i, i + 12000);
+    const block = feedbackPanel(body);
+    assert.ok(block.length > 0);
     assert.ok(/status=open/.test(block), "default fetch must prioritize open");
     assert.ok(block.includes("aria-pressed"), "filter must expose its selected state");
   });
 
   it("inbox rows expose identity context; detail shows USN + email + message + actions", () => {
-    const body = code(src("src/app/inside/inside-client.tsx"));
-    const i = body.indexOf("function FeedbackPanel()");
-    const block = body.slice(i, i + 14000);
-    assert.ok(block.includes("f.email"), "row must show email");
-    assert.ok(block.includes("f.usn"), "detail must show USN");
-    assert.ok(block.includes("f.message"), "detail must show the message");
-    assert.ok(block.includes("reply by email"), "reply action required");
-    assert.ok(block.includes("resolve"), "resolve action required");
+    const body = feedbackPanel(code(src("src/app/inside/inside-client.tsx")));
+    assert.ok(body.includes("f.email"), "row must show email");
+    assert.ok(body.includes("f.usn"), "detail must show USN");
+    assert.ok(body.includes("f.message"), "detail must show the message");
+    assert.ok(body.includes("reply by email"), "reply action required");
+    assert.ok(body.includes("resolve"), "resolve action required");
     // Queue, not chat: no free-form thread UI.
-    assert.ok(!block.includes("thread"), "must not build thread UI");
+    assert.ok(!body.includes("thread"), "must not build thread UI");
+  });
+
+  it("offers explicit Brevo-verified recovery without automatic retry", () => {
+    const block = feedbackPanel(code(src("src/app/inside/inside-client.tsx")));
+    assert.ok(block.length > 0);
+    assert.ok(
+      block.includes("/api/inside/feedback/reply/recover?feedbackId=${encodeURIComponent(id)}"),
+      "the panel reads persisted attempt state",
+    );
+    assert.ok(block.includes("feedbackRecoveryView"), "UI uses the allowlisted state projection");
+    assert.ok(block.includes("Check the Brevo logs before choosing an outcome"));
+    assert.ok(block.includes('outcome: "sent"'));
+    assert.ok(block.includes('outcome: "not_sent"'));
+    assert.ok(block.includes("Recovery sends no email and never retries automatically."));
+    assert.ok(block.includes("No email is sent now."));
+    assert.ok((block.match(/if \(acting !== null\) return;/g) ?? []).length >= 3, "duplicate clicks are refused");
+    assert.ok(block.includes("disabled={loading || acting !== null}"));
+    const recoverAt = block.indexOf("async function recoverReply(");
+    const recover = block.slice(recoverAt, recoverAt + 2400);
+    assert.ok(recover.includes("/api/inside/feedback/reply/recover"));
+    assert.ok(!recover.includes('fetch("/api/inside/feedback/reply"'), "recovery never retries the send");
+    assert.ok(!recover.includes("sendFeedbackReplyEmail"));
+    assert.ok(!/api\.brevo\.com/i.test(block));
+  });
+
+  it("stale recovery reads cannot overwrite a newer attempt and block normal replies", () => {
+    const block = feedbackPanel(code(src("src/app/inside/inside-client.tsx")));
+    assert.ok(block.includes("const attemptRequestId = useRef(0);"));
+    assert.ok(block.includes("attemptRequestId.current += 1;"));
+    assert.ok(
+      (block.match(/invalidateAttemptRequest\(\);/g) ?? []).length >= 3,
+      "every state transition must invalidate older recovery reads",
+    );
+    assert.ok(block.includes("const requestId = ++attemptRequestId.current;"));
+    assert.ok(block.includes("requestId !== attemptRequestId.current"), "stale success must be ignored");
+    assert.ok(block.includes("requestId === attemptRequestId.current"), "stale failure must be ignored");
+    assert.ok(block.includes("const recoveryPending = recovery?.recoverable === true;"));
+    assert.ok(
+      (block.match(/disabled=\{recoveryPending \|\| acting !== null\}/g) ?? []).length >= 2,
+      "reply editor and send button must be disabled while recovery is pending",
+    );
   });
 
   it("no launch functionality is introduced", () => {

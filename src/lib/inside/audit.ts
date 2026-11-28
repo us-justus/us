@@ -70,6 +70,7 @@ export const INSIDE_AUDIT_ACTIONS = [
   "FEEDBACK_RESOLVED",
   "WAITLIST_EMAIL_QUEUE_PREPARED",
   "WAITLIST_EMAIL_SENT",
+  "WAITLIST_EMAIL_RECONCILED",
 ] as const;
 
 export type InsideAuditAction = (typeof INSIDE_AUDIT_ACTIONS)[number];
@@ -150,6 +151,33 @@ export async function recordInsideAuditEvent(
     targetId: opts?.targetId ?? null,
     metadata: opts?.metadata ?? null,
   });
+}
+
+/**
+ * ADMIN_LOGOUT after the signed session has been revoked. The caller must
+ * pass the actor returned by requireInsideAdmin() BEFORE revocation; this
+ * helper re-checks current admin membership without requiring the revoked
+ * live session to remain valid.
+ */
+export async function recordInsideLogout(userId: string): Promise<InsideAuditResult> {
+  let service: ReturnType<typeof createServiceRoleClient>;
+  try {
+    service = createServiceRoleClient();
+  } catch {
+    console.error("[inside] audit unavailable: service-role misconfigured");
+    return { ok: false, error: "audit unavailable" };
+  }
+  try {
+    const { data, error } = await service
+      .from("admin_users")
+      .select("user_id")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (error || !data) return { ok: false, error: "not authorized" };
+  } catch {
+    return { ok: false, error: "audit unavailable" };
+  }
+  return insertAuditEvent({ actorUserId: userId, action: "ADMIN_LOGOUT" });
 }
 
 /**

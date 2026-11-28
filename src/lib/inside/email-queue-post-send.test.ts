@@ -253,10 +253,8 @@ describe("post-send UI — partial failure and skipped rows", () => {
       section.includes('fetch("/api/inside/email-queue", { method: "POST" })'),
       "prepare still posts to the preparation endpoint",
     );
-    assert.ok(
-      section.includes("preparation.recipients.map((email)"),
-      "server snapshot still rendered",
-    );
+    assert.ok(section.includes("preparation.uniqueRecipientCount"), "bounded preparation count still rendered");
+    assert.ok(!section.includes("preparation.recipients.map((email)"), "recipient addresses stay server-side");
     assert.ok(section.includes("preview"), "preview preserved");
   });
 

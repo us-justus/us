@@ -14,6 +14,19 @@ const migration = await readFile(
 );
 
 describe("security remediation boundaries", () => {
+  it("keeps Issue 14 inside body and indexing safeguards wired", async () => {
+    for (const path of [
+      "src/app/api/inside/reports/resolve/route.ts",
+      "src/app/api/inside/students/moderate/route.ts",
+      "src/app/api/inside/feedback/resolve/route.ts",
+      "src/app/api/inside/feedback/reply/route.ts",
+      "src/app/api/inside/feedback/reply/recover/route.ts",
+      "src/app/api/inside/email-queue/send/route.ts",
+    ]) assert.match(await readFile(path, "utf8"), /readJsonBounded/);
+    assert.match(await readFile("src/app/api/inside/reports/route.ts", "utf8"), /REPORT_STATUSES/);
+    assert.match(await readFile("next.config.ts", "utf8"), /X-Robots-Tag/);
+    assert.match(await readFile("src/app/inside/robots.ts", "utf8"), /disallow: "\/inside"/);
+  });
   it("guards protected profile fields and removes direct match insertion", () => {
     assert.match(migration, /guard_profile_security_fields/);
     for (const field of [

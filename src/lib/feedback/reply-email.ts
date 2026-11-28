@@ -17,7 +17,8 @@ export type FeedbackReplyResult =
   | { kind: "success"; providerMessageId: string }
   | { kind: "config_error"; detail: string }
   | { kind: "permanent_failure"; detail: string }
-  | { kind: "temporary_failure"; detail: string };
+  /** ambiguous=true when the request may have reached Brevo (timeout/network). */
+  | { kind: "temporary_failure"; detail: string; ambiguous: boolean };
 
 export const FEEDBACK_BREVO_TIMEOUT_MS = 10_000;
 
@@ -76,10 +77,14 @@ export async function sendFeedbackReplyEmail(args: {
   } catch (e) {
     const name = e instanceof Error ? e.name : "";
     if (name === "AbortError" || name === "TimeoutError") {
-      return { kind: "temporary_failure", detail: "brevo request timed out" };
+      return {
+        kind: "temporary_failure",
+        detail: "brevo request timed out",
+        ambiguous: true,
+      };
     }
     const msg = e instanceof Error ? e.message.slice(0, 120) : "network error";
-    return { kind: "temporary_failure", detail: msg };
+    return { kind: "temporary_failure", detail: msg, ambiguous: true };
   } finally {
     clearTimeout(timeout);
   }
@@ -117,5 +122,5 @@ export async function sendFeedbackReplyEmail(args: {
   if (res.status >= 400 && res.status < 500) {
     return { kind: "permanent_failure", detail };
   }
-  return { kind: "temporary_failure", detail };
+  return { kind: "temporary_failure", detail, ambiguous: false };
 }

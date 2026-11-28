@@ -115,7 +115,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     needs: database
-
+    # CI validates the build without connecting to a real Supabase project.
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://ci.invalid
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout v7.0.1

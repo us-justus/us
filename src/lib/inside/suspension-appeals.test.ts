@@ -174,10 +174,11 @@ describe("suspension amendment — suspend requires a reason, restore clears", (
 
   it("report-queue suspends also require a reason", () => {
     const body = code(src(CLIENT));
-    const i = body.indexOf("function suspendReported(");
+    const i = body.indexOf("async function suspendReported(");
     assert.ok(i >= 0);
     const block = body.slice(i, i + 2000);
-    assert.ok(block.includes("window.prompt"), "queue suspend must ask for a reason");
+    assert.ok(block.includes("reason"), "queue suspend must send the reason");
+    assert.ok(body.includes("report-suspend-reason-"), "queue suspend must ask for a reason");
     assert.ok(!block.includes("report ${report.id}"), "report id is not a suspension reason");
   });
 

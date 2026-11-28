@@ -87,6 +87,11 @@ export async function requireInsideAdmin(): Promise<{ userId: string } | null> {
   if (!safeEqual(raw, expected)) return null;
 
   const supabase = await createClient();
+  const { data: revoked, error: revokedError } = await supabase.rpc(
+    "is_inside_session_revoked",
+    { p_token: raw },
+  );
+  if (revokedError || revoked === true) return null;
   const {
     data: { user },
   } = await supabase.auth.getUser();
