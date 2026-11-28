@@ -10,7 +10,10 @@ const allowedDevOrigins = (process.env.ALLOWED_DEV_ORIGINS ?? "")
   .map((origin) => origin.trim())
   .filter(Boolean);
 
-const supabaseOrigin = parseSupabaseOrigin(process.env.NEXT_PUBLIC_SUPABASE_URL);
+const supabaseOrigin = parseSupabaseOrigin(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NODE_ENV === "development",
+);
 const reportOnlyCsp = buildReportOnlyCsp(supabaseOrigin);
 
 const nextConfig: NextConfig = {
