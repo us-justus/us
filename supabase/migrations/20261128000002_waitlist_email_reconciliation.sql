@@ -41,7 +41,7 @@ begin
     raise exception 'not authorized' using errcode = '42501';
   end if;
   if p_queue_id is null or p_expected_updated_at is null
-     or p_outcome not in ('sent', 'not_sent') then
+     or p_outcome is null or p_outcome not in ('sent', 'not_sent') then
     raise exception 'invalid reconciliation request' using errcode = '22000';
   end if;
 
@@ -72,7 +72,7 @@ begin
     update public.waitlist_email_queue
        set status = 'FAILED',
            next_attempt_at = now(),
-           last_error = 'manual reconciliation: confirmed not sent'
+           last_error = 'temporary: manually confirmed not sent'
      where id = p_queue_id;
   end if;
 
