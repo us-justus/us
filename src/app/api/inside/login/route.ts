@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { normalizeUSN, validateUSN } from "@/lib/verification/usn";
 import {
@@ -156,7 +156,13 @@ export async function POST(req: Request) {
   // the session client (cookies); the is_admin() authorization is unchanged.
   // ADMIN_SECRET_KEY is used only server-side to sign the session cookie on
   // success — it is never read from the request.
-  const supabase = await createClient();
+  // Isolated, non-persistent auth client: rejected credentials must never
+  // overwrite the browser session cookies.
+  const supabase = createSupabaseClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } },
+  );
   let email: string | null = null;
 
   if (idRaw.includes("@")) {
