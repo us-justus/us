@@ -4,6 +4,7 @@ import { requireInsideAdmin } from "@/lib/inside/auth";
 import { verifySameOrigin } from "@/lib/inside/origin";
 import { insideMutationRateLimit } from "@/lib/inside/mutation-rate-limit";
 import { readJsonBounded } from "@/lib/http/read-json-bounded";
+import { isStaleSending } from "@/lib/inside/email-queue-send-runner";
 
 const GENERIC = "Not available.";
 
@@ -29,7 +30,21 @@ export async function GET() {
     return NextResponse.json({ error: "Could not load uncertain email sends." }, { status: 500 });
   }
 
-  const rows = Array.isArray(data) ? data : [];
+  const rows = Array.isArray(data) ? data.filter((value) => {
+    if (!value || typeof value !== "object") return false;
+    const row = value as Record<string, unknown>;
+    return row.status === "SENDING" && typeof row.updated_at === "string" &&
+      isStaleSending({
+        id: typeof row.id === "string" ? row.id : "",
+        user_id: null,
+        email: "",
+        status: "SENDING",
+        attempts: typeof row.attempts === "number" ? row.attempts : 0,
+        next_attempt_at: null,
+        updated_at: row.updated_at,
+        last_error: typeof row.last_error === "string" ? row.last_error : null,
+      }, Date.now());
+  }) : [];
   return NextResponse.json({
     rows: rows.flatMap((value) => {
       if (!value || typeof value !== "object") return [];
