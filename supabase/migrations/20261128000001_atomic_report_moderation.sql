@@ -118,3 +118,79 @@ revoke all on function public.admin_resolve_report_with_moderation(uuid, uuid, t
   from public, anon, authenticated;
 grant execute on function public.admin_resolve_report_with_moderation(uuid, uuid, text, text, text)
   to service_role;
+
+-- Standalone student moderation and its audit event are also atomic.
+create or replace function public.admin_set_student_active_audited(
+  p_actor_id uuid,
+  p_target_user_id uuid,
+  p_active boolean,
+  p_reason text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog, public, auth, extensions, pg_temp
+as $$
+declare
+  v_previous_active boolean;
+  v_reason text := nullif(btrim(coalesce(p_reason, '')), '');
+begin
+  if p_actor_id is null or not exists (
+    select 1 from public.admin_users where user_id = p_actor_id
+  ) then
+    raise exception 'not authorized' using errcode = '42501';
+  end if;
+  if p_target_user_id is null or p_active is null then
+    raise exception 'target and active state are required' using errcode = '22000';
+  end if;
+  if not p_active and (v_reason is null or char_length(v_reason) > 280) then
+    raise exception 'suspension reason is required and must be at most 280 characters' using errcode = '22000';
+  end if;
+
+  select p.is_active into v_previous_active
+    from public.profiles p
+   where p.user_id = p_target_user_id
+   for update;
+  if not found then
+    raise exception 'student not found' using errcode = '02000';
+  end if;
+  if v_previous_active is not distinct from p_active then
+    return jsonb_build_object(
+      'user_id', p_target_user_id, 'previous_active', v_previous_active,
+      'new_active', v_previous_active, 'changed', false
+    );
+  end if;
+
+  if p_active then
+    update public.profiles
+       set is_active = true, suspension_reason = null,
+           suspended_at = null, suspended_by = null, updated_at = now()
+     where user_id = p_target_user_id;
+  else
+    update public.profiles
+       set is_active = false, suspension_reason = v_reason,
+           suspended_at = now(), suspended_by = p_actor_id, updated_at = now()
+     where user_id = p_target_user_id;
+  end if;
+
+  insert into public.inside_audit_events
+    (actor_user_id, action, target_type, target_id, metadata)
+  values
+    (p_actor_id,
+     case when p_active then 'STUDENT_RESTORED' else 'STUDENT_SUSPENDED' end,
+     'student', p_target_user_id::text,
+     jsonb_build_object('previous_active', v_previous_active,
+                        'new_active', p_active,
+                        'reason', case when p_active then null else v_reason end));
+
+  return jsonb_build_object(
+    'user_id', p_target_user_id, 'previous_active', v_previous_active,
+    'new_active', p_active, 'changed', true
+  );
+end;
+$$;
+
+revoke all on function public.admin_set_student_active_audited(uuid, uuid, boolean, text)
+  from public, anon, authenticated;
+grant execute on function public.admin_set_student_active_audited(uuid, uuid, boolean, text)
+  to service_role;
