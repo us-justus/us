@@ -268,7 +268,7 @@ describe("uncertain waitlist email reconciliation", () => {
     assert.ok(api.includes("requireInsideAdmin()"));
     assert.ok(api.includes("verifySameOrigin(req)"));
     assert.ok(api.includes("insideMutationRateLimit"));
-    assert.ok(api.includes("isStaleSending"));
+    assert.ok(api.includes("STALE_SENDING_MS"));
     assert.ok(api.includes("p_expected_updated_at"));
     assert.ok(!api.includes("row.email"));
     assert.ok(!api.includes("row.user_id"));
