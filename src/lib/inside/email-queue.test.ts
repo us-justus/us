@@ -250,3 +250,40 @@ describe("waitlist email queue audit and no-send boundary", () => {
     assert.ok(src("src/lib/email-verification/brevo.ts").includes("sendVerificationEmail"));
   });
 });
+
+describe("uncertain waitlist email reconciliation", () => {
+  it("uses a version-checked server-only reconciliation RPC", () => {
+    const migration = code(src("supabase/migrations/20261128000002_waitlist_email_reconciliation.sql"));
+    assert.ok(migration.includes("admin_reconcile_waitlist_email_queue"));
+    assert.ok(migration.includes("for update"));
+    assert.ok(migration.includes("v_updated_at is distinct from p_expected_updated_at"));
+    assert.ok(migration.includes("'WAITLIST_EMAIL_RECONCILED'"));
+    assert.ok(migration.includes("to service_role"));
+    assert.ok(migration.includes("temporary: manually confirmed not sent"));
+    assert.ok(!/sendWaitlistEmail|api\.brevo\.com/i.test(migration));
+  });
+
+  it("API returns only stale queue metadata and validates the optimistic version", () => {
+    const api = code(src("src/app/api/inside/email-queue/reconcile/route.ts"));
+    assert.ok(api.includes("requireInsideAdmin()"));
+    assert.ok(api.includes("verifySameOrigin(req)"));
+    assert.ok(api.includes("insideMutationRateLimit"));
+    assert.ok(api.includes("isStaleSending"));
+    assert.ok(api.includes("p_expected_updated_at"));
+    assert.ok(!api.includes("row.email"));
+    assert.ok(!api.includes("row.user_id"));
+  });
+
+  it("admin UI requires explicit sent/not-sent confirmation", () => {
+    const client = code(src(CLIENT));
+    const panel = client.slice(
+      client.indexOf("function EmailQueueReconciliationPanel()"),
+      client.indexOf("/* ---------------- waitlist email queue (preparation only) ---------------- */"),
+    );
+    assert.ok(panel.includes("/api/inside/email-queue/reconcile"));
+    assert.ok(panel.includes("confirm sent"));
+    assert.ok(panel.includes("confirm not sent"));
+    assert.ok(panel.includes("updatedAt: row.updatedAt"));
+    assert.ok(panel.includes("This never sends an email."));
+  });
+});
