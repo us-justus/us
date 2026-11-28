@@ -4,7 +4,7 @@ import { requireInsideAdmin } from "@/lib/inside/auth";
 import { verifySameOrigin } from "@/lib/inside/origin";
 import { insideMutationRateLimit } from "@/lib/inside/mutation-rate-limit";
 import { readJsonBounded } from "@/lib/http/read-json-bounded";
-import { isStaleSending } from "@/lib/inside/email-queue-send-runner";
+import { STALE_SENDING_MS } from "@/lib/inside/email-queue-send-runner";
 
 const GENERIC = "Not available.";
 
@@ -33,17 +33,10 @@ export async function GET() {
   const rows = Array.isArray(data) ? data.filter((value) => {
     if (!value || typeof value !== "object") return false;
     const row = value as Record<string, unknown>;
-    return row.status === "SENDING" && typeof row.updated_at === "string" &&
-      isStaleSending({
-        id: typeof row.id === "string" ? row.id : "",
-        user_id: null,
-        email: "",
-        status: "SENDING",
-        attempts: typeof row.attempts === "number" ? row.attempts : 0,
-        next_attempt_at: null,
-        updated_at: row.updated_at,
-        last_error: typeof row.last_error === "string" ? row.last_error : null,
-      }, Date.now());
+    const updated = typeof row.updated_at === "string" ? Date.parse(row.updated_at) : NaN;
+    // Human review includes unconfirmed: rows, which automatic reclaim excludes.
+    return row.status === "SENDING" && Number.isFinite(updated) &&
+      Date.now() - updated >= STALE_SENDING_MS;
   }) : [];
   return NextResponse.json({
     rows: rows.flatMap((value) => {
